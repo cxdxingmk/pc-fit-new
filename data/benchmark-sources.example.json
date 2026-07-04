@@ -1,0 +1,24 @@
+{
+  "sources": [
+    {
+      "id": "cpu",
+      "url": "https://openbenchmarking.org/api/v1/result?query[]=component_name:cpu&run_type=bin&format=json",
+      "type": "json"
+    },
+    {
+      "id": "gpu",
+      "url": "https://openbenchmarking.org/api/v1/result?query[]=component_name:gpu&run_type=bin&format=json",
+      "type": "json"
+    },
+    {
+      "id": "ssd",
+      "url": "https://openbenchmarking.org/api/v1/result?query[]=component_name:ssd&run_type=bin&format=json",
+      "type": "json"
+    },
+    {
+      "id": "ram",
+      "url": "https://openbenchmarking.org/api/v1/result?query[]=component_name:memory&run_type=bin&format=json",
+      "type": "json"
+    }
+  ]
+}
