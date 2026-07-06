@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 export type ComponentCategory = "CPU" | "GPU" | "MB" | "RAM" | "SSD" | "MONITOR";
 export type CpuSocket = "LGA1851" | "LGA1700" | "AM5" | "AM4" | string;
 export type MotherboardChipsetAlpha = "Z" | "X" | "B" | "A";

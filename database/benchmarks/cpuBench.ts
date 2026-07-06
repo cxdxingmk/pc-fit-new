@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 export const cpuBench: Record<string, any> = {
   "i5-14600kf": {
     "game": 91,

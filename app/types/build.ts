@@ -17,6 +17,7 @@ export type CpuPartState = {
 export type GpuPartState = {
   enabled: boolean;
   brand: GpuBrand | "";
+  manufacturer: string;
   model: string;
 };
 
@@ -24,11 +25,15 @@ export type RamPartState = {
   enabled: boolean;
   ddr: RamDdr | "";
   capacity: RamCapacityOption | "";
+  brand: string;
+  model: string;
 };
 
 export type SsdPartState = {
   enabled: boolean;
   capacity: SsdCapacityOption | "";
+  brand: string;
+  model: string;
 };
 
 export type HddPartState = {
@@ -39,6 +44,7 @@ export type HddPartState = {
 export type MotherboardPartState = {
   enabled: boolean;
   series: string;
+  manufacturer: string;
   model: string;
 };
 

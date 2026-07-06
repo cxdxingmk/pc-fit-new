@@ -22,13 +22,21 @@ import type { RecommendationResult } from "../types/recommend";
 
 type Answers = Record<number, string[]>;
 
-type Purpose = "gaming" | "work" | "video" | "stream" | "ai" | "dev" | "etc";
+type Purpose = "gaming" | "work" | "video" | "stream" | "ai" | "dev" | "cad" | "etc";
 
 const priceTierToPrice: Record<"budget" | "mid" | "high" | "enthusiast", number> = {
   budget: 250000,
   mid: 500000,
   high: 850000,
   enthusiast: 1200000,
+};
+
+const BUDGET_TARGETS: Record<string, number> = {
+  "100만원 이하": 1000000,
+  "100~150만원": 1250000,
+  "150~200만원": 1750000,
+  "200~300만원": 2500000,
+  "300만원 이상": 3500000,
 };
 
 const WEIGHTS: Record<Purpose, { cpu: number; gpu: number; ram: number; ssd: number; motherboard: number; psu: number }> = {
@@ -38,15 +46,8 @@ const WEIGHTS: Record<Purpose, { cpu: number; gpu: number; ram: number; ssd: num
   stream: { cpu: 0.3, gpu: 0.33, ram: 0.22, ssd: 0.14, motherboard: 0.01, psu: 0.0 },
   ai: { cpu: 0.2, gpu: 0.5, ram: 0.2, ssd: 0.08, motherboard: 0.02, psu: 0.0 },
   dev: { cpu: 0.37, gpu: 0.12, ram: 0.22, ssd: 0.17, motherboard: 0.05, psu: 0.01 },
+  cad: { cpu: 0.25, gpu: 0.4, ram: 0.22, ssd: 0.1, motherboard: 0.02, psu: 0.01 },
   etc: { cpu: 0.27, gpu: 0.27, ram: 0.22, ssd: 0.16, motherboard: 0.05, psu: 0.01 },
-};
-
-const BUDGET_TARGETS: Record<string, number> = {
-  "100만원 이하": 1000000,
-  "100~150만원": 1250000,
-  "150~200만원": 1750000,
-  "200~300만원": 2500000,
-  "300만원 이상": 3500000,
 };
 
 const CASE_PRICE = 120000;
@@ -58,6 +59,7 @@ function pickPurpose(answers: Answers): Purpose {
   if (keys.some((k) => k.includes("ai"))) return "ai";
   if (keys.some((k) => k.includes("방송") || k.includes("stream"))) return "stream";
   if (keys.some((k) => k.includes("영상") || k.includes("video"))) return "video";
+  if (keys.some((k) => k.includes("cad") || k.includes("3d") || k.includes("건축") || k.includes("blender") || k.includes("maya") || k.includes("autocad"))) return "cad";
   if (keys.some((k) => k.includes("개발") || k.includes("dev"))) return "dev";
   if (keys.some((k) => k.includes("게임") || k.includes("game"))) return "gaming";
   if (keys.some((k) => k.includes("사무") || k.includes("office") || k.includes("work"))) return "work";
@@ -163,14 +165,16 @@ function buildCandidate(
   const psuScore = ratePsu(psu, cpu, gpu);
 
   const recency = recencyBoost(cpu, gpu, mb, psu);
+  const weight = WEIGHTS[purpose];
   const baseScore =
-    cpuScore * 0.24 +
-    gpuScore * 0.35 +
-    ramScore * 0.15 +
-    ssdScore * 0.08 +
-    motherboardScore * 0.05 +
-    psuScore * 0.01 +
-    recency * 0.12;
+    cpuScore * weight.cpu +
+    gpuScore * weight.gpu +
+    ramScore * weight.ram +
+    ssdScore * weight.ssd +
+    motherboardScore * weight.motherboard +
+    psuScore * weight.psu;
+
+  const normalizedBaseScore = baseScore * 0.88 + recency * 0.12;
 
   const cpuPrice = priceTierToPrice[cpu.priceTier] ?? 0;
   const gpuPrice = priceTierToPrice[gpu.priceTier] ?? 0;
@@ -188,7 +192,7 @@ function buildCandidate(
     budgetScore = Math.max(0, 100 - diff / 30000);
   }
 
-  const finalScore = Math.round(Math.min(100, baseScore * 0.9 + budgetScore * 0.1) * 100) / 100;
+  const finalScore = Math.round(Math.min(100, normalizedBaseScore * 0.9 + budgetScore * 0.1) * 100) / 100;
 
   return {
     id: candidateId(cpu, gpu, ram, ssd, mb, psu),
@@ -226,11 +230,11 @@ export function recommend(
   answers: Answers,
   existingParts: ExistingPartsState = {
     CPU: { enabled: false, brand: "", model: "" },
-    GPU: { enabled: false, brand: "", model: "" },
-    RAM: { enabled: false, ddr: "", capacity: "" },
-    SSD: { enabled: false, capacity: "" },
+    GPU: { enabled: false, brand: "", manufacturer: "", model: "" },
+    RAM: { enabled: false, ddr: "", capacity: "", brand: "", model: "" },
+    SSD: { enabled: false, capacity: "", brand: "", model: "" },
     HDD: { enabled: false, capacity: "" },
-    Motherboard: { enabled: false, series: "", model: "" },
+    Motherboard: { enabled: false, series: "", manufacturer: "", model: "" },
     Power: { enabled: false, wattage: "" },
   },
   caseOwnership: CaseOwnershipOption = "owned"
@@ -292,11 +296,11 @@ export async function recommendAsync(
   answers: Answers,
   existingParts: ExistingPartsState = {
     CPU: { enabled: false, brand: "", model: "" },
-    GPU: { enabled: false, brand: "", model: "" },
-    RAM: { enabled: false, ddr: "", capacity: "" },
-    SSD: { enabled: false, capacity: "" },
+    GPU: { enabled: false, brand: "", manufacturer: "", model: "" },
+    RAM: { enabled: false, ddr: "", capacity: "", brand: "", model: "" },
+    SSD: { enabled: false, capacity: "", brand: "", model: "" },
     HDD: { enabled: false, capacity: "" },
-    Motherboard: { enabled: false, series: "", model: "" },
+    Motherboard: { enabled: false, series: "", manufacturer: "", model: "" },
     Power: { enabled: false, wattage: "" },
   },
   caseOwnership: CaseOwnershipOption = "owned"

@@ -5,7 +5,6 @@ import {
   type FpsResult,
   type GpuComponent,
   type MotherboardComponent,
-  type MotherboardChipsetAlpha,
   type UpgradeProposal,
   type UserPreset,
 } from "../types/hardware";

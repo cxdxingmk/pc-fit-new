@@ -40,6 +40,15 @@ export default function Home() {
             AI 기반 맞춤형 PC 추천 서비스
           </p>
 
+          <div className="mb-8">
+            <Link
+              href="/analyze"
+              className="inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-cyan-400 via-cyan-300 to-sky-300 px-8 py-4 text-base font-extrabold text-slate-950 shadow-lg shadow-cyan-500/30 transition duration-200 hover:scale-105 hover:from-cyan-300 hover:to-sky-200"
+            >
+              로그인 없이 1분 만에 사양 & 성능 보기
+            </Link>
+          </div>
+
           <div className="flex flex-wrap justify-center gap-4">
             <Link
               href="/build"

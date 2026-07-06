@@ -1,4 +1,5 @@
 ﻿"use client";
+/* eslint-disable react-hooks/set-state-in-effect */
 
 import { createContext, useContext, useEffect, useState } from "react";
 import type { SavedEstimate } from "../types/recommend";
@@ -11,6 +12,7 @@ export type PurposeType =
   | "stream"
   | "ai"
   | "dev"
+  | "cad"
   | "etc";
 export type BudgetOption =
   | "100만원 이하"
@@ -48,6 +50,8 @@ export type BudgetState = {
 export type BuildData = {
   purposes: PurposeType[];
   purposeText: string;
+  videoSoftware: string[];
+  videoSoftwareCustomText: string;
   ownedParts: OwnedPartsState;
   existingParts: ExistingPartsState;
   caseOwnership: CaseOwnershipOption;
@@ -61,6 +65,8 @@ type BuildContextType = {
   setBuildData: React.Dispatch<React.SetStateAction<BuildData>>;
   togglePurpose: (purpose: PurposeType) => void;
   setPurposeText: (text: string) => void;
+  toggleVideoSoftware: (software: string) => void;
+  setVideoSoftwareCustomText: (text: string) => void;
   setBudgetPreset: (preset: BudgetOption) => void;
   setBudgetCustom: (customRaw: string, customValue: number | null) => void;
   toggleOwnedPart: (part: OwnedPartType) => void;
@@ -90,17 +96,19 @@ const initialOwnedParts: OwnedPartsState = {
 
 const initialExistingParts: ExistingPartsState = {
   CPU: { enabled: false, brand: "", model: "" },
-  GPU: { enabled: false, brand: "", model: "" },
-  RAM: { enabled: false, ddr: "", capacity: "" },
-  SSD: { enabled: false, capacity: "" },
+  GPU: { enabled: false, brand: "", manufacturer: "", model: "" },
+  RAM: { enabled: false, ddr: "", capacity: "", brand: "", model: "" },
+  SSD: { enabled: false, capacity: "", brand: "", model: "" },
   HDD: { enabled: false, capacity: "" },
-  Motherboard: { enabled: false, series: "", model: "" },
+  Motherboard: { enabled: false, series: "", manufacturer: "", model: "" },
   Power: { enabled: false, wattage: "" },
 };
 
 const initialBuildData: BuildData = {
   purposes: [],
   purposeText: "",
+  videoSoftware: [],
+  videoSoftwareCustomText: "",
   ownedParts: initialOwnedParts,
   existingParts: initialExistingParts,
   caseOwnership: "owned",
@@ -133,6 +141,8 @@ function purposeLabel(value: PurposeType, text: string) {
       return "AI";
     case "dev":
       return "개발";
+    case "cad":
+      return "건축/3D/CAD";
     case "etc":
       return text ? `기타: ${text}` : "기타";
     default:
@@ -231,6 +241,34 @@ export function BuildProvider({
     }));
   };
 
+  const toggleVideoSoftware = (software: string) => {
+    setBuildData((prev) => {
+      const next = prev.videoSoftware.includes(software)
+        ? prev.videoSoftware.filter((item) => item !== software)
+        : [...prev.videoSoftware, software];
+
+      return {
+        ...prev,
+        videoSoftware: next,
+        answers: {
+          ...prev.answers,
+          5: [...next, prev.videoSoftwareCustomText].filter(Boolean),
+        },
+      };
+    });
+  };
+
+  const setVideoSoftwareCustomText = (text: string) => {
+    setBuildData((prev) => ({
+      ...prev,
+      videoSoftwareCustomText: text,
+      answers: {
+        ...prev.answers,
+        5: [...prev.videoSoftware, text].filter(Boolean),
+      },
+    }));
+  };
+
   const toggleOwnedPart = (part: OwnedPartType) => {
     setBuildData((prev) => {
       const current = prev.ownedParts[part];
@@ -320,6 +358,8 @@ export function BuildProvider({
         setBuildData,
         togglePurpose,
         setPurposeText,
+        toggleVideoSoftware,
+        setVideoSoftwareCustomText,
         setBudgetPreset,
         setBudgetCustom,
         toggleOwnedPart,

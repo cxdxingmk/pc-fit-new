@@ -1,6 +1,7 @@
 import type { UserProfile } from "../types/user";
 
 export const USER_PROFILE_STORAGE_KEY = "user_profile";
+export const USER_PROFILE_UPDATED_EVENT = "pc-fit:user-profile-updated";
 
 interface AuthLikeUser {
   name: string;
@@ -10,8 +11,10 @@ interface AuthLikeUser {
 export function buildDefaultUserProfile(user: AuthLikeUser | null): UserProfile {
   return {
     name: user?.name ?? "",
+    nickname: "",
     phone: "",
     email: user?.email ?? "",
+    profileImageDataUrl: "",
     isMarketingAgreed: false,
   };
 }
@@ -29,6 +32,10 @@ export function validateUserProfile(profile: UserProfile): string[] {
 
   if (!profile.name.trim()) {
     errors.push("이름을 입력해 주세요.");
+  }
+
+  if (!profile.nickname.trim()) {
+    errors.push("닉네임을 입력해 주세요.");
   }
 
   if (!profile.phone.trim()) {
@@ -54,14 +61,20 @@ export function getStoredUserProfile(): UserProfile | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<UserProfile>;
 
-    if (typeof parsed.name !== "string" || typeof parsed.phone !== "string" || typeof parsed.email !== "string") {
+    if (
+      typeof parsed.name !== "string" ||
+      typeof parsed.phone !== "string" ||
+      typeof parsed.email !== "string"
+    ) {
       return null;
     }
 
     return {
       name: parsed.name,
+      nickname: typeof parsed.nickname === "string" ? parsed.nickname : "",
       phone: parsed.phone,
       email: parsed.email,
+      profileImageDataUrl: typeof parsed.profileImageDataUrl === "string" ? parsed.profileImageDataUrl : "",
       isMarketingAgreed: Boolean(parsed.isMarketingAgreed),
     };
   } catch {
@@ -72,4 +85,5 @@ export function getStoredUserProfile(): UserProfile | null {
 export function saveUserProfile(profile: UserProfile): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(USER_PROFILE_STORAGE_KEY, JSON.stringify(profile));
+  window.dispatchEvent(new CustomEvent(USER_PROFILE_UPDATED_EVENT, { detail: profile }));
 }

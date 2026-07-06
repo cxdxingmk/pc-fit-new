@@ -47,7 +47,7 @@ export default function MyPageAnalysisPage() {
   const [selectedTab, setSelectedTab] = useState<AnalysisTab>("game");
   const [selectedGame, setSelectedGame] = useState<(typeof gameList)[number]>("배틀그라운드");
 
-  const savedPc = useMemo(() => getSavedPc(), [analysisReady]);
+  const savedPc = useMemo(() => getSavedPc(), []);
 
   const cpuName = useMemo(() => cpus.find((item) => item.id === savedPc?.cpuId)?.name ?? "미확인 CPU", [savedPc?.cpuId]);
   const gpuName = useMemo(() => gpus.find((item) => item.id === savedPc?.gpuId)?.name ?? "미확인 GPU", [savedPc?.gpuId]);

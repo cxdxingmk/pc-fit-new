@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import PurposeStep from "./components/PurposeStep";
-import ExistingPartsStep from "./components/ExistingPartsStep";
+import ExistingPartsStep from "@/app/build/components/ExistingPartsStep";
 import BudgetStep from "./components/BudgetStep";
 import { useBuild } from "../context/BuildContext";
 
@@ -13,6 +13,8 @@ export default function BuildPage() {
     buildData,
     togglePurpose,
     setPurposeText,
+    toggleVideoSoftware,
+    setVideoSoftwareCustomText,
     setBudgetPreset,
     setBudgetCustom,
     updateExistingPart,
@@ -38,15 +40,15 @@ export default function BuildPage() {
   };
 
   return (
-    <main className="min-h-screen bg-slate-100 px-6 py-12">
+    <main className="min-h-screen bg-slate-950 px-6 py-12 text-slate-100">
       <div className="mx-auto max-w-6xl space-y-6">
-        <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
+        <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-8 shadow-2xl shadow-black/40">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-sm font-semibold text-slate-500">PC 추천 빌드</p>
-              <h1 className="mt-2 text-3xl font-bold text-slate-900">내게 딱 맞는 컴퓨터를 구성해보세요</h1>
+              <p className="text-sm font-semibold text-slate-400">PC 추천 빌드</p>
+              <h1 className="mt-2 text-3xl font-bold text-slate-100">내게 딱 맞는 컴퓨터를 구성해보세요</h1>
             </div>
-            <div className="rounded-3xl bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700">
+            <div className="rounded-3xl border border-white/10 bg-slate-800/60 px-4 py-3 text-sm font-medium text-slate-300">
               단계 {current + 1} / {steps.length}
             </div>
           </div>
@@ -57,8 +59,12 @@ export default function BuildPage() {
             <PurposeStep
               selectedPurposes={buildData.purposes}
               purposeText={buildData.purposeText}
+              videoSoftware={buildData.videoSoftware}
+              videoSoftwareCustomText={buildData.videoSoftwareCustomText}
               onTogglePurpose={togglePurpose}
               onPurposeTextChange={setPurposeText}
+              onToggleVideoSoftware={toggleVideoSoftware}
+              onVideoSoftwareCustomTextChange={setVideoSoftwareCustomText}
             />
           )}
 
@@ -87,14 +93,14 @@ export default function BuildPage() {
             type="button"
             onClick={back}
             disabled={current === 0}
-            className="inline-flex h-14 min-w-[140px] items-center justify-center rounded-3xl border border-slate-300 bg-white px-6 text-sm font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-40"
+            className="inline-flex h-14 min-w-[140px] items-center justify-center rounded-3xl border border-white/15 bg-slate-900 px-6 text-sm font-semibold text-slate-200 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
           >
             이전 단계
           </button>
           <button
             type="button"
             onClick={next}
-            className="inline-flex h-14 min-w-[140px] items-center justify-center rounded-3xl bg-blue-600 px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
+            className="inline-flex h-14 min-w-[140px] items-center justify-center rounded-3xl bg-cyan-500 px-6 text-sm font-semibold text-slate-950 shadow-sm transition hover:bg-cyan-400"
           >
             {current === steps.length - 1 ? "결과 보기" : "다음 단계"}
           </button>

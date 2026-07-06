@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 export const gpuBench: Record<string, any> = {
   "rtx4070super": {
     "game": 90,

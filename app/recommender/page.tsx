@@ -3,15 +3,18 @@
 import { useMemo, useState } from "react";
 import { hardwareCatalog, predictGameFps, calculateBottleneck } from "../lib/analyzer";
 import { type MotherboardChipsetAlpha } from "../types/hardware";
+import {
+  benchmarkCategories,
+  type BenchmarkCategoryId,
+  videoEditingSoftwareOptions,
+} from "../constants/benchmarkCategories";
 
-const purposes = [
-  { id: "gaming", label: "게임" },
-  { id: "content", label: "영상/편집" },
-  { id: "ai", label: "AI/개발" },
-] as const;
+const directInputValue = "직접 입력";
 
 export default function RecommenderPage() {
-  const [selectedPurposes, setSelectedPurposes] = useState<string[]>(["gaming"]);
+  const [selectedPurposes, setSelectedPurposes] = useState<BenchmarkCategoryId[]>(["game"]);
+  const [selectedSoftware, setSelectedSoftware] = useState("");
+  const [customSoftwareInput, setCustomSoftwareInput] = useState("");
   const [budget, setBudget] = useState(1400);
   const [existingParts, setExistingParts] = useState<Record<string, boolean>>({ cpu: false, gpu: false, ram: false, ssd: false, motherboard: false });
   const [selectedAlpha, setSelectedAlpha] = useState<MotherboardChipsetAlpha>("Z");
@@ -39,8 +42,19 @@ export default function RecommenderPage() {
     }));
   }, []);
 
-  const handlePurposeToggle = (purpose: string) => {
-    setSelectedPurposes((current) => (current.includes(purpose) ? current.filter((item) => item !== purpose) : [...current, purpose]));
+  const handlePurposeToggle = (purpose: BenchmarkCategoryId) => {
+    setSelectedPurposes((current) => {
+      const next = current.includes(purpose)
+        ? current.filter((item) => item !== purpose)
+        : [...current, purpose];
+
+      if (!next.includes("video-editing")) {
+        setSelectedSoftware("");
+        setCustomSoftwareInput("");
+      }
+
+      return next;
+    });
   };
 
   const handleExistingPartToggle = (key: string) => {
@@ -61,7 +75,7 @@ export default function RecommenderPage() {
       motherboard: motherboard.name,
       estimatedPrice: Math.min(estimatedPrice, adjustedBudget),
       bottleneck: calculateBottleneck(cpu.id, gpu.id),
-      fps: predictGameFps(cpu.id, gpu.id, selectedPurposes.includes("gaming") ? "Cyberpunk 2077" : "Apex Legends", "QHD"),
+      fps: predictGameFps(cpu.id, gpu.id, selectedPurposes.includes("game") ? "Cyberpunk 2077" : "Apex Legends", "QHD"),
     };
 
     setResult(recommendation);
@@ -82,7 +96,7 @@ export default function RecommenderPage() {
           <section className="rounded-3xl border border-white/10 bg-slate-900/70 p-6">
             <h2 className="text-xl font-semibold">1. 사용 용도</h2>
             <div className="mt-4 flex flex-wrap gap-3">
-              {purposes.map((purpose) => (
+              {benchmarkCategories.map((purpose) => (
                 <button
                   key={purpose.id}
                   type="button"
@@ -93,6 +107,51 @@ export default function RecommenderPage() {
                 </button>
               ))}
             </div>
+
+            {selectedPurposes.includes("video-editing") && (
+              <div className="mt-6 rounded-2xl border border-cyan-400/30 bg-cyan-500/10 p-4">
+                <p className="text-sm font-semibold text-cyan-200">영상/편집 소프트웨어</p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {videoEditingSoftwareOptions.map((software) => {
+                    const isActive = selectedSoftware === software;
+                    return (
+                      <label
+                        key={software}
+                        className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm transition ${
+                          isActive
+                            ? "border-cyan-400 bg-cyan-500/20 text-cyan-100"
+                            : "border-white/10 bg-slate-900/60 text-slate-200"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="video-software"
+                          value={software}
+                          checked={isActive}
+                          onChange={() => setSelectedSoftware(software)}
+                          className="h-4 w-4"
+                        />
+                        {software}
+                      </label>
+                    );
+                  })}
+                </div>
+
+                {selectedSoftware === directInputValue && (
+                  <input
+                    type="text"
+                    value={customSoftwareInput}
+                    onChange={(event) => setCustomSoftwareInput(event.target.value)}
+                    placeholder="사용 중인 편집 소프트웨어를 입력하세요"
+                    className="mt-3 w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-400 focus:border-cyan-400 focus:outline-none"
+                  />
+                )}
+
+                <p className="mt-3 text-xs text-slate-300">
+                  선택된 소프트웨어: {selectedSoftware === directInputValue ? customSoftwareInput || "직접 입력 대기 중" : selectedSoftware || "미선택"}
+                </p>
+              </div>
+            )}
 
             <div className="mt-6">
               <label className="mb-2 block text-sm text-slate-300">예산</label>

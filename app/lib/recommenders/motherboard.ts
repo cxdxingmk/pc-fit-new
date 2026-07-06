@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 import { motherboards } from "../../database/motherboard";
 
 export function recommendMotherboard(cpu: any) {

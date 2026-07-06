@@ -1,21 +1,22 @@
 "use client";
+/* eslint-disable react-hooks/set-state-in-effect */
 
-import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { UserProfile } from "../types/user";
-import { getStoredUserProfile, validateUserProfile } from "../lib/userProfileStorage";
+import { getStoredUserProfile } from "../lib/userProfileStorage";
 
-type InquiryType = "bug" | "feature" | "general";
+type InquiryType = "bug" | "feature" | "general" | "account";
+type InquiryStatus = "received" | "waiting" | "done" | "queued";
 
 interface SupportSubmission {
   id: string;
+  title: string;
   type: InquiryType;
   content: string;
   createdAt: string;
-  status: "queued";
+  status: InquiryStatus;
   source: "support-form";
-  submitterProfile: UserProfile;
+  submitterProfile?: UserProfile;
   aiPipeline: {
     classification: "pending" | "completed";
     sentiment: "pending" | "positive" | "neutral" | "negative";
@@ -25,6 +26,7 @@ interface SupportSubmission {
 }
 
 interface FormState {
+  title: string;
   type: InquiryType;
   content: string;
 }
@@ -38,41 +40,77 @@ interface FormErrors {
 const STORAGE_KEY = "support_feedback_queue";
 
 const INQUIRY_LABELS: Record<InquiryType, string> = {
-  bug: "🐛 프로그램 오류/스캔 실패",
-  feature: "✨ 이런 기능이 생겼으면 좋겠어요",
-  general: "❓ 일반 문의 및 기타 의견",
+  bug: "오류/버그",
+  feature: "기능 제안",
+  general: "일반 문의",
+  account: "계정/결제",
 };
 
 export default function SupportPage() {
-  const router = useRouter();
   const [form, setForm] = useState<FormState>({
+    title: "",
     type: "bug",
     content: "",
   });
   const [errors, setErrors] = useState<FormErrors>({});
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [profileValidationErrors, setProfileValidationErrors] = useState<string[]>([]);
+  const [submissions, setSubmissions] = useState<SupportSubmission[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const selectedTypeLabel = useMemo(() => INQUIRY_LABELS[form.type], [form.type]);
-  const hasUsableProfile = useMemo(() => Boolean(profile) && profileValidationErrors.length === 0, [profile, profileValidationErrors]);
+
+  const statusMeta = useMemo(
+    () => ({
+      received: {
+        label: "접수 완료",
+        className: "bg-slate-100 text-slate-600",
+      },
+      waiting: {
+        label: "답변 대기",
+        className: "bg-slate-100 text-slate-600",
+      },
+      done: {
+        label: "답변 완료",
+        className: "bg-blue-50 text-blue-600",
+      },
+    }),
+    []
+  );
+
+  const normalizedSubmissions = useMemo(() => {
+    return submissions.map((item) => {
+      const normalizedStatus: Exclude<InquiryStatus, "queued"> = item.status === "queued" ? "received" : item.status;
+      return { ...item, status: normalizedStatus };
+    });
+  }, [submissions]);
 
   useEffect(() => {
-    const existingProfile = getStoredUserProfile();
-    setProfile(existingProfile);
-    setProfileValidationErrors(existingProfile ? validateUserProfile(existingProfile) : ["개인정보 관리 탭에 이름/휴대폰/이메일을 먼저 저장해 주세요."]);
+    setProfile(getStoredUserProfile());
+
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      setSubmissions([]);
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as SupportSubmission[];
+      setSubmissions(parsed);
+    } catch {
+      setSubmissions([]);
+    }
   }, []);
 
   function validate(currentForm: FormState): FormErrors {
     const nextErrors: FormErrors = {};
 
-    if (!currentForm.type) {
-      nextErrors.type = "문의 종류를 선택해 주세요.";
+    if (!currentForm.title.trim()) {
+      nextErrors.type = "문의 제목을 입력해 주세요.";
     }
 
-    if (!hasUsableProfile) {
-      nextErrors.profile = "개인정보 관리 탭에서 유저 프로필을 먼저 저장해 주세요.";
+    if (!currentForm.type) {
+      nextErrors.type = "문의 종류를 선택해 주세요.";
     }
 
     if (!currentForm.content.trim()) {
@@ -95,12 +133,13 @@ export default function SupportPage() {
 
     const payload: SupportSubmission = {
       id: `support-${Date.now()}`,
+      title: form.title.trim(),
       type: form.type,
       content: form.content.trim(),
       createdAt: new Date().toISOString(),
-      status: "queued",
+      status: "received",
       source: "support-form",
-      submitterProfile: profile as UserProfile,
+      submitterProfile: profile ?? undefined,
       aiPipeline: {
         classification: "pending",
         sentiment: "pending",
@@ -116,15 +155,16 @@ export default function SupportPage() {
     try {
       const existingRaw = localStorage.getItem(STORAGE_KEY);
       const existing: SupportSubmission[] = existingRaw ? (JSON.parse(existingRaw) as SupportSubmission[]) : [];
-      localStorage.setItem(STORAGE_KEY, JSON.stringify([payload, ...existing]));
+      const nextSubmissions = [payload, ...existing];
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(nextSubmissions));
+      setSubmissions(nextSubmissions);
 
       await new Promise((resolve) => setTimeout(resolve, 700));
 
-      setToastMessage("소중한 의견이 개발 본부에 전달되었습니다. AI 분석 후 빠르게 개선하겠습니다!");
+      setToastMessage("문의가 정상적으로 접수되었습니다.");
+      setForm({ title: "", type: form.type, content: "" });
 
-      setTimeout(() => {
-        router.push("/");
-      }, 1300);
+      setTimeout(() => setToastMessage(null), 2000);
     } catch {
       setToastMessage("전송 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.");
       setIsSubmitting(false);
@@ -135,97 +175,124 @@ export default function SupportPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 px-4 py-10 text-slate-100 sm:px-6 lg:px-8">
-      <div className="mx-auto w-full max-w-3xl space-y-6">
-        <section className="overflow-hidden rounded-3xl border border-amber-300/30 bg-gradient-to-r from-amber-500 to-orange-600 p-6 shadow-2xl shadow-orange-950/40">
-          <p className="text-sm font-semibold uppercase tracking-wide text-amber-50/90">고객센터 이벤트</p>
-          <h1 className="mt-2 text-xl font-bold leading-snug text-white sm:text-2xl">
-            불편한 점을 알려주시면 AI 주치의가 고쳐드립니다! ☕ 서비스 개선 및 오류 제보가 업데이트에 반영되면 스타벅스 커피 기프티콘을 쏩니다!
-          </h1>
+    <main className="min-h-screen bg-slate-50 px-4 py-10 text-slate-900 sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-6xl space-y-6">
+        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+          <p className="text-sm font-semibold text-blue-600">고객센터</p>
+          <h1 className="mt-2 text-2xl font-bold text-slate-900">문의하기</h1>
+          <p className="mt-2 text-sm text-slate-600">문의 등록과 내 문의 내역을 한 화면에서 확인할 수 있습니다.</p>
         </section>
 
-        <section className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6 shadow-xl shadow-black/30 sm:p-8">
-          <div className="mb-6">
-            <h2 className="text-lg font-semibold text-slate-100">🎧 고객센터 & 의견 보내기</h2>
-            <p className="mt-2 text-sm text-slate-400">현재 선택된 문의 종류: {selectedTypeLabel}</p>
-          </div>
-
-          <div className="mb-5 rounded-2xl border border-cyan-400/30 bg-cyan-500/10 p-4 text-sm text-slate-200">
-            <p className="font-semibold text-cyan-200">개인정보 자동 연동 안내</p>
-            {profile ? (
-              <p className="mt-2 text-slate-300">
-                {profile.name} / {profile.phone} / {profile.email}
-              </p>
-            ) : (
-              <p className="mt-2 text-slate-300">저장된 개인정보가 없습니다. 의견 제출 전 마이페이지에서 먼저 등록해 주세요.</p>
-            )}
-            <Link href="/mypage/profile" className="mt-3 inline-flex rounded-lg bg-slate-800 px-3 py-2 text-xs font-semibold text-slate-100 transition hover:bg-slate-700">
-              👤 개선된 개인정보 관리 탭으로 이동
-            </Link>
-          </div>
-
-          {profileValidationErrors.length > 0 ? (
-            <div className="mb-5 rounded-2xl border border-rose-400/40 bg-rose-500/10 p-4 text-sm text-rose-200">
-              {profileValidationErrors.map((item) => (
-                <p key={item}>{item}</p>
-              ))}
+        <section className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+            <div className="mb-6">
+              <h2 className="text-lg font-semibold text-slate-900">새로운 문의하기</h2>
+              <p className="mt-2 text-sm text-slate-600">현재 선택된 카테고리: {selectedTypeLabel}</p>
             </div>
-          ) : null}
 
-          <form onSubmit={handleSubmit} className="space-y-5" noValidate>
-            <div className="space-y-2">
-              <label htmlFor="type" className="text-sm font-medium text-slate-200">
-                문의 종류
-              </label>
-              <select
-                id="type"
-                value={form.type}
-                onChange={(event) => {
-                  const nextType = event.target.value as InquiryType;
-                  setForm((prev) => ({ ...prev, type: nextType }));
-                }}
-                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-orange-400"
+            <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+              <div className="space-y-2">
+                <label htmlFor="title" className="text-sm font-medium text-slate-900">
+                  제목
+                </label>
+                <input
+                  id="title"
+                  value={form.title}
+                  onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
+                  placeholder="예: 추천 결과 페이지가 느려요"
+                  className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-600"
+                />
+                {errors.type ? <p className="text-sm text-rose-500">{errors.type}</p> : null}
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="type" className="text-sm font-medium text-slate-900">
+                  카테고리
+                </label>
+                <select
+                  id="type"
+                  value={form.type}
+                  onChange={(event) => {
+                    const nextType = event.target.value as InquiryType;
+                    setForm((prev) => ({ ...prev, type: nextType }));
+                  }}
+                  className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-600"
+                >
+                  <option value="bug">오류/버그</option>
+                  <option value="feature">기능 제안</option>
+                  <option value="general">일반 문의</option>
+                  <option value="account">계정/결제</option>
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="content" className="text-sm font-medium text-slate-900">
+                  내용
+                </label>
+                <textarea
+                  id="content"
+                  value={form.content}
+                  onChange={(event) => {
+                    setForm((prev) => ({ ...prev, content: event.target.value }));
+                  }}
+                  placeholder="문제 상황, 기대 동작, 재현 방법 등을 입력해 주세요."
+                  rows={7}
+                  className="w-full resize-none rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-blue-600"
+                  aria-invalid={Boolean(errors.content)}
+                />
+                {errors.content ? <p className="text-sm text-rose-500">{errors.content}</p> : null}
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400"
               >
-                <option value="bug">🐛 프로그램 오류/스캔 실패</option>
-                <option value="feature">✨ 이런 기능이 생겼으면 좋겠어요</option>
-                <option value="general">❓ 일반 문의 및 기타 의견</option>
-              </select>
-              {errors.type ? <p className="text-sm text-rose-300">{errors.type}</p> : null}
+                {isSubmitting ? "문의 등록 중..." : "문의 등록"}
+              </button>
+              <p className="text-xs text-slate-400">문의 접수 시 개인정보 처리방침에 동의한 것으로 간주됩니다.</p>
+            </form>
+          </div>
+
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+            <div className="mb-6 flex items-center justify-between gap-2">
+              <h2 className="text-lg font-semibold text-slate-900">내가 접수한 문의 내역</h2>
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+                총 {normalizedSubmissions.length}건
+              </span>
             </div>
 
-            <div className="space-y-2">
-              <label htmlFor="content" className="text-sm font-medium text-slate-200">
-                내용
-              </label>
-              <textarea
-                id="content"
-                value={form.content}
-                onChange={(event) => {
-                  setForm((prev) => ({ ...prev, content: event.target.value }));
-                }}
-                placeholder="컴퓨터 부품 용어를 잘 모르셔도 괜찮아요! 어떤 상황에서 불편하셨는지 편하게 적어주세요."
-                rows={6}
-                className="w-full resize-none rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-orange-400"
-                aria-invalid={Boolean(errors.content)}
-              />
-              {errors.content ? <p className="text-sm text-rose-300">{errors.content}</p> : null}
-            </div>
-
-            {errors.profile ? <p className="text-sm text-rose-300">{errors.profile}</p> : null}
-
-            <button
-              type="submit"
-              disabled={isSubmitting || !hasUsableProfile}
-              className="w-full rounded-xl bg-orange-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:bg-orange-500/60"
-            >
-              {isSubmitting ? "전송 중..." : "💌 개선 의견 제출하고 커피 응모하기"}
-            </button>
-          </form>
+            {normalizedSubmissions.length === 0 ? (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-center">
+                <p className="text-sm text-slate-600">아직 접수한 문의가 없습니다.</p>
+              </div>
+            ) : (
+              <ul className="space-y-3">
+                {normalizedSubmissions.map((item) => {
+                  const status = statusMeta[item.status];
+                  return (
+                    <li key={item.id} className="rounded-2xl border border-slate-200 bg-white p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">{item.title || "제목 없음"}</p>
+                          <p className="mt-1 text-xs text-slate-500">{INQUIRY_LABELS[item.type]} · {new Date(item.createdAt).toLocaleString("ko-KR")}</p>
+                        </div>
+                        <span className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${status.className}`}>
+                          {status.label}
+                        </span>
+                      </div>
+                      <p className="mt-3 text-sm leading-6 text-slate-600">{item.content}</p>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
         </section>
       </div>
 
       {toastMessage ? (
-        <div className="pointer-events-none fixed bottom-6 left-1/2 z-50 w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 rounded-2xl border border-emerald-400/30 bg-slate-900/95 px-5 py-4 text-sm font-medium text-emerald-200 shadow-2xl shadow-black/60">
+        <div className="pointer-events-none fixed bottom-6 left-1/2 z-50 w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 rounded-2xl border border-blue-200 bg-white px-5 py-4 text-sm font-medium text-blue-700 shadow-xl">
           {toastMessage}
         </div>
       ) : null}

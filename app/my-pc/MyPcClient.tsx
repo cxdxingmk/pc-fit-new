@@ -15,9 +15,7 @@ import { getMyPcScore, getGrade, getDescription } from "../lib/myPc";
 import type { UserSavedPc } from "../types/hardware";
 import { simulatePcPerformance } from "../lib/simulator";
 
-type Props = {};
-
-export default function MyPcClient(_: Props) {
+export default function MyPcClient() {
   const [cpu, setCpu] = useState<CPU>(cpus[0]);
   const [gpu, setGpu] = useState<GPU>(gpus[0]);
   const [ram, setRam] = useState<RAM>(rams[0]);
@@ -51,13 +49,13 @@ export default function MyPcClient(_: Props) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="p-4 bg-white/80 rounded-lg shadow">
+        <div className="p-4 bg-slate-900/70 rounded-lg shadow text-slate-100">
           <h3 className="text-lg font-semibold">부품 선택</h3>
           <div className="space-y-3 mt-3">
             <label className="block">
               CPU
               <select
-                className="mt-1 block w-full rounded border p-2"
+                className="mt-1 block w-full rounded border border-slate-700 bg-slate-800 p-2 text-slate-100"
                 value={cpu.id}
                 onChange={(e) => {
                   const v = e.target.value;
@@ -76,7 +74,7 @@ export default function MyPcClient(_: Props) {
             <label className="block">
               GPU
               <select
-                className="mt-1 block w-full rounded border p-2"
+                className="mt-1 block w-full rounded border border-slate-700 bg-slate-800 p-2 text-slate-100"
                 value={gpu.id}
                 onChange={(e) => {
                   const v = e.target.value;
@@ -95,7 +93,7 @@ export default function MyPcClient(_: Props) {
             <label className="block">
               RAM
               <select
-                className="mt-1 block w-full rounded border p-2"
+                className="mt-1 block w-full rounded border border-slate-700 bg-slate-800 p-2 text-slate-100"
                 value={ram.id}
                 onChange={(e) => {
                   const v = e.target.value;
@@ -114,7 +112,7 @@ export default function MyPcClient(_: Props) {
             <label className="block">
               SSD
               <select
-                className="mt-1 block w-full rounded border p-2"
+                className="mt-1 block w-full rounded border border-slate-700 bg-slate-800 p-2 text-slate-100"
                 value={ssd.id}
                 onChange={(e) => {
                   const v = e.target.value;
@@ -133,7 +131,7 @@ export default function MyPcClient(_: Props) {
             <label className="block">
               Motherboard
               <select
-                className="mt-1 block w-full rounded border p-2"
+                className="mt-1 block w-full rounded border border-slate-700 bg-slate-800 p-2 text-slate-100"
                 value={motherboard.id}
                 onChange={(e) => {
                   const v = e.target.value;
@@ -151,20 +149,20 @@ export default function MyPcClient(_: Props) {
           </div>
         </div>
 
-        <div className="p-4 bg-white/80 rounded-lg shadow">
+        <div className="p-4 bg-slate-900/70 rounded-lg shadow text-slate-100">
           <h3 className="text-lg font-semibold">💻 내 PC 종합 성능</h3>
           <div className="mt-3">
             <div className="text-4xl font-bold">{score.totalScore}</div>
-            <div className="text-sm text-gray-600 mt-1">{getGrade(score.totalScore)}</div>
-            <div className="mt-2 text-sm text-gray-700">{getDescription("office", score.officeScore)}</div>
+            <div className="text-sm text-slate-400 mt-1">{getGrade(score.totalScore)}</div>
+            <div className="mt-2 text-sm text-slate-300">{getDescription("office", score.officeScore)}</div>
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-4">
-        <div className="p-4 bg-white/80 rounded-lg shadow">
+        <div className="p-4 bg-slate-900/70 rounded-lg shadow text-slate-100">
           <h3 className="text-lg font-semibold">🧠 내 PC 등록 정보</h3>
-          <div className="mt-3 space-y-2 text-sm text-gray-700">
+          <div className="mt-3 space-y-2 text-sm text-slate-300">
             <p>CPU: {cpu.name}</p>
             <p>GPU: {gpu.name}</p>
             <p>메인보드: {motherboard.chipset}</p>
@@ -174,16 +172,16 @@ export default function MyPcClient(_: Props) {
           </div>
         </div>
 
-        <div className="p-4 bg-white/80 rounded-lg shadow">
+        <div className="p-4 bg-slate-900/70 rounded-lg shadow text-slate-100">
           <h3 className="text-lg font-semibold">🎮 용도별 성능 시뮬레이터</h3>
           <div className="mt-3 space-y-3">
             <label className="block text-sm">
               게임 제목
-              <input value={gameTitle} onChange={(event) => setGameTitle(event.target.value)} className="mt-1 block w-full rounded border p-2" />
+              <input value={gameTitle} onChange={(event) => setGameTitle(event.target.value)} className="mt-1 block w-full rounded border border-slate-700 bg-slate-800 p-2 text-slate-100" />
             </label>
             <label className="block text-sm">
               해상도
-              <select value={resolution} onChange={(event) => setResolution(event.target.value as "FHD" | "QHD" | "4K")} className="mt-1 block w-full rounded border p-2">
+              <select value={resolution} onChange={(event) => setResolution(event.target.value as "FHD" | "QHD" | "4K")} className="mt-1 block w-full rounded border border-slate-700 bg-slate-800 p-2 text-slate-100">
                 <option value="FHD">FHD</option>
                 <option value="QHD">QHD</option>
                 <option value="4K">4K</option>
@@ -191,7 +189,7 @@ export default function MyPcClient(_: Props) {
             </label>
             <label className="block text-sm">
               모니터 최대 해상도
-              <select value={monitorResolution} onChange={(event) => setMonitorResolution(event.target.value as "FHD" | "QHD" | "4K")} className="mt-1 block w-full rounded border p-2">
+              <select value={monitorResolution} onChange={(event) => setMonitorResolution(event.target.value as "FHD" | "QHD" | "4K")} className="mt-1 block w-full rounded border border-slate-700 bg-slate-800 p-2 text-slate-100">
                 <option value="FHD">FHD</option>
                 <option value="QHD">QHD</option>
                 <option value="4K">4K</option>
@@ -199,9 +197,9 @@ export default function MyPcClient(_: Props) {
             </label>
             <label className="block text-sm">
               모니터 최대 주사율
-              <input type="number" min={60} max={500} value={monitorRefreshRate} onChange={(event) => setMonitorRefreshRate(Number(event.target.value) || 60)} className="mt-1 block w-full rounded border p-2" />
+              <input type="number" min={60} max={500} value={monitorRefreshRate} onChange={(event) => setMonitorRefreshRate(Number(event.target.value) || 60)} className="mt-1 block w-full rounded border border-slate-700 bg-slate-800 p-2 text-slate-100" />
             </label>
-            <div className="rounded-lg border border-cyan-200 bg-cyan-50 p-3 text-sm">
+            <div className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 p-3 text-sm text-slate-100">
               <p>렌더링 FPS: <span className="font-semibold">{simulation.renderedFps}</span></p>
               <p>예상 평균 FPS: <span className="font-semibold">{simulation.averageFps}</span></p>
               <p>1% 저하 프레임: <span className="font-semibold">{simulation.onePercentLowFps}</span></p>
@@ -224,18 +222,18 @@ export default function MyPcClient(_: Props) {
 
 function PerfCard({ emoji, title, score, grade, desc }: { emoji: string; title: string; score: number; grade: string; desc: string }) {
   return (
-    <div className="p-4 bg-white/80 rounded-lg shadow">
+    <div className="p-4 bg-slate-900/70 rounded-lg shadow text-slate-100">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="text-2xl">{emoji}</div>
           <div>
             <div className="text-sm font-semibold">{title}</div>
             <div className="text-xl font-bold">{score}</div>
-            <div className="text-sm text-gray-600">{grade}</div>
+            <div className="text-sm text-slate-400">{grade}</div>
           </div>
         </div>
       </div>
-      <div className="mt-3 text-sm text-gray-700">{desc}</div>
+      <div className="mt-3 text-sm text-slate-300">{desc}</div>
     </div>
   );
 }

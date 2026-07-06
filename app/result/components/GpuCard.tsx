@@ -9,8 +9,8 @@ export default function GpuCard({ gpuTop }: Props) {
   const others = gpuTop.slice(1);
 
   return (
-    <div className="rounded-2xl border bg-white p-6 shadow-md">
-      <h2 className="mb-4 text-lg font-semibold text-gray-600">🎮 GPU 추천 TOP 3</h2>
+    <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-6 text-slate-100 shadow-md">
+      <h2 className="mb-4 text-lg font-semibold text-slate-400">🎮 GPU 추천 TOP 3</h2>
 
       <div className="mb-4 flex items-start gap-4">
         <div className="flex-1">
@@ -22,20 +22,20 @@ export default function GpuCard({ gpuTop }: Props) {
           <div className="space-y-3">
             <div>
               <p className="font-medium">게임 성능</p>
-              <div className="h-3 rounded bg-gray-200">
+              <div className="h-3 rounded bg-slate-700">
                 <div className="h-3 rounded bg-green-500" style={{ width: `${best.gameScore}%` }} />
               </div>
             </div>
 
             <div>
               <p className="font-medium">AI 성능</p>
-              <div className="h-3 rounded bg-gray-200">
+              <div className="h-3 rounded bg-slate-700">
                 <div className="h-3 rounded bg-purple-500" style={{ width: `${best.aiScore}%` }} />
               </div>
             </div>
           </div>
 
-          <div className="mt-6 space-y-2 text-gray-700">
+          <div className="mt-6 space-y-2 text-slate-300">
             <p>브랜드 : {best.brand}</p>
             <p>VRAM : {best.vram}GB</p>
             <p>Ray Tracing : {best.rayTracing ? "지원" : "미지원"}</p>
@@ -49,9 +49,9 @@ export default function GpuCard({ gpuTop }: Props) {
             <div key={g.id} className="rounded-lg border p-3 text-sm">
               <div className="flex items-center justify-between">
                 <div className="font-medium">{g.name}</div>
-                <div className="text-xs text-gray-500">#{i + 2}</div>
+                <div className="text-xs text-slate-400">#{i + 2}</div>
               </div>
-              <div className="mt-2 text-xs text-gray-600">
+              <div className="mt-2 text-xs text-slate-400">
                 <div>G:{g.gameScore} / AI:{g.aiScore}</div>
               </div>
             </div>

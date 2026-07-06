@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 function normalizePcie(value?: string) {
   if (!value) return "";
   return value.replace(/\s+/g, "").toLowerCase();

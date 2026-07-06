@@ -31,7 +31,6 @@ export function getGrade(score: number): string {
 
 // 간단 설명 생성
 export function getDescription(type: "game" | "work" | "ai" | "office", score: number): string {
-  const grade = getGrade(score);
   switch (type) {
     case "game":
       if (score >= 90) return `최신 게임을 높은 설정에서 원활히 즐길 수 있습니다.`;
@@ -105,4 +104,6 @@ export function getMyPcScore(parts: MyPcParts): MyPcScore {
   };
 }
 
-export default { getMyPcScore, getGrade, getDescription };
+const myPcUtils = { getMyPcScore, getGrade, getDescription };
+
+export default myPcUtils;
