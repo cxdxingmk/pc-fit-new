@@ -7,9 +7,11 @@
     "fetch:openbench": "node scripts/fetchOpenBenchmarking.js",
     "sync:bench:js": "node scripts/syncBenchmarks.js",
     "sync:bench": "ts-node scripts/syncBenchmarks.ts",
+    "check:hardware-data": "ts-node scripts/check-hardware-data.ts",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "vitest run"
   },
   "dependencies": {
     "next": "16.2.9",
@@ -24,7 +26,8 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
     "tailwindcss": "^4",
+    "ts-node": "^10.9.2",
     "typescript": "^5",
-    "ts-node": "^11"
+    "vitest": "^4.1.10"
   }
 }

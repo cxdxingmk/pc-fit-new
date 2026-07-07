@@ -8,7 +8,8 @@ import { useAuth } from "../../context/AuthContext";
 import { useBuild } from "../../context/BuildContext";
 import type { UserSavedPc } from "../../types/hardware";
 import { HARDWARE_MASTER } from "../../data/hardwareMaster";
-import { parseCommandOutput, wmiScanCommand, type ParseCommandOutputResult } from "../../../components/PcScannerModal";
+import { parseCommandOutput, wmiScanCommand, type ParseCommandOutputResult } from "../../lib/scanParser";
+import { readJsonFromStorage, writeJsonToStorage } from "../../lib/localStorageJson";
 import MyPageTabs from "../components/MyPageTabs";
 
 const storageKey = "user_pc_spec";
@@ -23,6 +24,7 @@ type LocalSavedPc = UserSavedPc & {
   pcName?: string;
   createdAt?: string;
   ramCapacity: string;
+  ramCount: number;
   ramDetailedInputEnabled: boolean;
   ramProductName: string;
   ssdCapacityOption: string;
@@ -35,12 +37,14 @@ type LocalSavedPc = UserSavedPc & {
   psuWatt?: string;
   hasCase?: boolean;
   commandScanRawText: string;
+  monitorCount: number;
 };
 
 const initialSelection = {
   cpuId: cpus[0]?.id ?? "",
   gpuId: gpus[0]?.id ?? "",
   ramCapacity: "16GB",
+  ramCount: 2,
   ramDetailedInputEnabled: false,
   ramProductName: "",
   mbSeries: "Intel B",
@@ -53,8 +57,102 @@ const initialSelection = {
   hasCase: true,
   monitorResolution: "QHD" as const,
   monitorRefreshRate: 144,
+  monitorCount: 1,
   commandScanRawText: "",
 };
+
+function parseRamCapacityToGb(value: string): number {
+  const matched = value.match(/(\d+)/);
+  return matched ? Number(matched[1]) : 0;
+}
+
+type ScanDerivedState = {
+  cpu: string;
+  gpu: string;
+  ramCapacity: string;
+  ramProductName: string;
+  ramDetailedInputEnabled: boolean;
+  ssdCapacityOption: string;
+  ssdProductName: string;
+  ssdDetailedInputEnabled: boolean;
+  mbSeries: string;
+  mbDetail: string;
+  monitorResolution: (typeof monitorResolutionOptions)[number];
+  monitorRefreshRate: number;
+};
+
+// 스캔 결과에서 다음 상태값을 한 번에 파생시키는 순수 함수.
+// 예전에는 각 setState 호출 직후 "방금 세팅한 값"을 별도의 let 변수에 다시 대입해가며
+// (setState는 비동기라 즉시 읽을 수 없으니) 흉내 내는 방식이었는데, 그 대신 여기서 값을
+// 전부 계산해서 반환하면 호출부는 setState와 payload 조립에 항상 이 값만 쓰면 된다.
+function resolveScanUpdates(
+  result: ParseCommandOutputResult,
+  current: ScanDerivedState
+): { next: ScanDerivedState; message: string } {
+  const next: ScanDerivedState = { ...current };
+  const messages: string[] = [];
+
+  if (result.cpuId && cpus.some((item) => item.id === result.cpuId)) {
+    next.cpu = result.cpuId;
+    messages.push(`CPU 자동 감지: ${result.cpuLabel ?? result.cpuId}`);
+  }
+
+  if (result.gpuId && gpus.some((item) => item.id === result.gpuId)) {
+    next.gpu = result.gpuId;
+    messages.push(`GPU 자동 감지: ${result.gpuLabel ?? result.gpuId}`);
+  }
+
+  if (result.motherboardChipset) {
+    const normalized = result.motherboardChipset.trim().toUpperCase();
+    const matched = normalized.match(/^([ZXBHA])\s*[- ]?(\d{3,4})$/i);
+    if (matched) {
+      const alpha = matched[1].toUpperCase();
+      const vendor = alpha === "X" || alpha === "A" ? "AMD" : "Intel";
+      next.mbSeries = `${vendor} ${alpha}`;
+      next.mbDetail = matched[2];
+    } else {
+      next.mbDetail = result.motherboardChipset;
+    }
+    messages.push(`메인보드 자동 감지: ${result.motherboardChipset}`);
+  }
+
+  if (result.ramCapacity) {
+    next.ramCapacity = result.ramCapacity;
+    messages.push(`RAM 자동 감지: ${result.ramCapacity}`);
+  }
+
+  if (result.ramDetail) {
+    next.ramDetailedInputEnabled = true;
+    next.ramProductName = result.ramDetail;
+  }
+
+  if (result.ssdCapacity) {
+    next.ssdCapacityOption = result.ssdCapacity;
+    messages.push(`SSD 자동 감지: ${result.ssdCapacity}`);
+  }
+
+  if (result.ssdDetail) {
+    next.ssdDetailedInputEnabled = true;
+    next.ssdProductName = result.ssdDetail;
+  }
+
+  if (result.monitorResolution) {
+    next.monitorResolution = result.monitorResolution;
+  }
+
+  if (result.monitorRefreshRate) {
+    next.monitorRefreshRate = result.monitorRefreshRate;
+  }
+
+  const message =
+    messages.length > 0
+      ? messages.join(" / ")
+      : !result.cpuId && !result.gpuId && !result.motherboardChipset && !result.ramCapacity && !result.ssdCapacity
+        ? "핵심 키워드를 찾지 못했어요. CMD 결과 전체를 다시 붙여넣어 주세요."
+        : "";
+
+  return { next, message };
+}
 
 export default function RegisterPcPage() {
   const { user, mockLogin } = useAuth();
@@ -63,6 +161,7 @@ export default function RegisterPcPage() {
   const [cpu, setCpu] = useState(initialSelection.cpuId);
   const [gpu, setGpu] = useState(initialSelection.gpuId);
   const [ramCapacity, setRamCapacity] = useState(initialSelection.ramCapacity);
+  const [ramCount, setRamCount] = useState(initialSelection.ramCount);
   const [ramDetailedInputEnabled, setRamDetailedInputEnabled] = useState(initialSelection.ramDetailedInputEnabled);
   const [ramProductName, setRamProductName] = useState(initialSelection.ramProductName);
   const [mbSeries, setMbSeries] = useState(initialSelection.mbSeries);
@@ -75,11 +174,10 @@ export default function RegisterPcPage() {
   const [hasCase, setHasCase] = useState(initialSelection.hasCase);
   const [monitorResolution, setMonitorResolution] = useState<(typeof monitorResolutionOptions)[number]>(initialSelection.monitorResolution);
   const [monitorRefreshRate, setMonitorRefreshRate] = useState(initialSelection.monitorRefreshRate);
+  const [monitorCount, setMonitorCount] = useState(initialSelection.monitorCount);
   const [commandScanRawText, setCommandScanRawText] = useState(initialSelection.commandScanRawText);
+  const [openSection, setOpenSection] = useState<"spec" | "auto" | "manual" | null>(null);
 
-  const [isAutoRegisterOpen, setIsAutoRegisterOpen] = useState(false);
-  const [isManualInputOpen, setIsManualInputOpen] = useState(false);
-  const [isSnapshotOpen, setIsSnapshotOpen] = useState(false);
   const [isCommandCopied, setIsCommandCopied] = useState(false);
   const [isExampleOpen, setIsExampleOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
@@ -87,46 +185,41 @@ export default function RegisterPcPage() {
   const [savedMessage, setSavedMessage] = useState("");
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    const parsed = readJsonFromStorage<Partial<LocalSavedPc>>(storageKey);
+    if (!parsed) return;
 
-    const existing = window.localStorage.getItem(storageKey);
-    if (!existing) return;
+    setSavedSnapshot(parsed as LocalSavedPc);
+    if (parsed.cpuId) setCpu(parsed.cpuId);
+    if (parsed.gpuId) setGpu(parsed.gpuId);
+    if (parsed.ramCapacity) setRamCapacity(parsed.ramCapacity);
+    if (typeof parsed.ramCount === "number" && parsed.ramCount >= 1 && parsed.ramCount <= 4) setRamCount(parsed.ramCount);
+    if (typeof parsed.ramDetailedInputEnabled === "boolean") setRamDetailedInputEnabled(parsed.ramDetailedInputEnabled);
+    if (parsed.ramProductName) setRamProductName(parsed.ramProductName);
+    if (parsed.mbSeries) setMbSeries(parsed.mbSeries);
+    if (parsed.mbDetail) setMbDetail(parsed.mbDetail);
+    if (parsed.mbBrand) setMbBrand(parsed.mbBrand);
 
-    try {
-      const parsed = JSON.parse(existing) as Partial<LocalSavedPc>;
-      setSavedSnapshot(parsed as LocalSavedPc);
-      if (parsed.cpuId) setCpu(parsed.cpuId);
-      if (parsed.gpuId) setGpu(parsed.gpuId);
-      if (parsed.ramCapacity) setRamCapacity(parsed.ramCapacity);
-      if (typeof parsed.ramDetailedInputEnabled === "boolean") setRamDetailedInputEnabled(parsed.ramDetailedInputEnabled);
-      if (parsed.ramProductName) setRamProductName(parsed.ramProductName);
-      if (parsed.mbSeries) setMbSeries(parsed.mbSeries);
-      if (parsed.mbDetail) setMbDetail(parsed.mbDetail);
-      if (parsed.mbBrand) setMbBrand(parsed.mbBrand);
-
-      if (!parsed.mbSeries && !parsed.mbDetail && parsed.mbModelName) {
-        const model = parsed.mbModelName.trim();
-        const matched = model.match(/^(Intel|AMD)?\s*([ZXBHA])\s*[- ]?(\d{3,4})/i);
-        if (matched) {
-          const vendor = matched[1]?.toUpperCase() === "AMD" ? "AMD" : "Intel";
-          const alpha = matched[2].toUpperCase();
-          setMbSeries(`${vendor} ${alpha}`);
-          setMbDetail(matched[3]);
-        } else {
-          setMbDetail(model);
-        }
+    if (!parsed.mbSeries && !parsed.mbDetail && parsed.mbModelName) {
+      const model = parsed.mbModelName.trim();
+      const matched = model.match(/^(Intel|AMD)?\s*([ZXBHA])\s*[- ]?(\d{3,4})/i);
+      if (matched) {
+        const vendor = matched[1]?.toUpperCase() === "AMD" ? "AMD" : "Intel";
+        const alpha = matched[2].toUpperCase();
+        setMbSeries(`${vendor} ${alpha}`);
+        setMbDetail(matched[3]);
+      } else {
+        setMbDetail(model);
       }
-      if (parsed.ssdCapacityOption) setSsdCapacityOption(parsed.ssdCapacityOption);
-      if (typeof parsed.ssdDetailedInputEnabled === "boolean") setSsdDetailedInputEnabled(parsed.ssdDetailedInputEnabled);
-      if (parsed.ssdProductName) setSsdProductName(parsed.ssdProductName);
-      if (parsed.psuWatt) setPsuWatt(parsed.psuWatt);
-      if (typeof parsed.hasCase === "boolean") setHasCase(parsed.hasCase);
-      if (parsed.monitorResolution) setMonitorResolution(parsed.monitorResolution);
-      if (parsed.monitorRefreshRate) setMonitorRefreshRate(parsed.monitorRefreshRate);
-      if (parsed.commandScanRawText) setCommandScanRawText(parsed.commandScanRawText);
-    } catch {
-      window.localStorage.removeItem(storageKey);
     }
+    if (parsed.ssdCapacityOption) setSsdCapacityOption(parsed.ssdCapacityOption);
+    if (typeof parsed.ssdDetailedInputEnabled === "boolean") setSsdDetailedInputEnabled(parsed.ssdDetailedInputEnabled);
+    if (parsed.ssdProductName) setSsdProductName(parsed.ssdProductName);
+    if (parsed.psuWatt) setPsuWatt(parsed.psuWatt);
+    if (typeof parsed.hasCase === "boolean") setHasCase(parsed.hasCase);
+    if (parsed.monitorResolution) setMonitorResolution(parsed.monitorResolution);
+    if (parsed.monitorRefreshRate) setMonitorRefreshRate(parsed.monitorRefreshRate);
+    if (typeof parsed.monitorCount === "number" && parsed.monitorCount >= 1 && parsed.monitorCount <= 3) setMonitorCount(parsed.monitorCount);
+    if (parsed.commandScanRawText) setCommandScanRawText(parsed.commandScanRawText);
   }, []);
 
   useEffect(() => {
@@ -184,7 +277,10 @@ export default function RegisterPcPage() {
   }, [savedSnapshot]);
   const snapshotRam = useMemo(() => {
     if (!savedSnapshot) return "미등록";
-    return savedSnapshot.ramDetail ? `${savedSnapshot.ramCapacity} (${savedSnapshot.ramDetail})` : savedSnapshot.ramCapacity;
+    const count = savedSnapshot.ramCount && savedSnapshot.ramCount > 0 ? savedSnapshot.ramCount : 1;
+    const totalGb = parseRamCapacityToGb(savedSnapshot.ramCapacity) * count;
+    const base = `${savedSnapshot.ramCapacity} x ${count} (총 ${totalGb}GB)`;
+    return savedSnapshot.ramDetail ? `${base} (${savedSnapshot.ramDetail})` : base;
   }, [savedSnapshot]);
   const snapshotSsd = useMemo(() => {
     if (!savedSnapshot) return "미등록";
@@ -196,120 +292,65 @@ export default function RegisterPcPage() {
   };
 
   const handleParsedResult = (result: ParseCommandOutputResult) => {
-    let message = "";
-    let nextCpu = cpu;
-    let nextGpu = gpu;
-    let nextRamCapacity = ramCapacity;
-    let nextRamProductName = ramProductName;
-    let nextRamDetailEnabled = ramDetailedInputEnabled;
-    let nextSsdCapacityOption = ssdCapacityOption;
-    let nextSsdProductName = ssdProductName;
-    let nextSsdDetailEnabled = ssdDetailedInputEnabled;
-    let nextMbSeries = mbSeries;
-    let nextMbDetail = mbDetail;
-    let nextMonitorResolution = monitorResolution;
-    let nextMonitorRefreshRate = monitorRefreshRate;
+    const { next, message } = resolveScanUpdates(result, {
+      cpu,
+      gpu,
+      ramCapacity,
+      ramProductName,
+      ramDetailedInputEnabled,
+      ssdCapacityOption,
+      ssdProductName,
+      ssdDetailedInputEnabled,
+      mbSeries,
+      mbDetail,
+      monitorResolution,
+      monitorRefreshRate,
+    });
 
-    if (result.cpuId && cpus.some((item) => item.id === result.cpuId)) {
-      setCpu(result.cpuId);
-      nextCpu = result.cpuId;
-      message += `CPU 자동 감지: ${result.cpuLabel ?? result.cpuId}`;
-    }
-
-    if (result.gpuId && gpus.some((item) => item.id === result.gpuId)) {
-      setGpu(result.gpuId);
-      nextGpu = result.gpuId;
-      message += `${message ? " / " : ""}GPU 자동 감지: ${result.gpuLabel ?? result.gpuId}`;
-    }
-
-    if (result.motherboardChipset) {
-      const normalized = result.motherboardChipset.trim().toUpperCase();
-      const matched = normalized.match(/^([ZXBHA])\s*[- ]?(\d{3,4})$/i);
-      if (matched) {
-        const alpha = matched[1].toUpperCase();
-        const detail = matched[2];
-        const vendor = alpha === "X" || alpha === "A" ? "AMD" : "Intel";
-        const nextSeriesValue = `${vendor} ${alpha}`;
-        setMbSeries(nextSeriesValue);
-        setMbDetail(detail);
-        nextMbSeries = nextSeriesValue;
-        nextMbDetail = detail;
-      } else {
-        setMbDetail(result.motherboardChipset);
-        nextMbDetail = result.motherboardChipset;
-      }
-      message += `${message ? " / " : ""}메인보드 자동 감지: ${result.motherboardChipset}`;
-    }
-
-    if (result.ramCapacity) {
-      setRamCapacity(result.ramCapacity);
-      nextRamCapacity = result.ramCapacity;
-      message += `${message ? " / " : ""}RAM 자동 감지: ${result.ramCapacity}`;
-    }
-
-    if (result.ramDetail) {
-      setRamDetailedInputEnabled(true);
-      setRamProductName(result.ramDetail);
-      nextRamDetailEnabled = true;
-      nextRamProductName = result.ramDetail;
-    }
-
-    if (result.ssdCapacity) {
-      setSsdCapacityOption(result.ssdCapacity);
-      nextSsdCapacityOption = result.ssdCapacity;
-      message += `${message ? " / " : ""}SSD 자동 감지: ${result.ssdCapacity}`;
-    }
-
-    if (result.ssdDetail) {
-      setSsdDetailedInputEnabled(true);
-      setSsdProductName(result.ssdDetail);
-      nextSsdDetailEnabled = true;
-      nextSsdProductName = result.ssdDetail;
-    }
-
-    if (result.monitorResolution) {
-      setMonitorResolution(result.monitorResolution);
-      nextMonitorResolution = result.monitorResolution;
-    }
-
-    if (result.monitorRefreshRate) {
-      setMonitorRefreshRate(result.monitorRefreshRate);
-      nextMonitorRefreshRate = result.monitorRefreshRate;
-    }
-
-    if (!result.cpuId && !result.gpuId && !result.motherboardChipset && !result.ramCapacity && !result.ssdCapacity) {
-      message = "핵심 키워드를 찾지 못했어요. CMD 결과 전체를 다시 붙여넣어 주세요.";
-    }
+    if (next.cpu !== cpu) setCpu(next.cpu);
+    if (next.gpu !== gpu) setGpu(next.gpu);
+    if (next.mbSeries !== mbSeries) setMbSeries(next.mbSeries);
+    if (next.mbDetail !== mbDetail) setMbDetail(next.mbDetail);
+    if (next.ramCapacity !== ramCapacity) setRamCapacity(next.ramCapacity);
+    if (next.ramDetailedInputEnabled !== ramDetailedInputEnabled) setRamDetailedInputEnabled(next.ramDetailedInputEnabled);
+    if (next.ramProductName !== ramProductName) setRamProductName(next.ramProductName);
+    if (next.ssdCapacityOption !== ssdCapacityOption) setSsdCapacityOption(next.ssdCapacityOption);
+    if (next.ssdDetailedInputEnabled !== ssdDetailedInputEnabled) setSsdDetailedInputEnabled(next.ssdDetailedInputEnabled);
+    if (next.ssdProductName !== ssdProductName) setSsdProductName(next.ssdProductName);
+    if (next.monitorResolution !== monitorResolution) setMonitorResolution(next.monitorResolution);
+    if (next.monitorRefreshRate !== monitorRefreshRate) setMonitorRefreshRate(next.monitorRefreshRate);
 
     setScanStatusMessage(message);
 
-    if (typeof window !== "undefined" && user) {
+    if (user) {
       const autoPayload: LocalSavedPc = {
         id: `pc_${Date.now()}`,
         userId: user.id,
         pcName: `${user.name}의 PC`,
-        cpuId: nextCpu,
-        gpuId: nextGpu,
-        ramCapacity: nextRamCapacity,
-        ramDetail: nextRamDetailEnabled ? nextRamProductName.trim() : undefined,
-        ssdCapacity: nextSsdCapacityOption,
-        ssdDetail: nextSsdDetailEnabled ? nextSsdProductName.trim() : undefined,
-        monitorResolution: nextMonitorResolution,
-        monitorRefreshRate: nextMonitorRefreshRate,
-        ramDetailedInputEnabled: nextRamDetailEnabled,
-        ramProductName: nextRamProductName,
-        ssdCapacityOption: nextSsdCapacityOption,
-        ssdDetailedInputEnabled: nextSsdDetailEnabled,
-        ssdProductName: nextSsdProductName,
-        mbSeries: nextMbSeries,
-        mbDetail: nextMbDetail,
+        cpuId: next.cpu,
+        gpuId: next.gpu,
+        ramCapacity: next.ramCapacity,
+        ramCount,
+        ramDetail: next.ramDetailedInputEnabled ? next.ramProductName.trim() : undefined,
+        ssdCapacity: next.ssdCapacityOption,
+        ssdDetail: next.ssdDetailedInputEnabled ? next.ssdProductName.trim() : undefined,
+        monitorResolution: next.monitorResolution,
+        monitorRefreshRate: next.monitorRefreshRate,
+        monitorCount,
+        ramDetailedInputEnabled: next.ramDetailedInputEnabled,
+        ramProductName: next.ramProductName,
+        ssdCapacityOption: next.ssdCapacityOption,
+        ssdDetailedInputEnabled: next.ssdDetailedInputEnabled,
+        ssdProductName: next.ssdProductName,
+        mbSeries: next.mbSeries,
+        mbDetail: next.mbDetail,
         mbBrand,
-        mbModelName: `${nextMbSeries} ${nextMbDetail}`.trim(),
+        mbModelName: `${next.mbSeries} ${next.mbDetail}`.trim(),
         psuWatt,
         hasCase,
         commandScanRawText,
       };
-      window.localStorage.setItem(storageKey, JSON.stringify(autoPayload));
+      writeJsonToStorage(storageKey, autoPayload);
       setSavedSnapshot(autoPayload);
       setSavedMessage("스캔 결과가 자동으로 등록 및 저장되었습니다.");
       showToast("자동 등록 및 저장이 완료되었습니다.");
@@ -326,11 +367,13 @@ export default function RegisterPcPage() {
       cpuId: cpu,
       gpuId: gpu,
       ramCapacity,
+      ramCount,
       ramDetail: ramDetailedInputEnabled ? ramProductName.trim() : undefined,
       ssdCapacity: ssdCapacityOption,
       ssdDetail: ssdDetailedInputEnabled ? ssdProductName.trim() : undefined,
       monitorResolution,
       monitorRefreshRate,
+      monitorCount,
       ramDetailedInputEnabled,
       ramProductName,
       ssdCapacityOption,
@@ -343,10 +386,7 @@ export default function RegisterPcPage() {
       commandScanRawText,
     };
 
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(storageKey, JSON.stringify(payload));
-    }
-
+    writeJsonToStorage(storageKey, payload);
     setSavedSnapshot(payload);
 
     setSavedMessage("내 컴퓨터 사양이 저장되었습니다.");
@@ -417,101 +457,74 @@ export default function RegisterPcPage() {
       <div className="mx-auto flex max-w-6xl flex-col gap-6">
         <MyPageTabs activeTab="register" />
 
-        <section className="rounded-3xl border border-white/10 bg-white/10 p-8 shadow-2xl shadow-black/40 backdrop-blur">
-          <button
-            type="button"
-            onClick={() => setIsSnapshotOpen((prev) => !prev)}
-            className="flex w-full items-center justify-between text-left"
-            aria-expanded={isSnapshotOpen}
-            aria-controls="saved-pc-snapshot"
-          >
-            <span className="text-lg font-semibold text-slate-100">내 PC 사양</span>
-            <svg
-              className={`h-5 w-5 text-slate-300 transition-transform duration-200 ${isSnapshotOpen ? "rotate-180" : "rotate-0"}`}
-              viewBox="0 0 20 20"
-              fill="currentColor"
-              aria-hidden="true"
-            >
-              <path
-                fillRule="evenodd"
-                d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.168l3.71-3.938a.75.75 0 1 1 1.08 1.04l-4.25 4.51a.75.75 0 0 1-1.08 0l-4.25-4.51a.75.75 0 0 1 .02-1.06Z"
-                clipRule="evenodd"
-              />
-            </svg>
-          </button>
-
-          <div
-            id="saved-pc-snapshot"
-            className={`overflow-hidden transition-all duration-300 ease-in-out ${isSnapshotOpen ? "mt-6 max-h-[1200px] opacity-100" : "max-h-0 opacity-0"}`}
-          >
-            {!savedSnapshot ? (
-              <div className="rounded-2xl border border-dashed border-white/20 bg-black/20 px-5 py-6 text-sm text-slate-300">
-                등록된 하드웨어가 없습니다
-              </div>
-            ) : (
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4">
-                  <p className="text-xs text-cyan-300">🧠 CPU</p>
-                  <p className="mt-2 text-sm text-slate-100">{snapshotCpuName}</p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4">
-                  <p className="text-xs text-cyan-300">🎮 GPU</p>
-                  <p className="mt-2 text-sm text-slate-100">{snapshotGpuName}</p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4">
-                  <p className="text-xs text-cyan-300">🧩 메인보드</p>
-                  <p className="mt-2 text-sm text-slate-100">{snapshotBoardName}</p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4">
-                  <p className="text-xs text-cyan-300">⚡ RAM</p>
-                  <p className="mt-2 text-sm text-slate-100">{snapshotRam}</p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4">
-                  <p className="text-xs text-cyan-300">💾 SSD</p>
-                  <p className="mt-2 text-sm text-slate-100">{snapshotSsd}</p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4">
-                  <p className="text-xs text-cyan-300">🖥️ 모니터</p>
-                  <p className="mt-2 text-sm text-slate-100">{savedSnapshot.monitorResolution} / {savedSnapshot.monitorRefreshRate}Hz</p>
+        <section className="rounded-3xl border border-white/10 bg-white/10 p-4 shadow-2xl shadow-black/40 backdrop-blur sm:p-6">
+          <div className="flex min-h-[66vh] flex-col gap-3">
+            <div className={`flex min-h-0 flex-col overflow-hidden rounded-3xl border border-white/10 bg-slate-900/70 transition-all duration-300 ${openSection === "spec" ? "flex-[3]" : "flex-1"}`}>
+              <button
+                type="button"
+                onClick={() => setOpenSection((prev) => (prev === "spec" ? null : "spec"))}
+                className={`flex w-full items-center justify-between px-5 text-left ${openSection === "spec" ? "py-4" : "h-full min-h-[7.5rem]"}`}
+              >
+                <span className="text-lg font-semibold text-slate-100">내 PC 사양</span>
+                <span className={`text-cyan-300 transition-transform duration-300 ${openSection === "spec" ? "rotate-180" : ""}`}>▾</span>
+              </button>
+              <div className={`overflow-hidden transition-all duration-300 ease-in-out ${openSection === "spec" ? "max-h-[1600px] opacity-100" : "max-h-0 opacity-0"}`}>
+                <div className="px-5 pb-5">
+                  {!savedSnapshot ? (
+                    <div className="rounded-2xl border border-dashed border-white/20 bg-black/20 px-5 py-6 text-sm text-slate-300">
+                      등록된 하드웨어가 없습니다
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-4">
+                      <div className="flex flex-col gap-4 md:flex-row">
+                        <div className="flex-1 rounded-2xl border border-white/10 bg-slate-900/70 p-4">
+                          <p className="text-xs text-cyan-300">🧠 CPU</p>
+                          <p className="mt-2 text-sm text-slate-100">{snapshotCpuName}</p>
+                        </div>
+                        <div className="flex-1 rounded-2xl border border-white/10 bg-slate-900/70 p-4">
+                          <p className="text-xs text-cyan-300">🎮 GPU</p>
+                          <p className="mt-2 text-sm text-slate-100">{snapshotGpuName}</p>
+                        </div>
+                        <div className="flex-1 rounded-2xl border border-white/10 bg-slate-900/70 p-4">
+                          <p className="text-xs text-cyan-300">🧩 메인보드</p>
+                          <p className="mt-2 text-sm text-slate-100">{snapshotBoardName}</p>
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-4 md:flex-row">
+                        <div className="flex-1 rounded-2xl border border-white/10 bg-slate-900/70 p-4">
+                          <p className="text-xs text-cyan-300">⚡ RAM</p>
+                          <p className="mt-2 text-sm text-slate-100">{snapshotRam}</p>
+                        </div>
+                        <div className="flex-1 rounded-2xl border border-white/10 bg-slate-900/70 p-4">
+                          <p className="text-xs text-cyan-300">💾 SSD</p>
+                          <p className="mt-2 text-sm text-slate-100">{snapshotSsd}</p>
+                        </div>
+                        <div className="flex-1 rounded-2xl border border-white/10 bg-slate-900/70 p-4">
+                          <p className="text-xs text-cyan-300">🖥️ 모니터</p>
+                          <p className="mt-2 text-sm text-slate-100">
+                            {savedSnapshot.monitorResolution} / {savedSnapshot.monitorRefreshRate}Hz / {savedSnapshot.monitorCount ?? 1}대
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
-            )}
-          </div>
-        </section>
+            </div>
 
-        <section className="rounded-3xl border border-white/10 bg-white/10 p-8 shadow-2xl shadow-black/40 backdrop-blur">
-          <h1 className="text-3xl font-semibold">내 컴퓨터 사양 등록</h1>
-          <p className="mt-3 text-sm font-normal leading-6 text-slate-400">
-            로그인 후 내 PC를 등록하시면 사양 정보가 계정에 안전하게 저장되어, 기기가 바뀌어도 언제 어디서나 실시간으로 불러올 수 있습니다.
-          </p>
-
-          <button
-            type="button"
-            onClick={() => setIsAutoRegisterOpen((prev) => !prev)}
-            className="mt-6 flex w-full items-center justify-between text-left"
-            aria-expanded={isAutoRegisterOpen}
-            aria-controls="auto-register-guide"
-          >
-            <span className="text-xl font-semibold text-slate-100">내 컴퓨터 자동 등록</span>
-            <svg
-              className={`h-5 w-5 text-slate-300 transition-transform duration-200 ${isAutoRegisterOpen ? "rotate-180" : "rotate-0"}`}
-              viewBox="0 0 20 20"
-              fill="currentColor"
-              aria-hidden="true"
-            >
-              <path
-                fillRule="evenodd"
-                d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.168l3.71-3.938a.75.75 0 1 1 1.08 1.04l-4.25 4.51a.75.75 0 0 1-1.08 0l-4.25-4.51a.75.75 0 0 1 .02-1.06Z"
-                clipRule="evenodd"
-              />
-            </svg>
-          </button>
-
-          <div
-            id="auto-register-guide"
-            className={`overflow-hidden transition-all duration-300 ease-in-out ${isAutoRegisterOpen ? "mt-6 max-h-[2600px] opacity-100" : "max-h-0 opacity-0"}`}
-          >
-            <div className="rounded-2xl border border-cyan-500/30 bg-slate-900/70 p-5">
+            <div className={`flex min-h-0 flex-col overflow-hidden rounded-3xl border border-white/10 bg-slate-900/70 transition-all duration-300 ${openSection === "auto" ? "flex-[3]" : "flex-1"}`}>
+              <button
+                type="button"
+                onClick={() => setOpenSection((prev) => (prev === "auto" ? null : "auto"))}
+                className={`flex w-full items-center justify-between px-5 text-left ${openSection === "auto" ? "py-4" : "h-full min-h-[7.5rem]"}`}
+              >
+                <span className="text-lg font-semibold text-slate-100">내 컴퓨터 자동 등록</span>
+                <span className={`text-cyan-300 transition-transform duration-300 ${openSection === "auto" ? "rotate-180" : ""}`}>▾</span>
+              </button>
+              <div className={`overflow-hidden transition-all duration-300 ease-in-out ${openSection === "auto" ? "max-h-[2600px] opacity-100" : "max-h-0 opacity-0"}`}>
+                <div className="px-5 pb-5">
+                  <p className="mb-4 text-sm text-slate-300">CMD 결과 붙여넣기만 하면 주요 부품을 자동 인식해 바로 저장합니다.</p>
+                  <div className="rounded-2xl border border-cyan-500/30 bg-slate-900/70 p-5">
               <button
                 type="button"
                 onClick={handleVideoGuideClick}
@@ -594,37 +607,22 @@ export default function RegisterPcPage() {
                 </p>
               ) : null}
             </div>
-          </div>
-        </section>
+                </div>
+              </div>
+            </div>
 
-        <section className="rounded-3xl border border-white/10 bg-slate-900/70 p-6">
-            <button
-              type="button"
-              onClick={() => setIsManualInputOpen((prev) => !prev)}
-              className="flex w-full items-center justify-between text-left"
-              aria-expanded={isManualInputOpen}
-              aria-controls="manual-pc-form"
-            >
-              <h2 className="text-xl font-semibold">내 PC 직접 입력</h2>
-              <svg
-                className={`h-5 w-5 text-slate-300 transition-transform duration-200 ${isManualInputOpen ? "rotate-180" : "rotate-0"}`}
-                viewBox="0 0 20 20"
-                fill="currentColor"
-                aria-hidden="true"
+            <div className={`flex min-h-0 flex-col overflow-hidden rounded-3xl border border-white/10 bg-slate-900/70 transition-all duration-300 ${openSection === "manual" ? "flex-[3]" : "flex-1"}`}>
+              <button
+                type="button"
+                onClick={() => setOpenSection((prev) => (prev === "manual" ? null : "manual"))}
+                className={`flex w-full items-center justify-between px-5 text-left ${openSection === "manual" ? "py-4" : "h-full min-h-[7.5rem]"}`}
               >
-                <path
-                  fillRule="evenodd"
-                  d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.168l3.71-3.938a.75.75 0 1 1 1.08 1.04l-4.25 4.51a.75.75 0 0 1-1.08 0l-4.25-4.51a.75.75 0 0 1 .02-1.06Z"
-                  clipRule="evenodd"
-                />
-              </svg>
-            </button>
-
-            <div
-              id="manual-pc-form"
-              className={`overflow-hidden transition-all duration-300 ease-in-out ${isManualInputOpen ? "mt-6 max-h-[2400px] opacity-100" : "max-h-0 opacity-0"}`}
-            >
-              <div className="space-y-4">
+                <span className="text-lg font-semibold text-slate-100">내 PC 직접 입력</span>
+                <span className={`text-cyan-300 transition-transform duration-300 ${openSection === "manual" ? "rotate-180" : ""}`}>▾</span>
+              </button>
+              <div className={`overflow-hidden transition-all duration-300 ease-in-out ${openSection === "manual" ? "max-h-[3200px] opacity-100" : "max-h-0 opacity-0"}`}>
+                <div className="px-5 pb-5">
+                  <div className="space-y-4">
               <label className="block text-sm">
                 CPU
                 <select value={cpu} onChange={(event) => setCpu(event.target.value)} className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-slate-100">
@@ -649,13 +647,30 @@ export default function RegisterPcPage() {
 
               <label className="block text-sm">
                 RAM
-                <select value={ramCapacity} onChange={(event) => setRamCapacity(event.target.value)} className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-slate-100">
-                  {ramCapacityOptions.map((ramOption) => (
-                    <option key={ramOption} value={ramOption}>
-                      {ramOption}
-                    </option>
-                  ))}
-                </select>
+                <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_140px]">
+                  <select value={ramCapacity} onChange={(event) => setRamCapacity(event.target.value)} className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-slate-100">
+                    {ramCapacityOptions.map((ramOption) => (
+                      <option key={ramOption} value={ramOption}>
+                        {ramOption}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={ramCount}
+                    onChange={(event) => setRamCount(Number(event.target.value))}
+                    className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-slate-100"
+                    aria-label="RAM 개수"
+                  >
+                    {[1, 2, 3, 4].map((countOption) => (
+                      <option key={countOption} value={countOption}>
+                        {countOption}개
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <p className="mt-2 text-xs text-cyan-300">
+                  총 RAM 용량: {parseRamCapacityToGb(ramCapacity) * ramCount}GB ({ramCapacity} x {ramCount})
+                </p>
 
                 <label className="mt-3 flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200">
                   <input
@@ -751,7 +766,7 @@ export default function RegisterPcPage() {
                 <input value={psuWatt} onChange={(event) => setPsuWatt(event.target.value)} className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-slate-100" />
               </label>
 
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 md:grid-cols-3">
                 <label className="block text-sm">
                   모니터 해상도
                   <select value={monitorResolution} onChange={(event) => setMonitorResolution(event.target.value as (typeof monitorResolutionOptions)[number])} className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-slate-100">
@@ -767,25 +782,45 @@ export default function RegisterPcPage() {
                   모니터 주사율(Hz)
                   <input type="number" min={60} max={500} step={1} value={monitorRefreshRate} onChange={(event) => setMonitorRefreshRate(Number(event.target.value) || 60)} className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-slate-100" />
                 </label>
+
+                <label className="block text-sm">
+                  모니터 개수
+                  <select
+                    value={monitorCount}
+                    onChange={(event) => setMonitorCount(Number(event.target.value))}
+                    className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-slate-100"
+                  >
+                    {[1, 2, 3].map((countOption) => (
+                      <option key={countOption} value={countOption}>
+                        {countOption}대
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </div>
 
-              <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm">
-                <input type="checkbox" checked={hasCase} onChange={() => setHasCase((value) => !value)} className="h-4 w-4 rounded border-white/20 bg-transparent" />
-                케이스 보유 여부
-              </label>
-
-              <div className="flex items-center justify-end gap-3">
-                {savedMessage ? <p className="text-xs text-emerald-300">{savedMessage}</p> : null}
+              <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <label className="flex items-center gap-3 text-sm">
+                  <input type="checkbox" checked={hasCase} onChange={() => setHasCase((value) => !value)} className="h-4 w-4 rounded border-white/20 bg-transparent" />
+                  케이스 보유 여부
+                </label>
                 <button
                   type="button"
                   onClick={handleSave}
-                  className="rounded-xl bg-cyan-500 px-5 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-cyan-400"
+                  className="rounded-2xl bg-cyan-500 px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400"
                 >
-                  변경사항 저장하기
+                  내 컴퓨터 사양 저장하기
                 </button>
+              </div>
+
+              <div className="flex justify-end">
+                {savedMessage ? <p className="text-xs text-emerald-300">{savedMessage}</p> : null}
               </div>
               </div>
             </div>
+              </div>
+            </div>
+          </div>
         </section>
       </div>
     </main>

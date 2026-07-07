@@ -8,6 +8,22 @@ import { useAuth } from "../app/context/AuthContext";
 import { getStoredUserProfile, USER_PROFILE_STORAGE_KEY, USER_PROFILE_UPDATED_EVENT } from "../app/lib/userProfileStorage";
 import type { UserProfile } from "../app/types/user";
 
+let cachedProfileRaw: string | null = null;
+let cachedProfileSnapshot: UserProfile | null = null;
+
+function getStoredProfileSnapshot(): UserProfile | null {
+  if (typeof window === "undefined") return null;
+
+  const raw = window.localStorage.getItem(USER_PROFILE_STORAGE_KEY);
+  if (raw === cachedProfileRaw) {
+    return cachedProfileSnapshot;
+  }
+
+  cachedProfileRaw = raw;
+  cachedProfileSnapshot = getStoredUserProfile();
+  return cachedProfileSnapshot;
+}
+
 function getAvatarInitial(profile: UserProfile | null, fallbackName: string): string {
   if (profile?.nickname.trim()) {
     return profile.nickname.trim().slice(0, 1).toUpperCase();
@@ -46,7 +62,7 @@ export default function Header() {
         window.removeEventListener(USER_PROFILE_UPDATED_EVENT, handleProfileUpdate as EventListener);
       };
     },
-    () => getStoredUserProfile(),
+    () => getStoredProfileSnapshot(),
     () => null
   );
 

@@ -1,7 +1,8 @@
 "use client";
 
-import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { useLocalStorageState } from "../lib/useLocalStorageState";
 
 export interface AuthUser {
   id: string;
@@ -25,37 +26,29 @@ const mockUser: AuthUser = {
 
 const authStorageKey = "pc_fit_auth_user";
 
+function isAuthUser(value: unknown): value is AuthUser {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      "id" in value &&
+      "name" in value &&
+      "email" in value
+  );
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const [user, setUser] = useState<AuthUser | null>(() => {
-    if (typeof window === "undefined") return null;
-    const raw = window.localStorage.getItem(authStorageKey);
-    if (!raw) return null;
-
-    try {
-      const parsed = JSON.parse(raw) as AuthUser;
-      return parsed?.id && parsed?.name && parsed?.email ? parsed : null;
-    } catch {
-      window.localStorage.removeItem(authStorageKey);
-      return null;
-    }
-  });
+  const [user, setUser, clearUser] = useLocalStorageState<AuthUser | null>(authStorageKey, null, isAuthUser);
 
   const mockLogin = useCallback(() => {
     setUser(mockUser);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(authStorageKey, JSON.stringify(mockUser));
-    }
     router.push("/mypage/register-pc");
-  }, [router]);
+  }, [router, setUser]);
 
   const logout = useCallback(() => {
-    setUser(null);
-    if (typeof window !== "undefined") {
-      window.localStorage.removeItem(authStorageKey);
-    }
+    clearUser();
     router.push("/");
-  }, [router]);
+  }, [router, clearUser]);
 
   const value = useMemo<AuthContextValue>(
     () => ({

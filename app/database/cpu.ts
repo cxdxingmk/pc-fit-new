@@ -1,4 +1,6 @@
 import { cpuMasterDb, type CpuItem } from "./hardwareMasterDb";
+import { getAllCpus } from "../../src/utils/hardwareLookup";
+import { buildAdditionalCpus } from "../lib/hardwareScoring";
 
 export interface CPU {
   id: string;
@@ -33,7 +35,9 @@ export interface CPU {
   priceTier: "budget" | "mid" | "high" | "enthusiast";
 }
 
-export const cpus: CPU[] = [
+// 수작업으로 큐레이션된 앵커 데이터. gameScore/workScore/aiScore/priceTier는 여기서만 수동 유지하고,
+// 아래 additionalCpus는 이 배열을 학습 앵커로 삼아 점수를 추정한다.
+const curatedCpus: CPU[] = [
   {
     id: "i9-14900k",
     name: "Core i9-14900K",
@@ -335,5 +339,12 @@ export const cpus: CPU[] = [
     priceTier: "budget",
   },
 ];
+
+// src/constants/hardwareData.ts(물리 스펙 전용 마스터)에서 curatedCpus에 없는 모델만 골라
+// 소켓/DDR/점수 등을 추정해 합친다. Threadripper 등 app/database/motherboard.ts가 지원하지
+// 않는 소켓은 buildAdditionalCpus 내부에서 제외된다.
+const additionalCpus: CPU[] = buildAdditionalCpus(curatedCpus, getAllCpus());
+
+export const cpus: CPU[] = [...curatedCpus, ...additionalCpus];
 
 export const cpuMasterItems: CpuItem[] = cpuMasterDb;

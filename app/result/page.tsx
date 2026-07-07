@@ -7,6 +7,7 @@ import { recommend } from "../lib/recommender";
 import { cpus } from "../database/cpu";
 import { gpus } from "../database/gpu";
 import { getSavedPc } from "../lib/savedPc";
+import { trackEvent } from "../lib/analytics";
 
 import CompatibilityCard from "./components/CompatibilityCard";
 import PerformanceGateModal from "./components/PerformanceGateModal";
@@ -50,6 +51,12 @@ function EstimateAccordionCard({
           </p>
           <p>
             <span className="font-semibold text-slate-900">GPU</span>: {item.gpu}
+          </p>
+          <p>
+            <span className="font-semibold text-slate-900">RAM</span>: {item.ram}
+          </p>
+          <p>
+            <span className="font-semibold text-slate-900">SSD</span>: {item.ssd}
           </p>
         </div>
       </div>
@@ -183,12 +190,12 @@ export default function ResultPage() {
   });
 
   const topResults = useMemo(
-    () => recommend(buildData.answers, buildData.existingParts, buildData.caseOwnership),
-    [buildData.answers, buildData.existingParts, buildData.caseOwnership]
+    () => recommend(buildData.answers, buildData.existingParts, buildData.caseOwnership, buildData.purposes),
+    [buildData.answers, buildData.existingParts, buildData.caseOwnership, buildData.purposes]
   );
 
   const openPerformanceModal = (index: number, estimateId: string, cpuName: string, gpuName: string) => {
-    console.log("[GA4-ready]", "performance_gate_button_click", { estimateRank: index + 1, estimateId });
+    trackEvent("performance_gate_button_click", { estimateRank: index + 1, estimateId });
     const savedPc = getSavedPc();
     const cpuRecord = cpus.find((cpu) => cpu.name === cpuName);
     const gpuRecord = gpus.find((gpu) => gpu.name === gpuName);

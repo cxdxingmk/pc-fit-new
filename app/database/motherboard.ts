@@ -20,6 +20,10 @@ export interface MotherBoard {
 
   m2Slots: number;
 
+  sataPorts: number;
+
+  supportedNvmeGenerations: Array<3 | 4 | 5>;
+
   wifi: boolean;
 
   releaseYear: number;
@@ -43,6 +47,8 @@ export const motherboards: MotherBoard[] = [
     memorySlots: 4,
     pcie: "5.0",
     m2Slots: 5,
+    sataPorts: 4,
+    supportedNvmeGenerations: [4, 5],
     wifi: true,
     releaseYear: 2025,
     gameScore: 99,
@@ -61,6 +67,8 @@ export const motherboards: MotherBoard[] = [
     memorySlots: 4,
     pcie: "5.0",
     m2Slots: 4,
+    sataPorts: 4,
+    supportedNvmeGenerations: [4, 5],
     wifi: true,
     releaseYear: 2023,
     gameScore: 95,
@@ -79,6 +87,8 @@ export const motherboards: MotherBoard[] = [
     memorySlots: 4,
     pcie: "5.0",
     m2Slots: 4,
+    sataPorts: 4,
+    supportedNvmeGenerations: [4, 5],
     wifi: true,
     releaseYear: 2025,
     gameScore: 95,
@@ -97,6 +107,8 @@ export const motherboards: MotherBoard[] = [
     memorySlots: 4,
     pcie: "5.0",
     m2Slots: 4,
+    sataPorts: 4,
+    supportedNvmeGenerations: [4, 5],
     wifi: true,
     releaseYear: 2024,
     gameScore: 90,
@@ -115,6 +127,8 @@ export const motherboards: MotherBoard[] = [
     memorySlots: 2,
     pcie: "4.0",
     m2Slots: 2,
+    sataPorts: 4,
+    supportedNvmeGenerations: [3, 4],
     wifi: false,
     releaseYear: 2023,
     gameScore: 72,
@@ -133,6 +147,8 @@ export const motherboards: MotherBoard[] = [
     memorySlots: 4,
     pcie: "5.0",
     m2Slots: 4,
+    sataPorts: 4,
+    supportedNvmeGenerations: [4, 5],
     wifi: true,
     releaseYear: 2025,
     gameScore: 98,
@@ -151,6 +167,8 @@ export const motherboards: MotherBoard[] = [
     memorySlots: 4,
     pcie: "5.0",
     m2Slots: 4,
+    sataPorts: 4,
+    supportedNvmeGenerations: [4, 5],
     wifi: true,
     releaseYear: 2023,
     gameScore: 95,
@@ -169,6 +187,8 @@ export const motherboards: MotherBoard[] = [
     memorySlots: 4,
     pcie: "5.0",
     m2Slots: 4,
+    sataPorts: 4,
+    supportedNvmeGenerations: [4, 5],
     wifi: true,
     releaseYear: 2024,
     gameScore: 93,
@@ -187,6 +207,8 @@ export const motherboards: MotherBoard[] = [
     memorySlots: 2,
     pcie: "4.0",
     m2Slots: 2,
+    sataPorts: 4,
+    supportedNvmeGenerations: [3, 4],
     wifi: false,
     releaseYear: 2024,
     gameScore: 80,
@@ -205,6 +227,8 @@ export const motherboards: MotherBoard[] = [
     memorySlots: 4,
     pcie: "4.0",
     m2Slots: 3,
+    sataPorts: 6,
+    supportedNvmeGenerations: [3, 4],
     wifi: false,
     releaseYear: 2020,
     gameScore: 78,

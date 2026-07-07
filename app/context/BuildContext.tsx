@@ -3,17 +3,12 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 import type { SavedEstimate } from "../types/recommend";
-import type { ExistingPartsState, CaseOwnershipOption } from "../types/build";
+import type { ExistingPartsState, CaseOwnershipOption, PurposeType } from "../types/build";
+import { readJsonFromStorage, writeJsonToStorage } from "../lib/localStorageJson";
 
-export type PurposeType =
-  | "gaming"
-  | "work"
-  | "video"
-  | "stream"
-  | "ai"
-  | "dev"
-  | "cad"
-  | "etc";
+const SAVED_ESTIMATES_STORAGE_KEY = "pc_fit_saved_estimates";
+
+export type { PurposeType };
 export type BudgetOption =
   | "100만원 이하"
   | "100~150만원"
@@ -162,16 +157,9 @@ export function BuildProvider({
   const [buildData, setBuildData] = useState<BuildData>(initialBuildData);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const saved = window.localStorage.getItem("pc_fit_saved_estimates");
+    const saved = readJsonFromStorage<SavedEstimate[]>(SAVED_ESTIMATES_STORAGE_KEY);
     if (!saved) return;
-
-    try {
-      const parsed = JSON.parse(saved) as SavedEstimate[];
-      setBuildData((prev) => ({ ...prev, savedEstimates: parsed }));
-    } catch {
-      // ignore malformed localStorage
-    }
+    setBuildData((prev) => ({ ...prev, savedEstimates: saved }));
   }, []);
 
   const togglePurpose = (purpose: PurposeType) => {
@@ -341,9 +329,7 @@ export function BuildProvider({
     setBuildData((prev) => {
       const exists = prev.savedEstimates.some((item) => item.id === estimate.id);
       const nextEstimates = exists ? prev.savedEstimates : [estimate, ...prev.savedEstimates];
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem("pc_fit_saved_estimates", JSON.stringify(nextEstimates));
-      }
+      writeJsonToStorage(SAVED_ESTIMATES_STORAGE_KEY, nextEstimates);
       return {
         ...prev,
         savedEstimates: nextEstimates,

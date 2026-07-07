@@ -17,12 +17,14 @@ import type { RAM } from "../database/ram";
 import type { SSD } from "../database/ssd";
 import type { MotherBoard } from "../database/motherboard";
 import type { PSU } from "../database/psu";
-import type { ExistingPartsState, CaseOwnershipOption } from "../types/build";
+import type { ExistingPartsState, CaseOwnershipOption, PurposeType } from "../types/build";
 import type { RecommendationResult } from "../types/recommend";
 
 type Answers = Record<number, string[]>;
 
-type Purpose = "gaming" | "work" | "video" | "stream" | "ai" | "dev" | "cad" | "etc";
+// BuildContext가 관리하는 타입 있는 목적(PurposeType)과 동일한 값 집합이다.
+// answers[1]의 한글 라벨 문자열로 왕복하지 않고 이 타입을 그대로 쓰기 위해 별칭만 둔다.
+type Purpose = PurposeType;
 
 const priceTierToPrice: Record<"budget" | "mid" | "high" | "enthusiast", number> = {
   budget: 250000,
@@ -52,7 +54,14 @@ const WEIGHTS: Record<Purpose, { cpu: number; gpu: number; ram: number; ssd: num
 
 const CASE_PRICE = 120000;
 
-function pickPurpose(answers: Answers): Purpose {
+// 우선순위: 여러 목적이 동시에 선택됐을 때 어떤 목적의 가중치(WEIGHTS)를 대표로 쓸지 정한다.
+// 기존 문자열 매칭 pickPurpose()의 if-분기 순서(ai > stream > video > cad > dev > gaming > work > etc)와
+// 동일한 우선순위를 유지해 동작 변화가 없도록 했다.
+const PURPOSE_PRIORITY: Purpose[] = ["ai", "stream", "video", "cad", "dev", "gaming", "work", "etc"];
+
+// 문자열 매칭 폴백: BuildContext가 answers[1]에 한글 라벨로 직렬화하기 전 시점의 호출 등
+// 타입 있는 purposes 배열을 못 받는 경우에만 쓰인다.
+function pickPurposeFromAnswers(answers: Answers): Purpose {
   const p = answers[1] ?? [];
   const keys = p.flatMap((s) => s.toLowerCase().split(/\s+|[:]/));
 
@@ -68,6 +77,16 @@ function pickPurpose(answers: Answers): Purpose {
   return "work";
 }
 
+// purposes(BuildContext의 타입 있는 PurposeType[])가 있으면 문자열 파싱 없이 바로 쓰고,
+// 없을 때만 answers[1] 문자열 매칭으로 폴백한다.
+export function pickPurpose(answers: Answers, purposes?: PurposeType[]): Purpose {
+  if (purposes && purposes.length > 0) {
+    const match = PURPOSE_PRIORITY.find((purpose) => purposes.includes(purpose));
+    if (match) return match;
+  }
+  return pickPurposeFromAnswers(answers);
+}
+
 function pickBudgetTarget(answers: Answers): number | null {
   const budget = answers[3]?.[0];
   if (!budget) return null;
@@ -80,6 +99,24 @@ function parseWattage(value: string) {
   if (!value) return null;
   const numeric = Number(value.replace(/[^0-9]/g, ""));
   return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+}
+
+// 예산 이내에서는 성능이 랭킹을 주도하되, 예산을 넘어서는 순간 급격히 깎이도록 만드는 배율.
+// 절대 원화 차액(diff/30000)이 아니라 "예산 대비 초과 비율"로 계산해야 예산 규모와 무관하게
+// 일관된 패널티가 걸린다(예: 30만원 초과가 100만원 예산에서는 치명적이지만 350만원 예산에서는 오차 수준).
+// 지수감쇠(exp)를 쓰는 이유: 선형 패널티로 0에 floor를 걸면, 다수 조합이 동시에 0으로 뭉개져서
+// "그나마 덜 초과한" 조합을 구분해 정렬할 수 없게 된다. exp는 0에 무한히 가까워지되 절대 0이
+// 되지 않아, 극단적으로 예산을 초과한 조합들 사이에서도 상대적 우열이 항상 보존된다.
+export function computeBudgetFactor(totalPrice: number, budgetTarget: number | null): number {
+  if (!budgetTarget || budgetTarget <= 0) return 1;
+
+  if (totalPrice <= budgetTarget) {
+    const utilization = totalPrice / budgetTarget;
+    return 0.9 + utilization * 0.1; // 예산 내에서는 0.9~1.0 사이, 성능 랭킹을 크게 방해하지 않음
+  }
+
+  const overageRatio = (totalPrice - budgetTarget) / budgetTarget;
+  return Math.exp(-3 * overageRatio); // 10% 초과 -> 약 0.74배, 50% 초과 -> 약 0.22배, 100% 초과 -> 약 0.05배
 }
 
 function rateRam(ram: RAM, purpose: Purpose) {
@@ -119,6 +156,115 @@ function createReason(score: number, compatibility: number, caseOwnership: CaseO
 
 function candidateId(cpu: CPU, gpu: GPU, ram: RAM, ssd: SSD, mb: MotherBoard, psu: PSU) {
   return [cpu.id, gpu.id, ram.id, ssd.id, mb.id, psu.id].join("-");
+}
+
+// CPU/GPU 카탈로그가 커질수록(현재 200여 개) 6중 for문을 그대로 돌리면 조합 수가 폭발한다.
+// 소켓/DDR이 안 맞는 조합은 애초에 순회 대상에서 빼고(인덱싱), CPU/GPU는 이번 목적(purpose)
+// 기준 점수 상위 N개만 후보 풀로 남겨 나머지 세 축(RAM/SSD/PSU)과 조합한다.
+const CPU_POOL_PER_TIER = 4;
+const GPU_POOL_PER_TIER = 4;
+const PRICE_TIERS: Array<"budget" | "mid" | "high" | "enthusiast"> = ["budget", "mid", "high", "enthusiast"];
+
+function purposeScore(scores: { gameScore: number; workScore: number; aiScore: number }, purpose: Purpose): number {
+  if (purpose === "gaming" || purpose === "stream" || purpose === "cad") return scores.gameScore;
+  if (purpose === "ai") return scores.aiScore;
+  return scores.workScore;
+}
+
+// 순수 점수 기준 top-K만 뽑으면 예산과 무관하게 항상 최상급 부품만 후보 풀에 남아,
+// "저예산" 요청에도 고가 조합만 추천되는 문제가 생긴다(가격은 최종 점수에서 10%만 반영되므로
+// 애초에 저가 후보가 풀에 없으면 만회할 기회가 없다). 그래서 가격 티어별로 상위 N개씩 골고루 남긴다.
+export function selectDiversePool<T extends { gameScore: number; workScore: number; aiScore: number; priceTier: "budget" | "mid" | "high" | "enthusiast" }>(
+  items: T[],
+  purpose: Purpose,
+  limitPerTier: number
+): T[] {
+  const pool: T[] = [];
+  for (const tier of PRICE_TIERS) {
+    const tierItems = items.filter((item) => item.priceTier === tier);
+    const sorted = tierItems.length <= limitPerTier
+      ? tierItems
+      : [...tierItems].sort((a, b) => purposeScore(b, purpose) - purposeScore(a, purpose)).slice(0, limitPerTier);
+    pool.push(...sorted);
+  }
+  return pool;
+}
+
+function groupRamsByDdr(rams: RAM[]): Map<string, RAM[]> {
+  const map = new Map<string, RAM[]>();
+  for (const ram of rams) {
+    const bucket = map.get(ram.ddr);
+    if (bucket) bucket.push(ram);
+    else map.set(ram.ddr, [ram]);
+  }
+  return map;
+}
+
+function groupMotherboardsBySocketAndDdr(mbs: MotherBoard[]): Map<string, MotherBoard[]> {
+  const map = new Map<string, MotherBoard[]>();
+  for (const mb of mbs) {
+    const key = `${mb.socket}|${mb.ddr}`;
+    const bucket = map.get(key);
+    if (bucket) bucket.push(mb);
+    else map.set(key, [mb]);
+  }
+  return map;
+}
+
+export function generateCandidates(
+  cpus: CPU[],
+  gpus: GPU[],
+  rams: RAM[],
+  ssds: SSD[],
+  mbs: MotherBoard[],
+  psus: PSU[],
+  purpose: Purpose,
+  budgetTarget: number | null,
+  existingParts: ExistingPartsState,
+  caseOwnership: CaseOwnershipOption
+): RecommendationResult[] {
+  const cpuPool = selectDiversePool(cpus, purpose, CPU_POOL_PER_TIER);
+  const gpuPool = selectDiversePool(gpus, purpose, GPU_POOL_PER_TIER);
+  const mbsBySocketDdr = groupMotherboardsBySocketAndDdr(mbs);
+  const mbsBySocket = new Map<string, MotherBoard[]>();
+  for (const mb of mbs) {
+    const bucket = mbsBySocket.get(mb.socket);
+    if (bucket) bucket.push(mb);
+    else mbsBySocket.set(mb.socket, [mb]);
+  }
+  const ramsByDdr = groupRamsByDdr(rams);
+
+  const candidates: RecommendationResult[] = [];
+
+  for (const cpu of cpuPool) {
+    const motherboardsToUse = mbsBySocketDdr.get(`${cpu.socket}|${cpu.ddr}`) ?? mbsBySocket.get(cpu.socket) ?? [];
+    const ramsToUse = ramsByDdr.get(cpu.ddr) ?? [];
+    if (motherboardsToUse.length === 0 || ramsToUse.length === 0) continue;
+
+    for (const gpu of gpuPool) {
+      // cpu+gpu 조합만으로 이미 전력 요구치가 보유 파워를 넘으면 ram/ssd/mb/psu까지 내려갈 필요가 없다.
+      const powerLimit = existingParts.Power.enabled ? parseWattage(existingParts.Power.wattage) : null;
+      if (powerLimit && powerLimit < cpu.tdp + gpu.tgp + 150) continue;
+
+      for (const ram of ramsToUse) {
+        for (const ssd of ssds) {
+          for (const mb of motherboardsToUse) {
+            if (mb.ddr !== ram.ddr) continue;
+
+            for (const psu of psus) {
+              const candidate = buildCandidate(cpu, gpu, ram, ssd, mb, psu, purpose, budgetTarget, existingParts, caseOwnership);
+              if (candidate) {
+                candidates.push(candidate);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  candidates.sort((a, b) => b.finalScore - a.finalScore);
+  return candidates.slice(0, 3);
 }
 
 function buildCandidate(
@@ -186,13 +332,8 @@ function buildCandidate(
 
   const totalPrice = cpuPrice + gpuPrice + ramPrice + ssdPrice + motherboardPrice + psuPrice + casePrice;
 
-  let budgetScore = 0;
-  if (budgetTarget) {
-    const diff = Math.abs(totalPrice - budgetTarget);
-    budgetScore = Math.max(0, 100 - diff / 30000);
-  }
-
-  const finalScore = Math.round(Math.min(100, normalizedBaseScore * 0.9 + budgetScore * 0.1) * 100) / 100;
+  const budgetFactor = computeBudgetFactor(totalPrice, budgetTarget);
+  const finalScore = Math.round(Math.min(100, Math.max(0, normalizedBaseScore * budgetFactor)) * 100) / 100;
 
   return {
     id: candidateId(cpu, gpu, ram, ssd, mb, psu),
@@ -219,6 +360,7 @@ function buildCandidate(
       `소켓 일치: CPU ${cpu.socket}와 메인보드 ${mb.socket}가 호환됩니다.`,
       `전력 여유: ${cpu.tdp + gpu.tgp + 150}W 기준으로 ${psu.wattage}W 파워가 충분합니다.`,
       `메모리 규격: ${ram.ddr}와 메인보드 ${mb.ddr}가 일치합니다.`,
+      `스토리지 경로: SSD ${ssd.interface} / M.2 ${mb.m2Slots}개 / NVMe Gen ${mb.supportedNvmeGenerations.join(", ")} 지원`,
     ],
     warnings,
     finalScore,
@@ -237,59 +379,13 @@ export function recommend(
     Motherboard: { enabled: false, series: "", manufacturer: "", model: "" },
     Power: { enabled: false, wattage: "" },
   },
-  caseOwnership: CaseOwnershipOption = "owned"
+  caseOwnership: CaseOwnershipOption = "owned",
+  purposes?: PurposeType[]
 ): RecommendationResult[] {
-  const cpus = _cpus;
-  const gpus = _gpus;
-  const rams = _rams;
-  const ssds = _ssds;
-  const mbs = _motherboards;
-  const psus = _psus;
-
-  const purpose = pickPurpose(answers);
+  const purpose = pickPurpose(answers, purposes);
   const budgetTarget = pickBudgetTarget(answers);
-  const candidates: RecommendationResult[] = [];
 
-  for (const cpu of cpus) {
-    const matchedMbs = mbs.filter((mb) => mb.socket === cpu.socket && mb.ddr === cpu.ddr);
-    const motherboardsToUse = matchedMbs.length > 0 ? matchedMbs : mbs.filter((mb) => mb.socket === cpu.socket);
-
-    for (const gpu of gpus) {
-      for (const ram of rams) {
-        if (ram.ddr !== cpu.ddr) continue;
-
-        for (const ssd of ssds) {
-          for (const mb of motherboardsToUse) {
-            if (mb.ddr !== ram.ddr) continue;
-
-            for (const psu of psus) {
-              const powerLimit = existingParts.Power.enabled ? parseWattage(existingParts.Power.wattage) : null;
-              if (powerLimit && powerLimit < cpu.tdp + gpu.tgp + 150) continue;
-
-              const candidate = buildCandidate(
-                cpu,
-                gpu,
-                ram,
-                ssd,
-                mb,
-                psu,
-                purpose,
-                budgetTarget,
-                existingParts,
-                caseOwnership
-              );
-              if (candidate) {
-                candidates.push(candidate);
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-
-  candidates.sort((a, b) => b.finalScore - a.finalScore);
-  return candidates.slice(0, 3);
+  return generateCandidates(_cpus, _gpus, _rams, _ssds, _motherboards, _psus, purpose, budgetTarget, existingParts, caseOwnership);
 }
 
 export async function recommendAsync(
@@ -303,7 +399,8 @@ export async function recommendAsync(
     Motherboard: { enabled: false, series: "", manufacturer: "", model: "" },
     Power: { enabled: false, wattage: "" },
   },
-  caseOwnership: CaseOwnershipOption = "owned"
+  caseOwnership: CaseOwnershipOption = "owned",
+  purposes?: PurposeType[]
 ): Promise<RecommendationResult[]> {
   const ds = defaultDataSource;
 
@@ -316,50 +413,10 @@ export async function recommendAsync(
     ds.getPsuData(),
   ]);
 
-  const purpose = pickPurpose(answers);
+  const purpose = pickPurpose(answers, purposes);
   const budgetTarget = pickBudgetTarget(answers);
-  const candidates: RecommendationResult[] = [];
 
-  for (const cpu of cpus) {
-    const matchedMbs = mbs.filter((mb) => mb.socket === cpu.socket && mb.ddr === cpu.ddr);
-    const motherboardsToUse = matchedMbs.length > 0 ? matchedMbs : mbs.filter((mb) => mb.socket === cpu.socket);
-
-    for (const gpu of gpus) {
-      for (const ram of rams) {
-        if (ram.ddr !== cpu.ddr) continue;
-
-        for (const ssd of ssds) {
-          for (const mb of motherboardsToUse) {
-            if (mb.ddr !== ram.ddr) continue;
-
-            for (const psu of psus) {
-              const powerLimit = existingParts.Power.enabled ? parseWattage(existingParts.Power.wattage) : null;
-              if (powerLimit && powerLimit < cpu.tdp + gpu.tgp + 150) continue;
-
-              const candidate = buildCandidate(
-                cpu,
-                gpu,
-                ram,
-                ssd,
-                mb,
-                psu,
-                purpose,
-                budgetTarget,
-                existingParts,
-                caseOwnership
-              );
-              if (candidate) {
-                candidates.push(candidate);
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-
-  candidates.sort((a, b) => b.finalScore - a.finalScore);
-  return candidates.slice(0, 3);
+  return generateCandidates(cpus, gpus, rams, ssds, mbs, psus, purpose, budgetTarget, existingParts, caseOwnership);
 }
 
 export { recommend as default };

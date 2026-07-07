@@ -1,11 +1,10 @@
 "use client";
 
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { cpus } from "../../database/cpu";
 import { gpus } from "../../database/gpu";
 import { motherboards } from "../../database/motherboard";
-import { rams } from "../../database/ram";
-import { ssds } from "../../database/ssd";
+import { getAllRams, getAllSsds, searchRamsByKeyword, searchSsdsByKeyword } from "../../../src/utils/hardwareLookup";
 import type { ExistingPartsState, CaseOwnershipOption } from "../../types/build";
 
 type Props = {
@@ -27,11 +26,21 @@ const powerWattageOptions = ["500W", "600W", "650W", "700W", "750W", "800W", "85
 const motherboardSeriesOptions = ["Intel Z", "Intel B", "Intel H", "AMD X", "AMD B", "AMD A"] as const;
 const motherboardBrandOptions = ["ASUS", "MSI", "GIGABYTE", "ASRock", "BIOSTAR", "기타"] as const;
 
-function matchBrand(typed: string, catalog: { name: string; brand: string }[]): string {
-  const q = typed.trim().toLowerCase();
-  if (!q) return "";
-  const hit = catalog.find((x) => x.name.toLowerCase().includes(q) || q.includes(x.name.toLowerCase()));
-  return hit?.brand ?? "";
+function toRamCapacityOption(capacityGb: number): ExistingPartsState["RAM"]["capacity"] | "" {
+  if (capacityGb >= 128) return "128GB";
+  if (capacityGb >= 64) return "64GB";
+  if (capacityGb >= 32) return "32GB";
+  if (capacityGb >= 16) return "16GB";
+  if (capacityGb >= 8) return "8GB";
+  return "";
+}
+
+function toSsdCapacityOption(capacityGb: number): ExistingPartsState["SSD"]["capacity"] | "" {
+  if (capacityGb >= 3800) return "4TB 이상";
+  if (capacityGb >= 1800) return "2TB";
+  if (capacityGb >= 900) return "1TB";
+  if (capacityGb >= 450) return "512GB";
+  return "";
 }
 
 export default function ExistingPartsStep({
@@ -40,6 +49,9 @@ export default function ExistingPartsStep({
   caseOwnership,
   setCaseOwnership,
 }: Props) {
+  const [ramSearch, setRamSearch] = useState("");
+  const [ssdSearch, setSsdSearch] = useState("");
+
   const partOptions = useMemo(() => {
     const cpuModelsByBrand = cpuBrandOptions.reduce((acc, brand) => {
       acc[brand] = cpus
@@ -66,6 +78,17 @@ export default function ExistingPartsStep({
       return acc;
     }, {} as Record<string, readonly string[]>);
 
+    const allRams = getAllRams();
+    const allSsds = getAllSsds();
+    const ramBrands = Array.from(new Set(allRams.map((ram) => ram.manufacturer))).sort();
+    const ssdBrands = Array.from(new Set(allSsds.map((ssd) => ssd.manufacturer))).sort();
+    const matchedRams = searchRamsByKeyword(ramSearch)
+      .filter((ram) => !existingParts.RAM.brand || ram.manufacturer === existingParts.RAM.brand)
+      .sort((a, b) => b.speedMtps - a.speedMtps || b.capacityGb - a.capacityGb);
+    const matchedSsds = searchSsdsByKeyword(ssdSearch)
+      .filter((ssd) => !existingParts.SSD.brand || ssd.manufacturer === existingParts.SSD.brand)
+      .sort((a, b) => b.readSpeedMbps - a.readSpeedMbps || b.capacityGb - a.capacityGb);
+
     return {
       cpu: {
         brands: cpuBrandOptions,
@@ -75,12 +98,20 @@ export default function ExistingPartsStep({
         brands: gpuBrands,
         modelsByBrand: gpuModelsByBrand,
       },
+      ram: {
+        brands: ramBrands,
+        models: matchedRams,
+      },
+      ssd: {
+        brands: ssdBrands,
+        models: matchedSsds,
+      },
       motherboard: {
         seriesOptions: motherboardSeriesOptions,
         detailBySeries: motherboardDetailBySeries,
       },
     };
-  }, []);
+  }, [existingParts.RAM.brand, existingParts.SSD.brand, ramSearch, ssdSearch]);
 
   const renderToggleCard = (title: string, description: string, enabled: boolean, onToggle: () => void, children: ReactNode) => (
     <div className="overflow-hidden rounded-3xl border border-white/10 bg-slate-900/70">
@@ -194,66 +225,92 @@ export default function ExistingPartsStep({
 
         {renderToggleCard(
           "RAM",
-          "규격/용량 입력과 함께 모델명과 제조사를 선택 입력할 수 있습니다.",
+          "CPU/GPU와 동일하게 검색 후 모델 선택으로 규격/용량을 자동 반영합니다.",
           existingParts.RAM.enabled,
           () => updateExistingPart("RAM", { enabled: !existingParts.RAM.enabled, ddr: existingParts.RAM.enabled ? "" : existingParts.RAM.ddr, capacity: existingParts.RAM.enabled ? "" : existingParts.RAM.capacity, brand: existingParts.RAM.enabled ? "" : (existingParts.RAM.brand ?? ""), model: existingParts.RAM.enabled ? "" : existingParts.RAM.model }),
           <div className="grid gap-4">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="grid gap-2">
-                <p className="text-sm font-semibold text-slate-300">메모리 규격</p>
-                <div className="grid gap-2 grid-cols-2">
-                  {ramDdrOptions.map((ddr) => (
-                    <button
-                      key={ddr}
-                      type="button"
-                      onClick={() => updateExistingPart("RAM", { ddr })}
-                      className={`rounded-2xl border px-4 py-3 text-left text-sm font-semibold transition ${existingParts.RAM.ddr === ddr ? "border-cyan-500 bg-cyan-500/10 text-cyan-300" : "border-white/10 bg-slate-900/70 text-slate-300 hover:border-cyan-400/50 hover:bg-cyan-500/10"}`}
-                    >
-                      {ddr}
-                    </button>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <label className="grid gap-2 text-sm text-slate-300">
+                브랜드
+                <select
+                  value={existingParts.RAM.brand}
+                  onChange={(event) => updateExistingPart("RAM", { brand: event.target.value, model: "" })}
+                  className="rounded-2xl border border-slate-700 bg-slate-800 p-4 text-slate-100 focus:border-cyan-400 focus:outline-none"
+                >
+                  <option value="">전체 브랜드</option>
+                  {partOptions.ram.brands.map((brand) => (
+                    <option key={brand} value={brand}>{brand}</option>
                   ))}
-                </div>
-              </div>
+                </select>
+              </label>
 
-              <div className="grid gap-2">
-                <p className="text-sm font-semibold text-slate-300">용량</p>
+              <label className="grid gap-2 text-sm text-slate-300 sm:col-span-2">
+                모델 검색
+                <input
+                  type="text"
+                  value={ramSearch}
+                  onChange={(event) => setRamSearch(event.target.value)}
+                  placeholder="예: DDR5 5600, Samsung"
+                  className="rounded-2xl border border-slate-700 bg-slate-800 px-4 py-3 text-slate-100 placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none"
+                />
+              </label>
+            </div>
+
+            <label className="grid gap-2 text-sm text-slate-300">
+              모델 선택
+              <select
+                value={existingParts.RAM.model}
+                onChange={(event) => {
+                  const selected = partOptions.ram.models.find((ram) => ram.model === event.target.value);
+                  if (!selected) {
+                    updateExistingPart("RAM", { model: event.target.value });
+                    return;
+                  }
+                  updateExistingPart("RAM", {
+                    model: selected.model,
+                    brand: selected.manufacturer,
+                    ddr: selected.type,
+                    capacity: toRamCapacityOption(selected.capacityGb),
+                  });
+                }}
+                className="w-full rounded-2xl border border-slate-700 bg-slate-800 p-4 text-slate-100 focus:border-cyan-400 focus:outline-none"
+              >
+                <option value="">모델을 선택하세요</option>
+                {partOptions.ram.models.map((ram) => (
+                  <option key={ram.model} value={ram.model}>
+                    {ram.model} ({ram.type} / {ram.capacityGb}GB / {ram.speedMtps}MT/s)
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="grid gap-2 text-sm text-slate-300">
+                메모리 규격
+                <select
+                  value={existingParts.RAM.ddr}
+                  onChange={(event) => updateExistingPart("RAM", { ddr: event.target.value as ExistingPartsState["RAM"]["ddr"] })}
+                  className="rounded-2xl border border-slate-700 bg-slate-800 p-4 text-slate-100 focus:border-cyan-400 focus:outline-none"
+                >
+                  <option value="">규격 선택</option>
+                  {ramDdrOptions.map((ddr) => (
+                    <option key={ddr} value={ddr}>{ddr}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="grid gap-2 text-sm text-slate-300">
+                용량
                 <select
                   value={existingParts.RAM.capacity}
                   onChange={(event) => updateExistingPart("RAM", { capacity: event.target.value as ExistingPartsState["RAM"]["capacity"] })}
-                  className="w-full rounded-2xl border border-slate-700 bg-slate-800 p-4 text-slate-100 focus:border-cyan-400 focus:outline-none"
+                  className="rounded-2xl border border-slate-700 bg-slate-800 p-4 text-slate-100 focus:border-cyan-400 focus:outline-none"
                 >
                   <option value="">용량 선택</option>
                   {ramCapacityOptions.map((capacity) => (
                     <option key={capacity} value={capacity}>{capacity}</option>
                   ))}
                 </select>
-              </div>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="grid gap-2 text-sm text-slate-300">
-                모델명
-                <input
-                  type="text"
-                  value={existingParts.RAM.model}
-                  onChange={(event) => {
-                    const nextModel = event.target.value;
-                    const matchedBrand = matchBrand(nextModel, rams.map((ram) => ({ name: ram.name, brand: ram.brand })));
-                    updateExistingPart("RAM", { model: nextModel, brand: matchedBrand });
-                  }}
-                  placeholder="예: DDR5-5600 CL46"
-                  className="rounded-2xl border border-slate-700 bg-slate-800 px-4 py-3 text-slate-100 placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none"
-                />
-              </label>
-              <label className="grid gap-2 text-sm text-slate-300">
-                브랜드 (자동완성)
-                <input
-                  type="text"
-                  value={existingParts.RAM.brand ?? ""}
-                  onChange={(event) => updateExistingPart("RAM", { brand: event.target.value })}
-                  placeholder="예: 삼성전자, SK하이닉스"
-                  className="rounded-2xl border border-slate-700 bg-slate-800 px-4 py-3 text-slate-100 placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none"
-                />
               </label>
             </div>
           </div>
@@ -261,49 +318,79 @@ export default function ExistingPartsStep({
 
         {renderToggleCard(
           "SSD",
-          "저장 용량과 함께 모델명/제조사를 선택 입력으로 추가할 수 있습니다.",
+          "CPU/GPU와 동일하게 검색 후 모델 선택으로 용량/브랜드를 자동 반영합니다.",
           existingParts.SSD.enabled,
           () => updateExistingPart("SSD", { enabled: !existingParts.SSD.enabled, capacity: existingParts.SSD.enabled ? "" : existingParts.SSD.capacity, brand: existingParts.SSD.enabled ? "" : (existingParts.SSD.brand ?? ""), model: existingParts.SSD.enabled ? "" : existingParts.SSD.model }),
           <div className="grid gap-4">
-            <div className="grid gap-2 sm:grid-cols-2">
-              {ssdCapacityOptions.map((capacity) => (
-                <button
-                  key={capacity}
-                  type="button"
-                  onClick={() => updateExistingPart("SSD", { capacity })}
-                  className={`rounded-2xl border px-4 py-3 text-left text-sm font-semibold transition ${existingParts.SSD.capacity === capacity ? "border-cyan-500 bg-cyan-500/10 text-cyan-300" : "border-white/10 bg-slate-900/70 text-slate-300 hover:border-cyan-400/50 hover:bg-cyan-500/10"}`}
+            <div className="grid gap-3 sm:grid-cols-3">
+              <label className="grid gap-2 text-sm text-slate-300">
+                브랜드
+                <select
+                  value={existingParts.SSD.brand}
+                  onChange={(event) => updateExistingPart("SSD", { brand: event.target.value, model: "" })}
+                  className="rounded-2xl border border-slate-700 bg-slate-800 p-4 text-slate-100 focus:border-cyan-400 focus:outline-none"
                 >
-                  {capacity}
-                </button>
-              ))}
+                  <option value="">전체 브랜드</option>
+                  {partOptions.ssd.brands.map((brand) => (
+                    <option key={brand} value={brand}>{brand}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="grid gap-2 text-sm text-slate-300">
+                용량 필터
+                <select
+                  value={existingParts.SSD.capacity}
+                  onChange={(event) => updateExistingPart("SSD", { capacity: event.target.value as ExistingPartsState["SSD"]["capacity"] })}
+                  className="rounded-2xl border border-slate-700 bg-slate-800 p-4 text-slate-100 focus:border-cyan-400 focus:outline-none"
+                >
+                  <option value="">전체 용량</option>
+                  {ssdCapacityOptions.map((capacity) => (
+                    <option key={capacity} value={capacity}>{capacity}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="grid gap-2 text-sm text-slate-300">
+                모델 검색
+                <input
+                  type="text"
+                  value={ssdSearch}
+                  onChange={(event) => setSsdSearch(event.target.value)}
+                  placeholder="예: Gen4, Samsung"
+                  className="rounded-2xl border border-slate-700 bg-slate-800 px-4 py-3 text-slate-100 placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none"
+                />
+              </label>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="grid gap-2 text-sm text-slate-300">
-                모델명
-                <input
-                  type="text"
-                  value={existingParts.SSD.model}
-                  onChange={(event) => {
-                    const nextModel = event.target.value;
-                    const matchedBrand = matchBrand(nextModel, ssds.map((ssd) => ({ name: ssd.name, brand: ssd.brand })));
-                    updateExistingPart("SSD", { model: nextModel, brand: matchedBrand });
-                  }}
-                  placeholder="예: 980 PRO"
-                  className="rounded-2xl border border-slate-700 bg-slate-800 px-4 py-3 text-slate-100 placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none"
-                />
-              </label>
-              <label className="grid gap-2 text-sm text-slate-300">
-                브랜드 (자동완성)
-                <input
-                  type="text"
-                  value={existingParts.SSD.brand ?? ""}
-                  onChange={(event) => updateExistingPart("SSD", { brand: event.target.value })}
-                  placeholder="예: 삼성전자, WD"
-                  className="rounded-2xl border border-slate-700 bg-slate-800 px-4 py-3 text-slate-100 placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none"
-                />
-              </label>
-            </div>
+            <label className="grid gap-2 text-sm text-slate-300">
+              모델 선택
+              <select
+                value={existingParts.SSD.model}
+                onChange={(event) => {
+                  const selected = partOptions.ssd.models.find((ssd) => ssd.model === event.target.value);
+                  if (!selected) {
+                    updateExistingPart("SSD", { model: event.target.value });
+                    return;
+                  }
+                  updateExistingPart("SSD", {
+                    model: selected.model,
+                    brand: selected.manufacturer,
+                    capacity: toSsdCapacityOption(selected.capacityGb),
+                  });
+                }}
+                className="w-full rounded-2xl border border-slate-700 bg-slate-800 p-4 text-slate-100 focus:border-cyan-400 focus:outline-none"
+              >
+                <option value="">모델을 선택하세요</option>
+                {partOptions.ssd.models
+                  .filter((ssd) => !existingParts.SSD.capacity || toSsdCapacityOption(ssd.capacityGb) === existingParts.SSD.capacity)
+                  .map((ssd) => (
+                    <option key={ssd.model} value={ssd.model}>
+                      {ssd.model} ({ssd.deviceType} / {ssd.capacityGb}GB)
+                    </option>
+                  ))}
+              </select>
+            </label>
           </div>
         )}
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { trackEvent } from "../../lib/analytics";
 
 type PerformanceGateModalProps = {
   isOpen: boolean;
@@ -29,7 +30,7 @@ export default function PerformanceGateModal({
 }: PerformanceGateModalProps) {
   useEffect(() => {
     if (isOpen && isLocked) {
-      console.log("[GA4-ready]", "performance_gate_modal_shown", { estimateId });
+      trackEvent("performance_gate_modal_shown", { estimateId });
     }
   }, [isOpen, isLocked, estimateId]);
 
@@ -84,7 +85,7 @@ export default function PerformanceGateModal({
             <button
               type="button"
               onClick={() => {
-                console.log("[GA4-ready]", "performance_gate_register_redirect", { estimateId });
+                trackEvent("performance_gate_register_redirect", { estimateId });
                 onGoRegister();
               }}
               className="mt-4 inline-flex items-center rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"

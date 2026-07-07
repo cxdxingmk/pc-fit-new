@@ -1,3 +1,6 @@
+import { getAllGpus } from "../../src/utils/hardwareLookup";
+import { buildAdditionalGpus } from "../lib/hardwareScoring";
+
 export interface GPU {
   id: string;
 
@@ -26,7 +29,9 @@ export interface GPU {
   priceTier: "budget" | "mid" | "high" | "enthusiast";
 }
 
-export const gpus: GPU[] = [
+// 수작업으로 큐레이션된 앵커 데이터. gameScore/workScore/aiScore/priceTier는 여기서만 수동 유지하고,
+// 아래 additionalGpus는 이 배열을 학습 앵커로 삼아 점수를 추정한다.
+const curatedGpus: GPU[] = [
   {
     id: "rtx4070-super",
     name: "GeForce RTX 4070 SUPER",
@@ -1018,3 +1023,9 @@ export const gpus: GPU[] = [
     priceTier: "high",
   },
 ];
+
+// src/constants/hardwareData.ts(물리 스펙 전용 마스터)에서 curatedGpus에 없는 모델만 골라
+// PCIe/메모리 타입/점수 등을 추정해 합친다.
+const additionalGpus: GPU[] = buildAdditionalGpus(curatedGpus, getAllGpus());
+
+export const gpus: GPU[] = [...curatedGpus, ...additionalGpus];

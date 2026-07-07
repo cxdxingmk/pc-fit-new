@@ -1,3 +1,13 @@
+export type PurposeType =
+  | "gaming"
+  | "work"
+  | "video"
+  | "stream"
+  | "ai"
+  | "dev"
+  | "cad"
+  | "etc";
+
 export type CpuBrand = "AMD" | "Intel";
 export type GpuBrand = "NVIDIA" | "AMD" | "Intel";
 export type RamDdr = "DDR4" | "DDR5";
