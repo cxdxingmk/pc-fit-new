@@ -1,3 +1,5 @@
+import type { CompatibilityWarning } from "../lib/compatibility";
+
 export type PurposeLabel =
   | "game"
   | "work"
@@ -72,7 +74,7 @@ export type RecommendationResult = {
   parts: RecommendationPart[];
   compatibilityScore: number;
   compatibilityDetails: string[];
-  warnings: string[];
+  warnings: CompatibilityWarning[];
   finalScore: number;
   reason: string[];
 };

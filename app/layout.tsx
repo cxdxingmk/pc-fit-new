@@ -31,18 +31,28 @@ export default function RootLayout({
   return (
     <html
       lang="ko"
-      className={`${geistSans.variable} ${geistMono.variable}`}
+      className={`dark ${geistSans.variable} ${geistMono.variable}`}
     >
-      <body className="min-h-screen bg-slate-950">
+      <head>
+        <link
+          rel="stylesheet"
+          as="style"
+          crossOrigin="anonymous"
+          href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css"
+        />
+      </head>
+      <body className="min-h-screen bg-ink text-white antialiased selection:bg-brand/30">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none fixed inset-x-0 top-[-200px] mx-auto h-[480px] w-[720px] rounded-full bg-brand/10 blur-[120px]"
+        />
         <AuthProvider>
           <BuildProvider>
             <Header />
             {children}
-  
-  
           </BuildProvider>
         </AuthProvider>
-       </body>
+      </body>
     </html>
   );
 }

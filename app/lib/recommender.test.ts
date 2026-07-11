@@ -108,13 +108,24 @@ describe("recommend (integration)", () => {
     Power: { enabled: false, wattage: "" as const },
   };
 
-  it("returns at most 3 results sorted by descending finalScore", () => {
+  it("returns at most 3 results, with the balanced (first) slot holding the pool's best finalScore", () => {
+    // TOP1/2/3은 이제 [균형 최적, 가성비 추천, 최고성능 지향] 세 가지 다른 목적함수로 뽑히므로
+    // (recommender.ts의 selectTopByStrategy 참고) 2번째/3번째 슬롯끼리는 finalScore가 엄격히
+    // 내림차순일 필요가 없다 — 가성비 전략이 저가/저점수 조합을, 최고성능 전략이 그보다 점수는
+    // 높지만 예산 배율 때문에 최종 finalScore가 다르게 나올 수 있어 순서가 뒤바뀔 수 있음.
+    // 다만 균형 전략(1번째)은 제약 없이 풀 전체에서 뽑히므로 항상 나머지보다 finalScore가 높거나 같다.
     const results = recommend({ 1: ["게임"], 3: ["200~300만원"] }, existingParts, "none");
     expect(results.length).toBeGreaterThan(0);
     expect(results.length).toBeLessThanOrEqual(3);
-    for (let i = 1; i < results.length; i++) {
-      expect(results[i].finalScore).toBeLessThanOrEqual(results[i - 1].finalScore);
+    for (const result of results.slice(1)) {
+      expect(result.finalScore).toBeLessThanOrEqual(results[0].finalScore);
     }
+  });
+
+  it("diversifies the CPU across TOP1/2/3 instead of collapsing onto a single dominant model", () => {
+    const results = recommend({ 1: ["게임"], 3: ["200~300만원"] }, existingParts, "none");
+    const cpuIds = results.map((r) => r.cpu);
+    expect(new Set(cpuIds).size).toBe(cpuIds.length);
   });
 
   it("only returns candidates that already passed the >=70 compatibility gate", () => {

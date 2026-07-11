@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { cpus } from "../database/cpu";
 import { gpus } from "../database/gpu";
 import { rams } from "../database/ram";
@@ -11,30 +11,74 @@ import type { GPU } from "../database/gpu";
 import type { RAM } from "../database/ram";
 import type { SSD } from "../database/ssd";
 import type { MotherBoard } from "../database/motherboard";
-import { getMyPcScore, getGrade, getDescription } from "../lib/myPc";
+import { getMyPcScore, getGrade, getMyPcWorkloadScores } from "../lib/myPc";
+import { evaluateAllGames, type Resolution as DisplayResolution, type RefreshRate } from "../lib/displayMatch";
 import type { UserSavedPc } from "../types/hardware";
 import { simulatePcPerformance } from "../lib/simulator";
 import { derivePartSeries } from "../lib/derivePartSeries";
+import { readJsonFromStorage } from "../lib/localStorageJson";
 import Card from "../../components/ui/Card";
 import Badge, { toneFromScore } from "../../components/ui/Badge";
-import ProgressBar from "../../components/ui/ProgressBar";
+import AccordionSection from "../../components/ui/AccordionSection";
 import CascadingPartSelect from "../../components/ui/CascadingPartSelect";
 import { useCascadingPartSelect } from "../../components/ui/useCascadingPartSelect";
+import DarkSelect from "../../components/ui/DarkSelect";
+import WorkloadExplorer from "../components/WorkloadExplorer";
+import QuoteReport, { type PerformanceScores, type QuoteParts } from "../components/QuoteReport";
+import { useAuth } from "../context/AuthContext";
+import {
+  PcSummaryChip,
+  DisplayControls,
+  GameCard,
+  overallVerdict,
+  useShareImage,
+  useSaveNudge,
+  ShareReportCard,
+  LoginNudgeModal,
+  type CategoryScore,
+  type ShareReportData,
+} from "../components/pcfit-ui";
 
-const SELECT_CLASSES =
-  "mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100";
-const INPUT_CLASSES = SELECT_CLASSES;
+const SPEC_STORAGE_KEY = "user_pc_spec";
+const REFRESH_RATE_OPTIONS: RefreshRate[] = [60, 144, 240];
+const MONITOR_OPTIONS = ["FHD · 60Hz", "FHD · 144Hz", "QHD · 144Hz", "QHD · 240Hz", "4K · 60Hz", "4K · 144Hz"];
+const CASE_OPTIONS = ["미들타워", "빅타워", "미니 ITX", "슬림형"];
+
+const MONITOR_BOTTLENECK_LABEL: Record<string, string> = {
+  NONE: "병목 없음",
+  REFRESH_CAP: "주사율 상한에 묶여 그 이상은 못 보여줘요",
+  RESOLUTION_LIMIT: "해상도 대비 모니터 스펙이 부족해요",
+};
 
 export default function MyPcClient() {
+  const { user, mockLogin } = useAuth();
   const [cpu, setCpu] = useState<CPU>(cpus[0]);
   const [gpu, setGpu] = useState<GPU>(gpus[0]);
   const [ram, setRam] = useState<RAM>(rams[0]);
   const [ssd, setSsd] = useState<SSD>(ssds[0]);
   const [motherboard, setMotherboard] = useState<MotherBoard>(motherboards[0]);
-  const [monitorResolution, setMonitorResolution] = useState<"FHD" | "QHD" | "4K">("QHD");
-  const [monitorRefreshRate, setMonitorRefreshRate] = useState(144);
+  const [psu, setPsu] = useState("750W");
+
+  // 내 모니터 기준(등록 화면에서 저장한 값이 있으면 그 값을 기본값으로 사용)
+  const [monitorRes, setMonitorRes] = useState<DisplayResolution>("QHD");
+  const [monitorHz, setMonitorHz] = useState<RefreshRate>(144);
+
+  useEffect(() => {
+    const saved = readJsonFromStorage<{ monitorResolution?: DisplayResolution; monitorRefreshRate?: number }>(SPEC_STORAGE_KEY);
+    if (saved?.monitorResolution) setMonitorRes(saved.monitorResolution);
+    if (saved?.monitorRefreshRate && REFRESH_RATE_OPTIONS.includes(saved.monitorRefreshRate as RefreshRate)) {
+      setMonitorHz(saved.monitorRefreshRate as RefreshRate);
+    }
+  }, []);
+
+  const [isSpecEditOpen, setIsSpecEditOpen] = useState(false);
+
+  // 용도별 성능 시뮬레이터 — 렌더 목표 해상도 + (선택) 다른 모니터 기준 오버라이드
   const [gameTitle, setGameTitle] = useState("Cyberpunk 2077");
-  const [resolution, setResolution] = useState<"FHD" | "QHD" | "4K">("4K");
+  const [resolution, setResolution] = useState<DisplayResolution>("4K");
+  const [useCustomMonitor, setUseCustomMonitor] = useState(false);
+  const [customMonitorRes, setCustomMonitorRes] = useState<DisplayResolution>("QHD");
+  const [customMonitorHz, setCustomMonitorHz] = useState<RefreshRate>(144);
 
   // 계층형 선택(브랜드 -> 시리즈/칩셋 -> 모델). register-pc의 CascadingPartSelect/useCascadingPartSelect를
   // 그대로 재사용한다 - 두 화면 모두 app/database/{cpu,gpu,motherboard}.ts를 원본으로 쓰므로 안전하게 통합된다.
@@ -64,10 +108,11 @@ export default function MyPcClient() {
 
   const ramFieldId = useId();
   const ssdFieldId = useId();
+  const psuFieldId = useId();
   const gameTitleFieldId = useId();
   const resolutionFieldId = useId();
-  const monitorResolutionFieldId = useId();
-  const monitorRefreshRateFieldId = useId();
+  const customMonitorResFieldId = useId();
+  const customMonitorHzFieldId = useId();
 
   const savedPc = useMemo<UserSavedPc>(
     () => ({
@@ -78,200 +123,295 @@ export default function MyPcClient() {
       ramDetail: ram.name,
       ssdCapacity: ssd.name,
       ssdDetail: ssd.name,
-      monitorResolution,
-      monitorRefreshRate,
+      monitorResolution: monitorRes,
+      monitorRefreshRate: monitorHz,
     }),
-    [cpu.id, gpu.id, ram.name, ssd.name, monitorRefreshRate, monitorResolution]
+    [cpu.id, gpu.id, ram.name, ssd.name, monitorRes, monitorHz]
+  );
+
+  const effectiveMonitorRes = useCustomMonitor ? customMonitorRes : monitorRes;
+  const effectiveMonitorHz = useCustomMonitor ? customMonitorHz : monitorHz;
+  const simulationPc = useMemo<UserSavedPc>(
+    () => ({ ...savedPc, monitorResolution: effectiveMonitorRes, monitorRefreshRate: effectiveMonitorHz }),
+    [savedPc, effectiveMonitorRes, effectiveMonitorHz]
   );
 
   const parts = useMemo(() => ({ cpu, gpu, ram, ssd, motherboard }), [cpu, gpu, ram, ssd, motherboard]);
 
   const score = useMemo(() => getMyPcScore(parts), [parts]);
-  const simulation = useMemo(() => simulatePcPerformance(savedPc, gameTitle, resolution), [gameTitle, resolution, savedPc]);
+  const simulation = useMemo(() => simulatePcPerformance(simulationPc, gameTitle, resolution), [gameTitle, resolution, simulationPc]);
+  const workloadScores = useMemo(() => getMyPcWorkloadScores({ cpu, gpu }), [cpu, gpu]);
+  const [openWorkloads, setOpenWorkloads] = useState(false);
+  const displayMatchRows = useMemo(
+    () => evaluateAllGames(workloadScores, monitorRes, monitorHz, gpu.vram),
+    [workloadScores, monitorRes, monitorHz, gpu.vram]
+  );
 
-  const overallTone = toneFromScore(score.totalScore);
+  const categories = useMemo<CategoryScore[]>(
+    () => [
+      { axis: "게임", score: score.gameScore },
+      { axis: "영상편집", score: score.workScore },
+      { axis: "AI 작업", score: score.aiScore },
+      { axis: "사무·일반", score: score.officeScore },
+    ],
+    [score]
+  );
+
+  const shareReport = useMemo<ShareReportData>(
+    () => ({
+      userName: user?.name,
+      overall: score.totalScore,
+      verdict: overallVerdict(score.totalScore).line,
+      categories,
+      specs: [
+        { label: "CPU", value: cpu.name },
+        { label: "GPU", value: gpu.name },
+        { label: "RAM", value: savedPc.ramCapacity },
+        { label: "모니터", value: `${monitorRes} / ${monitorHz}Hz` },
+      ],
+    }),
+    [user?.name, score.totalScore, categories, cpu.name, gpu.name, savedPc.ramCapacity, monitorRes, monitorHz]
+  );
+
+  // QuoteReport(견적서/성능 대시보드) 프레젠테이셔널 컴포넌트로 넘길 데이터 매핑.
+  // 필드명이 다른 부분만 여기서 맞춰준다 — 점수/견적 계산 로직 자체는 그대로 getMyPcScore 결과를 사용.
+  const quoteParts = useMemo<QuoteParts>(
+    () => ({
+      cpu: cpu.name,
+      gpu: gpu.name,
+      mainboard: motherboard.name,
+      ram: ram.name,
+      ssd: ssd.name,
+      psu,
+      hdd: null,
+    }),
+    [cpu.name, gpu.name, motherboard.name, ram.name, ssd.name, psu]
+  );
+
+  const performanceScores = useMemo<PerformanceScores>(
+    () => ({
+      total: score.totalScore,
+      gaming: score.gameScore,
+      office: score.officeScore,
+      video: score.workScore,
+      ai: score.aiScore,
+      summary: overallVerdict(score.totalScore).line,
+    }),
+    [score]
+  );
+
+  // 기존 "진단서 이미지로 저장" 로직(html2canvas 캡처 + 게스트 저장 넛지) 그대로 재사용 —
+  // 트리거하는 버튼 UI만 QuoteReport 내부의 "견적서 저장하기" 버튼으로 옮긴다.
+  const { cardRef: shareCardRef, save: saveShareImage, saving: isSavingShareImage } = useShareImage();
+  const { showNudge, closeNudge, trackSave } = useSaveNudge();
+  const handleQuoteSave = async () => {
+    await saveShareImage();
+    trackSave();
+  };
 
   return (
-    <div className="space-y-6">
-      {/* 히어로: 종합 등급/점수를 가장 크게, 3초 안에 스캔되도록 */}
-      <Card className="p-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <Badge tone={overallTone}>{getGrade(score.totalScore)}</Badge>
-            <p className="mt-3 text-3xl font-bold text-slate-900 dark:text-slate-50">{score.totalScore}점</p>
-            <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{getDescription("office", score.officeScore)}</p>
-          </div>
-          <ProgressBar value={score.totalScore} tone={overallTone} className="w-full sm:w-48" label="종합 성능 점수" />
-        </div>
-      </Card>
+    <div className="flex flex-col gap-6">
+      <PcSummaryChip
+        cpu={cpu.name}
+        gpu={gpu.name}
+        ram={savedPc.ramCapacity}
+        onEdit={() => setIsSpecEditOpen((prev) => !prev)}
+      />
 
-      {/* 부품 선택 */}
-      <Card className="p-4" muted>
-        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">부품 선택</h3>
-        <div className="mt-3 space-y-4">
-          <CascadingPartSelect title="CPU" state={{ ...cpuCascade, selectModel: handleCpuSelect }} />
-          <CascadingPartSelect title="GPU" state={{ ...gpuCascade, selectModel: handleGpuSelect }} />
+      {isSpecEditOpen && (
+        <Card className="p-4" muted>
+          <h3 className="text-sm font-semibold text-white/60">부품 선택</h3>
+          <div className="mt-3 space-y-4">
+            <CascadingPartSelect title="CPU" state={{ ...cpuCascade, selectModel: handleCpuSelect }} />
+            <CascadingPartSelect title="GPU" state={{ ...gpuCascade, selectModel: handleGpuSelect }} />
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <label htmlFor={ramFieldId} className="block text-xs font-medium text-slate-500 dark:text-slate-400">
-                RAM
-              </label>
-              <select
-                id={ramFieldId}
-                className={SELECT_CLASSES}
-                value={ram.id}
-                onChange={(event) => {
-                  const found = rams.find((item) => item.id === event.target.value);
-                  if (found) setRam(found);
-                }}
-              >
-                {rams.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label htmlFor={ramFieldId} className="block text-xs font-medium text-white/40">
+                  RAM
+                </label>
+                <div className="mt-1">
+                  <DarkSelect
+                    id={ramFieldId}
+                    value={ram.id}
+                    onChange={(event) => {
+                      const found = rams.find((item) => item.id === event.target.value);
+                      if (found) setRam(found);
+                    }}
+                  >
+                    {rams.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </DarkSelect>
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor={ssdFieldId} className="block text-xs font-medium text-white/40">
+                  SSD
+                </label>
+                <div className="mt-1">
+                  <DarkSelect
+                    id={ssdFieldId}
+                    value={ssd.id}
+                    onChange={(event) => {
+                      const found = ssds.find((item) => item.id === event.target.value);
+                      if (found) setSsd(found);
+                    }}
+                  >
+                    {ssds.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </DarkSelect>
+                </div>
+              </div>
             </div>
 
+            <CascadingPartSelect title="메인보드" groupLabel="칩셋" state={{ ...mbCascade, selectModel: handleMbSelect }} />
+
             <div>
-              <label htmlFor={ssdFieldId} className="block text-xs font-medium text-slate-500 dark:text-slate-400">
-                SSD
+              <label htmlFor={psuFieldId} className="block text-xs font-medium text-white/40">
+                파워 용량
               </label>
-              <select
-                id={ssdFieldId}
-                className={SELECT_CLASSES}
-                value={ssd.id}
-                onChange={(event) => {
-                  const found = ssds.find((item) => item.id === event.target.value);
-                  if (found) setSsd(found);
-                }}
-              >
-                {ssds.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
+              <input
+                id={psuFieldId}
+                value={psu}
+                onChange={(event) => setPsu(event.target.value)}
+                className="mt-1 block w-full rounded-xl bg-white/[0.04] px-4 py-3 text-sm text-white ring-1 ring-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+              />
             </div>
           </div>
+        </Card>
+      )}
 
-          <CascadingPartSelect title="메인보드" groupLabel="칩셋" state={{ ...mbCascade, selectModel: handleMbSelect }} />
+      <QuoteReport
+        userName={user?.name}
+        parts={quoteParts}
+        performance={performanceScores}
+        monitorOptions={MONITOR_OPTIONS}
+        caseOptions={CASE_OPTIONS}
+        saving={isSavingShareImage}
+        onSave={handleQuoteSave}
+      />
+      <ShareReportCard data={shareReport} innerRef={shareCardRef} />
+      <LoginNudgeModal open={showNudge} onClose={closeNudge} onLogin={mockLogin} />
+
+      <section className="rounded-3xl bg-surface p-8 shadow-card ring-1 ring-line">
+        <div className="mb-5 flex items-center justify-between">
+          <h2 className="text-sm font-bold text-white/60">내 모니터 기준으로 보기</h2>
+          <Badge tone={toneFromScore(score.totalScore)}>{getGrade(score.totalScore)}</Badge>
         </div>
-      </Card>
+        <DisplayControls res={monitorRes} hz={monitorHz} onRes={setMonitorRes} onHz={setMonitorHz} />
+      </section>
 
-      {/* 지표 그리드 */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <MetricCard emoji="🎮" title="게임 성능" score={score.gameScore} desc={getDescription("game", score.gameScore)} />
-        <MetricCard emoji="🎬" title="영상 편집" score={score.workScore} desc={getDescription("work", score.workScore)} />
-        <MetricCard emoji="🤖" title="AI 작업" score={score.aiScore} desc={getDescription("ai", score.aiScore)} />
-        <MetricCard emoji="💼" title="일반 작업" score={score.officeScore} desc={getDescription("office", score.officeScore)} />
-      </div>
+      <section className="grid grid-cols-3 gap-4">
+        {displayMatchRows.map((row) => (
+          <GameCard key={row.label} row={row} />
+        ))}
+      </section>
+
+      {/* 프로그램별 예상 성능 (게임 20 + 전문/AI 앱 20) */}
+      <AccordionSection title="🖥️ 프로그램별 예상 성능 (40종)" isOpen={openWorkloads} onToggle={() => setOpenWorkloads((prev) => !prev)}>
+        <WorkloadExplorer scores={workloadScores} />
+      </AccordionSection>
 
       {/* 용도별 성능 시뮬레이터 */}
-      <Card className="p-4">
-        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">🎮 용도별 성능 시뮬레이터</h3>
-        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <Card className="p-6">
+        <h3 className="text-sm font-semibold text-white/60">🎮 용도별 성능 시뮬레이터</h3>
+        <div className="mt-3 grid grid-cols-2 gap-3">
           <div>
-            <label htmlFor={gameTitleFieldId} className="block text-xs font-medium text-slate-500 dark:text-slate-400">
+            <label htmlFor={gameTitleFieldId} className="block text-xs font-medium text-white/40">
               게임 제목
             </label>
-            <input id={gameTitleFieldId} value={gameTitle} onChange={(event) => setGameTitle(event.target.value)} className={INPUT_CLASSES} />
-          </div>
-          <div>
-            <label htmlFor={resolutionFieldId} className="block text-xs font-medium text-slate-500 dark:text-slate-400">
-              해상도
-            </label>
-            <select
-              id={resolutionFieldId}
-              value={resolution}
-              onChange={(event) => setResolution(event.target.value as "FHD" | "QHD" | "4K")}
-              className={SELECT_CLASSES}
-            >
-              <option value="FHD">FHD</option>
-              <option value="QHD">QHD</option>
-              <option value="4K">4K</option>
-            </select>
-          </div>
-          <div>
-            <label htmlFor={monitorResolutionFieldId} className="block text-xs font-medium text-slate-500 dark:text-slate-400">
-              모니터 최대 해상도
-            </label>
-            <select
-              id={monitorResolutionFieldId}
-              value={monitorResolution}
-              onChange={(event) => setMonitorResolution(event.target.value as "FHD" | "QHD" | "4K")}
-              className={SELECT_CLASSES}
-            >
-              <option value="FHD">FHD</option>
-              <option value="QHD">QHD</option>
-              <option value="4K">4K</option>
-            </select>
-          </div>
-          <div>
-            <label htmlFor={monitorRefreshRateFieldId} className="block text-xs font-medium text-slate-500 dark:text-slate-400">
-              모니터 최대 주사율
-            </label>
             <input
-              id={monitorRefreshRateFieldId}
-              type="number"
-              min={60}
-              max={500}
-              value={monitorRefreshRate}
-              onChange={(event) => setMonitorRefreshRate(Number(event.target.value) || 60)}
-              className={INPUT_CLASSES}
+              id={gameTitleFieldId}
+              value={gameTitle}
+              onChange={(event) => setGameTitle(event.target.value)}
+              className="mt-1 block w-full rounded-xl bg-white/[0.04] px-4 py-3 text-sm text-white ring-1 ring-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
             />
+          </div>
+          <div>
+            <label htmlFor={resolutionFieldId} className="block text-xs font-medium text-white/40">
+              플레이 목표 해상도
+            </label>
+            <div className="mt-1">
+              <DarkSelect id={resolutionFieldId} value={resolution} onChange={(event) => setResolution(event.target.value as DisplayResolution)}>
+                <option value="FHD">FHD</option>
+                <option value="QHD">QHD</option>
+                <option value="4K">4K</option>
+              </DarkSelect>
+            </div>
           </div>
         </div>
 
-        <dl className="mt-4 divide-y divide-slate-200 rounded-lg border border-slate-200 bg-slate-50 px-4 dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900/50">
+        <button
+          type="button"
+          onClick={() => setUseCustomMonitor((prev) => !prev)}
+          className="mt-3 w-fit text-xs font-semibold text-brand-soft transition-colors hover:text-brand"
+        >
+          {useCustomMonitor ? "내 모니터 기준으로 돌아가기" : `다른 모니터 기준으로 보기 (현재: ${monitorRes} / ${monitorHz}Hz)`}
+        </button>
+
+        {useCustomMonitor && (
+          <div className="mt-3 grid grid-cols-2 gap-3 rounded-xl bg-white/[0.03] p-3 ring-1 ring-line">
+            <div>
+              <label htmlFor={customMonitorResFieldId} className="block text-xs font-medium text-white/40">
+                모니터 해상도
+              </label>
+              <div className="mt-1">
+                <DarkSelect
+                  id={customMonitorResFieldId}
+                  value={customMonitorRes}
+                  onChange={(event) => setCustomMonitorRes(event.target.value as DisplayResolution)}
+                >
+                  <option value="FHD">FHD</option>
+                  <option value="QHD">QHD</option>
+                  <option value="4K">4K</option>
+                </DarkSelect>
+              </div>
+            </div>
+            <div>
+              <label htmlFor={customMonitorHzFieldId} className="block text-xs font-medium text-white/40">
+                모니터 주사율
+              </label>
+              <div className="mt-1">
+                <DarkSelect
+                  id={customMonitorHzFieldId}
+                  value={customMonitorHz}
+                  onChange={(event) => setCustomMonitorHz(Number(event.target.value) as RefreshRate)}
+                >
+                  {REFRESH_RATE_OPTIONS.map((hz) => (
+                    <option key={hz} value={hz}>
+                      {hz}Hz
+                    </option>
+                  ))}
+                </DarkSelect>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <dl className="mt-4 divide-y divide-white/[0.06] rounded-xl bg-white/[0.03] px-4 ring-1 ring-line">
           <DetailRow label="렌더링 FPS" value={simulation.renderedFps} />
           <DetailRow label="예상 평균 FPS" value={simulation.averageFps} />
           <DetailRow label="1% 저하 프레임" value={simulation.onePercentLowFps} />
-          <DetailRow label="모니터 병목" value={simulation.monitorBottleneck} />
+          <DetailRow label="모니터 병목" value={MONITOR_BOTTLENECK_LABEL[simulation.monitorBottleneck]} />
           <DetailRow label="업스케일 권장" value={simulation.recommendUpscaling ? "예" : "아니오"} />
-        </dl>
-      </Card>
-
-      {/* 상세 등록 정보 */}
-      <Card className="p-4">
-        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">🧠 내 PC 등록 정보</h3>
-        <dl className="mt-3 divide-y divide-slate-200 dark:divide-slate-800">
-          <DetailRow label="CPU" value={cpu.name} />
-          <DetailRow label="GPU" value={gpu.name} />
-          <DetailRow label="메인보드" value={motherboard.chipset} />
-          <DetailRow label="RAM" value={savedPc.ramCapacity} />
-          <DetailRow label="SSD" value={savedPc.ssdCapacity} />
-          <DetailRow label="모니터" value={`${savedPc.monitorResolution} / ${savedPc.monitorRefreshRate}Hz`} />
         </dl>
       </Card>
     </div>
   );
 }
 
-function MetricCard({ emoji, title, score, desc }: { emoji: string; title: string; score: number; desc: string }) {
-  const tone = toneFromScore(score);
-
-  return (
-    <Card className="p-4">
-      <div className="flex items-center gap-2">
-        <span className="text-xl" aria-hidden="true">
-          {emoji}
-        </span>
-        <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{title}</p>
-      </div>
-      <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-slate-50">{score}</p>
-      <ProgressBar value={score} tone={tone} className="mt-2" label={`${title} 점수`} />
-      <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">{desc}</p>
-    </Card>
-  );
-}
-
 function DetailRow({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="flex items-center justify-between gap-4 py-2 text-sm">
-      <dt className="shrink-0 text-slate-500 dark:text-slate-400">{label}</dt>
-      <dd className="truncate text-right font-medium text-slate-900 dark:text-slate-100">{value}</dd>
+    <div className="flex items-center justify-between gap-4 py-2.5 text-sm">
+      <dt className="shrink-0 text-white/40">{label}</dt>
+      <dd className="truncate text-right font-medium text-white/85">{value}</dd>
     </div>
   );
 }

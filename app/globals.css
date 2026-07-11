@@ -1,26 +1,152 @@
 @import "tailwindcss";
 
+/* 다크 전용 서비스: OS 라이트모드와 무관하게 dark: 유틸리티가 항상 적용되도록
+   미디어쿼리 전략 대신 클래스 전략으로 전환한다 (html에 .dark 고정 부여). */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #0a0a0a;
+  --foreground: #ededed;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: "Pretendard Variable", Pretendard, var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono);
+
+  /* PC FIT 다크 차콜 + 토스 블루 디자인 토큰 */
+  --color-ink: #0a0b0f;
+  --color-ink-soft: #101218;
+  --color-surface: #14161d;
+  --color-surface-raise: #1a1d26;
+  --color-line: rgba(255, 255, 255, 0.06);
+  --color-brand: #4c7dff;
+  --color-brand-soft: #6e96ff;
+  --color-brand-dim: rgba(76, 125, 255, 0.12);
+  --color-good: #30d158;
+  --color-warn: #ffb020;
+  --color-bad: #ff453a;
+
+  --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 8px 32px rgba(0, 0, 0, 0.35);
+  --shadow-glow: 0 0 24px rgba(76, 125, 255, 0.25);
+
+  --animate-shimmer: shimmer 1.8s infinite;
+  --animate-shake: shake 0.4s ease-in-out;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20%,
+  60% {
+    transform: translateX(-6px);
+  }
+  40%,
+  80% {
+    transform: translateX(6px);
   }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* 다크 테마 전용 서비스인데 네이티브 <select>의 옵션 팝업 목록은 브라우저가 OS 라이트 팔레트로
+   그리는 경우가 많아(select 자체엔 다크 배경을 줘도 옵션 목록엔 상속되지 않음) 흰 배경에 밝은
+   글씨가 겹쳐 안 보이는 문제가 생긴다. RAM/CPU/GPU/모니터 등 select를 쓰는 모든 곳에 개별
+   수정 대신 여기 한 곳에서 전역 적용한다. color-scheme으로 UA 자체를 다크로 전환하고,
+   option에도 명시적으로 배경/글자색을 지정해 브라우저별 차이(Firefox는 특히 background만으론
+   부족)를 함께 방어한다. */
+select {
+  color-scheme: dark;
+}
+
+select option {
+  background-color: var(--color-ink-soft);
+  color: var(--foreground);
+}
+
+select option:checked,
+select option:hover {
+  background-color: var(--color-surface-raise);
+}
+
+/* 듀얼 레인지 슬라이더(DualRangeSlider) — input[type=range] 두 개를 겹쳐 그리는 방식이라
+   트랙 중간을 클릭했을 때 엉뚱한 손잡이가 잡히지 않도록 input 자체는 pointer-events:none으로
+   투명하게 두고, 실제 손잡이(원형 thumb)만 pointer-events:auto로 열어둔다. */
+.dual-range-input {
+  pointer-events: none;
+  height: 2rem;
+  margin: 0;
+}
+
+.dual-range-input::-webkit-slider-runnable-track {
+  background: transparent;
+}
+
+.dual-range-input::-moz-range-track {
+  background: transparent;
+}
+
+.dual-range-input::-webkit-slider-thumb {
+  pointer-events: auto;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 9999px;
+  background: var(--color-brand);
+  border: 3px solid white;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.dual-range-input::-moz-range-thumb {
+  pointer-events: auto;
+  width: 20px;
+  height: 20px;
+  border-radius: 9999px;
+  background: var(--color-brand);
+  border: 3px solid white;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.dual-range-input:hover::-webkit-slider-thumb,
+.dual-range-input:focus-visible::-webkit-slider-thumb {
+  transform: scale(1.15);
+}
+
+.dual-range-input:hover::-moz-range-thumb,
+.dual-range-input:focus-visible::-moz-range-thumb {
+  transform: scale(1.15);
+}
+
+.dual-range-input:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 4px var(--color-brand-dim);
+}
+
+.dual-range-input:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 4px var(--color-brand-dim);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

@@ -1,9 +1,10 @@
 "use client";
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { UserProfile } from "../types/user";
 import { getStoredUserProfile } from "../lib/userProfileStorage";
+import { SectionCard, PrimaryButton } from "../components/pcfit-ui";
 
 type InquiryType = "bug" | "feature" | "general" | "account";
 type InquiryStatus = "received" | "waiting" | "done" | "queued";
@@ -46,6 +47,13 @@ const INQUIRY_LABELS: Record<InquiryType, string> = {
   account: "계정/결제",
 };
 
+const FAQ_CHIPS: { question: string; type: InquiryType }[] = [
+  { question: "진단 점수가 이상해요", type: "bug" },
+  { question: "내 부품이 목록에 없어요", type: "feature" },
+  { question: "자동 등록이 안 돼요", type: "bug" },
+  { question: "추천 견적을 바꾸고 싶어요", type: "general" },
+];
+
 export default function SupportPage() {
   const [form, setForm] = useState<FormState>({
     title: "",
@@ -57,23 +65,13 @@ export default function SupportPage() {
   const [submissions, setSubmissions] = useState<SupportSubmission[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-
-  const selectedTypeLabel = useMemo(() => INQUIRY_LABELS[form.type], [form.type]);
+  const contentFieldRef = useRef<HTMLTextAreaElement | null>(null);
 
   const statusMeta = useMemo(
     () => ({
-      received: {
-        label: "접수 완료",
-        className: "bg-slate-100 text-slate-600",
-      },
-      waiting: {
-        label: "답변 대기",
-        className: "bg-slate-100 text-slate-600",
-      },
-      done: {
-        label: "답변 완료",
-        className: "bg-blue-50 text-blue-600",
-      },
+      received: { label: "접수 완료", className: "bg-white/[0.06] text-white/60" },
+      waiting: { label: "답변 대기", className: "bg-white/[0.06] text-white/60" },
+      done: { label: "답변 완료", className: "bg-good/10 text-good" },
     }),
     []
   );
@@ -174,125 +172,133 @@ export default function SupportPage() {
     setIsSubmitting(false);
   }
 
+  const handleFaqChipClick = (chip: (typeof FAQ_CHIPS)[number]) => {
+    setForm((prev) => ({ ...prev, title: chip.question, type: chip.type }));
+    contentFieldRef.current?.focus();
+  };
+
   return (
-    <main className="min-h-screen bg-slate-50 px-4 py-10 text-slate-900 sm:px-6 lg:px-8">
-      <div className="mx-auto w-full max-w-6xl space-y-6">
-        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-          <p className="text-sm font-semibold text-blue-600">고객센터</p>
-          <h1 className="mt-2 text-2xl font-bold text-slate-900">문의하기</h1>
-          <p className="mt-2 text-sm text-slate-600">문의 등록과 내 문의 내역을 한 화면에서 확인할 수 있습니다.</p>
-        </section>
+    <main className="min-h-screen bg-ink px-6 py-12 text-white">
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
+        <header className="px-1">
+          <h1 className="text-3xl font-extrabold text-white">무엇을 도와드릴까요?</h1>
+          <p className="mt-2 text-sm text-white/50">자주 묻는 질문을 먼저 눌러보세요. 딱 맞는 답이 없으면 아래에 남겨주시면 돼요.</p>
+        </header>
 
-        <section className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
-          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-            <div className="mb-6">
-              <h2 className="text-lg font-semibold text-slate-900">새로운 문의하기</h2>
-              <p className="mt-2 text-sm text-slate-600">현재 선택된 카테고리: {selectedTypeLabel}</p>
-            </div>
+        {/* FAQ 칩 — 문의량의 절반은 여기서 해소 */}
+        <div className="flex flex-wrap gap-2">
+          {FAQ_CHIPS.map((chip) => (
+            <button
+              key={chip.question}
+              type="button"
+              onClick={() => handleFaqChipClick(chip)}
+              className="rounded-full bg-white/[0.04] px-4 py-2 text-sm font-medium text-white/70 ring-1 ring-line transition-colors hover:bg-brand-dim hover:text-brand-soft hover:ring-brand/30"
+            >
+              {chip.question}
+            </button>
+          ))}
+        </div>
 
-            <form onSubmit={handleSubmit} className="space-y-5" noValidate>
-              <div className="space-y-2">
-                <label htmlFor="title" className="text-sm font-medium text-slate-900">
-                  제목
-                </label>
-                <input
-                  id="title"
-                  value={form.title}
-                  onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
-                  placeholder="예: 추천 결과 페이지가 느려요"
-                  className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-600"
-                />
-                {errors.type ? <p className="text-sm text-rose-500">{errors.type}</p> : null}
-              </div>
-
-              <div className="space-y-2">
-                <label htmlFor="type" className="text-sm font-medium text-slate-900">
-                  카테고리
-                </label>
-                <select
-                  id="type"
-                  value={form.type}
-                  onChange={(event) => {
-                    const nextType = event.target.value as InquiryType;
-                    setForm((prev) => ({ ...prev, type: nextType }));
-                  }}
-                  className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-600"
-                >
-                  <option value="bug">오류/버그</option>
-                  <option value="feature">기능 제안</option>
-                  <option value="general">일반 문의</option>
-                  <option value="account">계정/결제</option>
-                </select>
-              </div>
-
-              <div className="space-y-2">
-                <label htmlFor="content" className="text-sm font-medium text-slate-900">
-                  내용
-                </label>
-                <textarea
-                  id="content"
-                  value={form.content}
-                  onChange={(event) => {
-                    setForm((prev) => ({ ...prev, content: event.target.value }));
-                  }}
-                  placeholder="문제 상황, 기대 동작, 재현 방법 등을 입력해 주세요."
-                  rows={7}
-                  className="w-full resize-none rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-blue-600"
-                  aria-invalid={Boolean(errors.content)}
-                />
-                {errors.content ? <p className="text-sm text-rose-500">{errors.content}</p> : null}
-              </div>
-
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="w-full rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400"
-              >
-                {isSubmitting ? "문의 등록 중..." : "문의 등록"}
-              </button>
-              <p className="text-xs text-slate-400">문의 접수 시 개인정보 처리방침에 동의한 것으로 간주됩니다.</p>
-            </form>
+        <SectionCard className="flex flex-col gap-5">
+          <div>
+            <h2 className="text-[15px] font-bold text-white">새로운 문의하기</h2>
+            <p className="mt-1 text-xs text-white/40">현재 선택된 카테고리: {INQUIRY_LABELS[form.type]}</p>
           </div>
 
-          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-            <div className="mb-6 flex items-center justify-between gap-2">
-              <h2 className="text-lg font-semibold text-slate-900">내가 접수한 문의 내역</h2>
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-                총 {normalizedSubmissions.length}건
-              </span>
+          <form onSubmit={handleSubmit} className="flex flex-col gap-5" noValidate>
+            <div className="flex flex-col gap-2">
+              <label className="text-xs font-semibold text-white/40">어떤 문의인가요?</label>
+              <div className="flex flex-wrap gap-2">
+                {(Object.keys(INQUIRY_LABELS) as InquiryType[]).map((type) => (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => setForm((prev) => ({ ...prev, type }))}
+                    className={`rounded-full px-4 py-2 text-sm font-semibold transition-all ${
+                      form.type === type ? "bg-brand text-white shadow-glow" : "bg-white/[0.04] text-white/50 ring-1 ring-line hover:text-white/80"
+                    }`}
+                  >
+                    {INQUIRY_LABELS[type]}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            {normalizedSubmissions.length === 0 ? (
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-center">
-                <p className="text-sm text-slate-600">아직 접수한 문의가 없습니다.</p>
-              </div>
-            ) : (
-              <ul className="space-y-3">
-                {normalizedSubmissions.map((item) => {
-                  const status = statusMeta[item.status];
-                  return (
-                    <li key={item.id} className="rounded-2xl border border-slate-200 bg-white p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-semibold text-slate-900">{item.title || "제목 없음"}</p>
-                          <p className="mt-1 text-xs text-slate-500">{INQUIRY_LABELS[item.type]} · {new Date(item.createdAt).toLocaleString("ko-KR")}</p>
-                        </div>
-                        <span className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${status.className}`}>
-                          {status.label}
-                        </span>
+            <div className="flex flex-col gap-2">
+              <label htmlFor="title" className="text-xs font-semibold text-white/40">
+                제목
+              </label>
+              <input
+                id="title"
+                value={form.title}
+                onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
+                placeholder="예: 추천 결과 페이지가 느려요"
+                className="rounded-2xl bg-white/[0.04] px-4 py-3.5 text-sm text-white placeholder:text-white/25 ring-1 ring-line outline-none transition-shadow focus:ring-2 focus:ring-brand/60"
+              />
+              {errors.type ? <p className="text-sm text-bad">{errors.type}</p> : null}
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label htmlFor="content" className="text-xs font-semibold text-white/40">
+                내용
+              </label>
+              <textarea
+                id="content"
+                ref={contentFieldRef}
+                value={form.content}
+                onChange={(event) => setForm((prev) => ({ ...prev, content: event.target.value }))}
+                placeholder="어떤 상황이었는지 편하게 적어주세요. 스크린샷 설명도 좋아요."
+                rows={6}
+                className="resize-none rounded-2xl bg-white/[0.04] px-4 py-3.5 text-sm text-white placeholder:text-white/25 ring-1 ring-line outline-none transition-shadow focus:ring-2 focus:ring-brand/60"
+                aria-invalid={Boolean(errors.content)}
+              />
+              {errors.content ? <p className="text-sm text-bad">{errors.content}</p> : null}
+            </div>
+
+            <PrimaryButton full type="submit" disabled={isSubmitting}>
+              {isSubmitting ? "문의 등록 중..." : "문의 보내기"}
+            </PrimaryButton>
+            <p className="text-center text-xs text-white/30">보통 하루 안에 이메일로 답변드려요.</p>
+          </form>
+        </SectionCard>
+
+        <SectionCard>
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-[15px] font-bold text-white">내 문의 내역</h2>
+            <span className="rounded-full bg-white/[0.05] px-2.5 py-1 text-xs font-semibold text-white/50">총 {normalizedSubmissions.length}건</span>
+          </div>
+
+          {normalizedSubmissions.length === 0 ? (
+            <div className="rounded-2xl bg-white/[0.02] py-10 text-center ring-1 ring-line">
+              <p className="text-sm text-white/40">아직 남긴 문의가 없어요.</p>
+              <p className="mt-1 text-xs text-white/25">궁금한 게 생기면 언제든 편하게 남겨주세요.</p>
+            </div>
+          ) : (
+            <ul className="flex flex-col gap-3">
+              {normalizedSubmissions.map((item) => {
+                const status = statusMeta[item.status];
+                return (
+                  <li key={item.id} className="rounded-2xl bg-white/[0.03] p-4 ring-1 ring-line">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-white/90">{item.title || "제목 없음"}</p>
+                        <p className="mt-1 text-xs text-white/40">
+                          {INQUIRY_LABELS[item.type]} · {new Date(item.createdAt).toLocaleString("ko-KR")}
+                        </p>
                       </div>
-                      <p className="mt-3 text-sm leading-6 text-slate-600">{item.content}</p>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-        </section>
+                      <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${status.className}`}>{status.label}</span>
+                    </div>
+                    <p className="mt-3 text-sm leading-6 text-white/60">{item.content}</p>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </SectionCard>
       </div>
 
       {toastMessage ? (
-        <div className="pointer-events-none fixed bottom-6 left-1/2 z-50 w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 rounded-2xl border border-blue-200 bg-white px-5 py-4 text-sm font-medium text-blue-700 shadow-xl">
+        <div className="pointer-events-none fixed bottom-6 left-1/2 z-50 w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 rounded-2xl bg-surface px-5 py-4 text-sm font-medium text-brand-soft shadow-card ring-1 ring-brand/25">
           {toastMessage}
         </div>
       ) : null}

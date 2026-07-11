@@ -18,6 +18,9 @@ export type MotherboardBrand = "ASUS" | "MSI" | "GIGABYTE" | "ASRock";
 export type PsuWattageOption = "500W" | "600W" | "650W" | "700W" | "750W" | "800W" | "850W" | "1000W" | "1000W 이상";
 export type CaseOwnershipOption = "owned" | "none";
 
+/** 예산 하한/상한 — 고정 구간 버튼과 슬라이더 둘 다 최종적으로 이 형태로 귀결된다. */
+export type BudgetRange = { min: number; max: number };
+
 export type CpuPartState = {
   enabled: boolean;
   brand: CpuBrand | "";

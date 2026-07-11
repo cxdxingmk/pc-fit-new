@@ -8,71 +8,98 @@ import { cpus } from "../database/cpu";
 import { gpus } from "../database/gpu";
 import { getSavedPc } from "../lib/savedPc";
 import { trackEvent } from "../lib/analytics";
+import { SectionCard, PrimaryButton, FX } from "../components/pcfit-ui";
+import RecommendationReasons from "../components/quote/RecommendationReasons";
 
 import CompatibilityCard from "./components/CompatibilityCard";
 import PerformanceGateModal from "./components/PerformanceGateModal";
 
 type ResultItem = ReturnType<typeof recommend>[number];
 
+const STRATEGY_TAGS = ["균형 최적", "가성비 추천", "최고성능 지향"] as const;
+const SUMMARY_PART_KEYS = ["cpu", "gpu", "ram", "ssd"] as const;
+const SUMMARY_PART_LABELS: Record<(typeof SUMMARY_PART_KEYS)[number], string> = {
+  cpu: "CPU",
+  gpu: "GPU",
+  ram: "RAM",
+  ssd: "SSD",
+};
+
+/** TOP1~3 세트를 서로 비교해 "왜 이 견적이 다른가"를 보여주는 diff 플래그를 계산한다.
+ *  세 세트 모두 같은 부품이면 굳이 강조할 필요가 없고, 하나라도 다르면 그 부품이 견적 차이의 핵심이다. */
+function computePartDiffFlags(items: ResultItem[]): Record<(typeof SUMMARY_PART_KEYS)[number], boolean> {
+  const flags = {} as Record<(typeof SUMMARY_PART_KEYS)[number], boolean>;
+  for (const key of SUMMARY_PART_KEYS) {
+    const values = new Set(items.map((item) => item[key]));
+    flags[key] = values.size > 1;
+  }
+  return flags;
+}
+
 function EstimateAccordionCard({
   item,
   index,
+  diffFlags,
   isOpen,
   onToggle,
+  reasonsOpen,
+  onToggleReasons,
   onOpenPerformance,
 }: {
   item: ResultItem;
   index: number;
+  diffFlags: Record<(typeof SUMMARY_PART_KEYS)[number], boolean>;
   isOpen: boolean;
   onToggle: () => void;
+  reasonsOpen: boolean;
+  onToggleReasons: () => void;
   onOpenPerformance: () => void;
 }) {
-  const [isReasonOpen, setIsReasonOpen] = useState(false);
-  const isVisible = isOpen;
-  const strategyTag = index === 0 ? "균형 최적" : index === 1 ? "가성비 추천" : "최고성능 지향";
+  const featured = index === 0;
+  const strategyTag = STRATEGY_TAGS[index] ?? STRATEGY_TAGS[STRATEGY_TAGS.length - 1];
   const performanceParts = item.parts.filter((part) => !/케이스|case/i.test(part.label));
 
   return (
-    <article className="flex flex-col rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+    <article className={`flex flex-col gap-5 rounded-3xl bg-surface p-7 shadow-card ${FX.card} ${featured ? "ring-2 ring-brand/60 shadow-glow" : "ring-1 ring-line"}`}>
+      <header className="flex items-center justify-between">
+        <span className="text-xs font-bold tracking-wider text-white/35">TOP {index + 1}</span>
+        <span className={`rounded-full px-3 py-1 text-xs font-bold ${featured ? "bg-brand text-white" : "bg-white/[0.05] text-white/60"}`}>
+          {strategyTag}
+        </span>
+      </header>
+
+      <div>
+        <p className="text-xs font-medium text-white/35">총 금액</p>
+        <p className="mt-1 text-4xl font-extrabold tabular-nums tracking-tight text-white">
+          {item.totalPrice.toLocaleString()}
+          <span className="ml-1 text-lg font-bold text-white/40">원</span>
+        </p>
+      </div>
+
+      <dl className="flex flex-col gap-2 rounded-2xl bg-white/[0.03] p-4 ring-1 ring-line">
+        {SUMMARY_PART_KEYS.map((key) => (
+          <div key={key} className="flex items-center justify-between gap-3 text-sm">
+            <dt className="shrink-0 text-white/35">{SUMMARY_PART_LABELS[key]}</dt>
+            <dd className={`truncate text-right font-semibold ${diffFlags[key] ? "text-brand-soft" : "text-white/80"}`}>
+              {item[key]}
+              {diffFlags[key] && <span className="ml-1.5 text-[10px] font-bold text-brand-soft/70">차이</span>}
+            </dd>
+          </div>
+        ))}
+      </dl>
+
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">TOP {index + 1}</p>
-          <h2 className="mt-1 text-lg font-bold text-slate-900">완성형 견적 세트</h2>
-        </div>
-        <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">{strategyTag}</span>
-      </div>
-
-      <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-5">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">총금액</p>
-        <p className="mt-1 text-3xl font-extrabold tracking-tight text-slate-900">{item.totalPrice.toLocaleString()}원</p>
-        <div className="mt-3 space-y-1 text-sm text-slate-700">
-          <p>
-            <span className="font-semibold text-slate-900">CPU</span>: {item.cpu}
-          </p>
-          <p>
-            <span className="font-semibold text-slate-900">GPU</span>: {item.gpu}
-          </p>
-          <p>
-            <span className="font-semibold text-slate-900">RAM</span>: {item.ram}
-          </p>
-          <p>
-            <span className="font-semibold text-slate-900">SSD</span>: {item.ssd}
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-4 flex items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={onToggle}
-            className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 transition-all hover:bg-slate-200"
-            aria-expanded={isVisible}
+            className="inline-flex items-center gap-2 rounded-full bg-white/[0.05] px-4 py-2 text-sm font-semibold text-white/70 ring-1 ring-line transition-all hover:bg-white/[0.08]"
+            aria-expanded={isOpen}
             aria-controls={`estimate-detail-${item.id}`}
           >
-            {isVisible ? "견적 닫기" : "견적 보기"}
+            {isOpen ? "견적 닫기" : "견적 보기"}
             <svg
-              className={`h-4 w-4 transition-transform duration-300 ease-in-out ${isVisible ? "rotate-180" : "rotate-0"}`}
+              className={`h-4 w-4 transition-transform duration-300 ease-in-out ${isOpen ? "rotate-180" : "rotate-0"}`}
               viewBox="0 0 20 20"
               fill="currentColor"
               aria-hidden="true"
@@ -85,63 +112,39 @@ function EstimateAccordionCard({
             </svg>
           </button>
 
-          <button
-            type="button"
-            onClick={() => setIsReasonOpen((prev) => !prev)}
-            className="inline-flex items-center rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:border-slate-400 hover:bg-slate-50"
-            aria-expanded={isReasonOpen}
-            aria-controls={`estimate-reason-${item.id}`}
-          >
-            추천 이유
-          </button>
+          <RecommendationReasons reasons={item.reason} open={reasonsOpen} onToggle={onToggleReasons} className="contents" />
         </div>
 
-        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500">종합 {item.finalScore.toFixed(1)}점</span>
-      </div>
-
-      <div
-        id={`estimate-reason-${item.id}`}
-        className={`overflow-hidden transition-all duration-300 ease-in-out ${isReasonOpen ? "mt-3 max-h-56 opacity-100" : "max-h-0 opacity-0"}`}
-      >
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">추천 이유</p>
-          <ul className="mt-2 space-y-2 text-sm leading-6 text-slate-700">
-            {item.reason.map((line) => (
-              <li key={line} className="rounded-xl bg-white px-3 py-2">
-                {line}
-              </li>
-            ))}
-          </ul>
-        </div>
+        <span className="shrink-0 pt-2 text-xs font-semibold text-white/40">종합 {item.finalScore.toFixed(1)}점</span>
       </div>
 
       <div
         id={`estimate-detail-${item.id}`}
-        className={`transition-all duration-300 ease-in-out ${isVisible ? "mt-4 max-h-[1200px] overflow-hidden opacity-100" : "max-h-0 overflow-hidden opacity-0"}`}
+        className={`transition-all duration-300 ease-in-out ${isOpen ? "max-h-[1200px] overflow-hidden opacity-100" : "max-h-0 overflow-hidden opacity-0"}`}
       >
-        <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-          <CompatibilityCard score={item.compatibilityScore} warnings={item.warnings} />
-
-          <div className="rounded-2xl border border-slate-200 bg-white p-5">
-            <p className="text-sm font-semibold text-slate-600">부품별 세부 견적</p>
-            <ul className="mt-3 space-y-3 text-sm text-slate-700">
+        <div className="flex flex-col gap-4 rounded-2xl bg-white/[0.02] p-4 ring-1 ring-line">
+          <div className="rounded-2xl bg-white/[0.03] p-5 ring-1 ring-line">
+            <p className="text-sm font-semibold text-white/60">부품별 세부 견적</p>
+            <ul className="mt-3 space-y-3 text-sm text-white/70">
               {performanceParts.map((part) => (
-                <li key={part.label} className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2">
+                <li key={part.label} className="flex items-center justify-between gap-3 rounded-xl bg-white/[0.03] px-3 py-2">
                   <div>
-                    <p className="font-semibold text-slate-900">{part.label}</p>
-                    <p className="text-xs text-slate-500">{part.name}</p>
+                    <p className="font-semibold text-white/90">{part.label}</p>
+                    <p className="text-xs text-white/40">{part.name}</p>
                   </div>
-                  <span className="text-sm font-semibold text-slate-700">{part.price.toLocaleString()}원</span>
+                  <span className="text-sm font-semibold text-white/75">{part.price.toLocaleString()}원</span>
                 </li>
               ))}
             </ul>
           </div>
 
-          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-            <p className="text-sm font-semibold text-emerald-700">호환성 근거</p>
-            <ul className="mt-2 space-y-2 text-sm text-slate-700">
+          <CompatibilityCard score={item.compatibilityScore} warnings={item.warnings} />
+
+          <div className="rounded-2xl bg-good/10 p-4 ring-1 ring-good/20">
+            <p className="text-sm font-semibold text-good">호환성 근거</p>
+            <ul className="mt-2 space-y-2 text-sm text-white/70">
               {item.compatibilityDetails.map((detail) => (
-                <li key={detail} className="rounded-xl bg-white px-3 py-2">
+                <li key={detail} className="rounded-xl bg-white/[0.03] px-3 py-2">
                   {detail}
                 </li>
               ))}
@@ -150,15 +153,9 @@ function EstimateAccordionCard({
         </div>
       </div>
 
-      <div className="pt-4">
-        <button
-          type="button"
-          onClick={onOpenPerformance}
-          className="inline-flex w-full items-center justify-center rounded-xl border border-blue-200 bg-white px-4 py-2 text-sm font-semibold text-blue-600 transition hover:bg-blue-50"
-        >
-          성능 보기
-        </button>
-      </div>
+      <PrimaryButton full onClick={onOpenPerformance}>
+        이 견적으로 성능 보기
+      </PrimaryButton>
     </article>
   );
 }
@@ -174,10 +171,19 @@ type ModalState = {
   gpuIndex: number | null;
 };
 
+type PanelKind = "estimate" | "reasons";
+type OpenPanel = { index: number; kind: PanelKind } | null;
+
 export default function ResultPage() {
   const router = useRouter();
   const { buildData } = useBuild();
-  const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+  // TOP1/2/3 카드를 통틀어 "견적 보기"/"추천 이유" 패널 중 단 하나만 열리도록 페이지 레벨에서
+  // 단일 상태로 관리한다(카드별로 따로 관리하면 다른 카드의 패널이 동시에 열려 있을 수 있어
+  // 스크롤이 길어지는 문제가 그대로 남는다 — 전체를 통틀어 하나만 열리는 쪽이 실제 요구를 해결한다).
+  const [openPanel, setOpenPanel] = useState<OpenPanel>(null);
+  const togglePanel = (index: number, kind: PanelKind) => {
+    setOpenPanel((prev) => (prev && prev.index === index && prev.kind === kind ? null : { index, kind }));
+  };
   const [modalState, setModalState] = useState<ModalState>({
     isOpen: false,
     isLocked: true,
@@ -190,9 +196,26 @@ export default function ResultPage() {
   });
 
   const topResults = useMemo(
-    () => recommend(buildData.answers, buildData.existingParts, buildData.caseOwnership, buildData.purposes),
-    [buildData.answers, buildData.existingParts, buildData.caseOwnership, buildData.purposes]
+    () =>
+      recommend(
+        buildData.answers,
+        buildData.existingParts,
+        buildData.caseOwnership,
+        buildData.purposes,
+        buildData.budget.range,
+        buildData.budget.exactValue
+      ),
+    [
+      buildData.answers,
+      buildData.existingParts,
+      buildData.caseOwnership,
+      buildData.purposes,
+      buildData.budget.range,
+      buildData.budget.exactValue,
+    ]
   );
+
+  const diffFlags = useMemo(() => computePartDiffFlags(topResults), [topResults]);
 
   const openPerformanceModal = (index: number, estimateId: string, cpuName: string, gpuName: string) => {
     trackEvent("performance_gate_button_click", { estimateRank: index + 1, estimateId });
@@ -213,38 +236,37 @@ export default function ResultPage() {
   };
 
   return (
-    <main className="min-h-screen bg-slate-50 px-6 py-12">
-      <div className="mx-auto max-w-7xl">
+    <main className="min-h-screen bg-ink px-8 py-12 text-white">
+      <div className="mx-auto max-w-6xl">
         <div className="mb-10 text-center">
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-blue-600">AI 기반 견적 추천</p>
-          <h1 className="mt-3 text-4xl font-bold text-slate-900 sm:text-5xl">
-            TOP 3 완성형 PC 견적 세트
-          </h1>
-          <p className="mx-auto mt-4 max-w-2xl text-base text-slate-600">
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-brand-soft">AI 기반 견적 추천</p>
+          <h1 className="mt-3 text-4xl font-extrabold text-white sm:text-5xl">TOP 3 완성형 PC 견적 세트</h1>
+          <p className="mx-auto mt-4 max-w-2xl text-base text-white/50">
             보유 부품과 예산을 반영해 소켓·전력·메모리 규격까지 맞춘 완성형 세트를 제안합니다.
           </p>
         </div>
 
         {topResults.length === 0 ? (
-          <div className="rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
-            <p className="text-xl font-semibold text-slate-900">추천 결과가 없습니다.</p>
-            <p className="mt-3 text-slate-600">빌드 단계를 완료한 후 다시 시도해 주세요.</p>
-          </div>
+          <SectionCard className="text-center">
+            <p className="text-xl font-semibold text-white">추천 결과가 없습니다.</p>
+            <p className="mt-3 text-white/50">빌드 단계를 완료한 후 다시 시도해 주세요.</p>
+          </SectionCard>
         ) : (
           <>
             <div className="grid grid-cols-1 items-start gap-6 md:grid-cols-3">
-              {topResults.map((item, index) => {
-                return (
-                  <EstimateAccordionCard
-                    key={item.id}
-                    item={item}
-                    index={index}
-                    isOpen={expandedIndex === index}
-                    onToggle={() => setExpandedIndex((prev) => (prev === index ? null : index))}
-                    onOpenPerformance={() => openPerformanceModal(index, item.id, item.cpu, item.gpu)}
-                  />
-                );
-              })}
+              {topResults.map((item, index) => (
+                <EstimateAccordionCard
+                  key={item.id}
+                  item={item}
+                  index={index}
+                  diffFlags={diffFlags}
+                  isOpen={openPanel?.index === index && openPanel.kind === "estimate"}
+                  onToggle={() => togglePanel(index, "estimate")}
+                  reasonsOpen={openPanel?.index === index && openPanel.kind === "reasons"}
+                  onToggleReasons={() => togglePanel(index, "reasons")}
+                  onOpenPerformance={() => openPerformanceModal(index, item.id, item.cpu, item.gpu)}
+                />
+              ))}
             </div>
 
             <PerformanceGateModal

@@ -5,8 +5,6 @@ import {
   type FpsResult,
   type GpuComponent,
   type MotherboardComponent,
-  type UpgradeProposal,
-  type UserPreset,
 } from "../types/hardware";
 
 const cpuCatalog: CpuComponent[] = [
@@ -325,71 +323,4 @@ export function predictGameFps(cpuId: string, gpuId: string, gameTitle: string, 
     monitorLimited: renderedFps > monitorRefreshRate,
     recommendUpscaling,
   };
-}
-
-export function recommendUpgrade(currentSpecs: UserPreset, budget: number): UpgradeProposal[] {
-  const currentCpu = currentSpecs.cpuId ? getCpu(currentSpecs.cpuId) : cpuCatalog[0];
-  const currentGpu = currentSpecs.gpuId ? getGpu(currentSpecs.gpuId) : gpuCatalog[0];
-
-  const candidates: UpgradeProposal[] = [];
-
-  if (currentCpu) {
-    for (const candidate of cpuCatalog.filter((cpu) => cpu.id !== currentCpu.id && cpu.benchmarks.multicore > currentCpu.benchmarks.multicore)) {
-      if ((candidate.estimatedPrice ?? 0) > budget) continue;
-      const projectedImprovement = Math.round(((candidate.benchmarks.multicore - currentCpu.benchmarks.multicore) / currentCpu.benchmarks.multicore) * 100);
-      candidates.push({
-        id: candidate.id,
-        category: candidate.category,
-        name: candidate.name,
-        projectedImprovementPercent: Math.max(projectedImprovement, 4),
-        estimatedPrice: candidate.estimatedPrice ?? 0,
-        reason: "멀티코어 성능이 더 높아 작업·게임 병목 완화에 유리합니다.",
-      });
-    }
-  }
-
-  if (currentGpu) {
-    for (const candidate of gpuCatalog.filter((gpu) => gpu.id !== currentGpu.id && gpu.benchmarks.graphics > currentGpu.benchmarks.graphics)) {
-      if ((candidate.estimatedPrice ?? 0) > budget) continue;
-      const projectedImprovement = Math.round(((candidate.benchmarks.graphics - currentGpu.benchmarks.graphics) / currentGpu.benchmarks.graphics) * 100);
-      candidates.push({
-        id: candidate.id,
-        category: candidate.category,
-        name: candidate.name,
-        projectedImprovementPercent: Math.max(projectedImprovement, 6),
-        estimatedPrice: candidate.estimatedPrice ?? 0,
-        reason: "프레임 안정성과 고해상도 렌더링 성능을 크게 끌어올릴 수 있습니다.",
-      });
-    }
-  }
-
-  for (const candidate of ramCatalog) {
-    if ((candidate.estimatedPrice ?? 0) > budget) continue;
-    const ramCapacity = typeof candidate.specs?.capacityGb === "number" ? candidate.specs.capacityGb : 0;
-    const projectedImprovement = ramCapacity > 0 && (currentSpecs.ramGb ?? 32) < 64 ? 12 : 8;
-    candidates.push({
-      id: candidate.id,
-      category: candidate.category,
-      name: candidate.name,
-      projectedImprovementPercent: projectedImprovement,
-      estimatedPrice: candidate.estimatedPrice ?? 0,
-      reason: "메모리 용량이 늘어나 멀티태스킹과 크리에이티브 작업 효율이 향상됩니다.",
-    });
-  }
-
-  for (const candidate of ssdCatalog) {
-    if ((candidate.estimatedPrice ?? 0) > budget) continue;
-    const ssdCapacity = typeof candidate.specs?.capacityGb === "number" ? candidate.specs.capacityGb : 0;
-    const projectedImprovement = ssdCapacity > 0 && (currentSpecs.storageGb ?? 1000) < 2000 ? 10 : 7;
-    candidates.push({
-      id: candidate.id,
-      category: candidate.category,
-      name: candidate.name,
-      projectedImprovementPercent: projectedImprovement,
-      estimatedPrice: candidate.estimatedPrice ?? 0,
-      reason: "저장장치 대역폭과 로딩 속도 개선에 도움이 됩니다.",
-    });
-  }
-
-  return candidates.sort((left, right) => right.projectedImprovementPercent - left.projectedImprovementPercent).slice(0, 4);
 }

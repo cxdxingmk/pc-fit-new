@@ -15,17 +15,36 @@ export default function BuildPage() {
     setPurposeText,
     toggleVideoSoftware,
     setVideoSoftwareCustomText,
+    setBudgetMode,
     setBudgetPreset,
-    setBudgetCustom,
+    setBudgetExact,
+    setBudgetRange,
     updateExistingPart,
     setCaseOwnership,
   } = useBuild();
 
   const [current, setCurrent] = useState(0);
+  const [shakePurpose, setShakePurpose] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
   const steps = ["purpose", "ownedParts", "budget"] as const;
   const currentStep = steps[current];
+  const purposeMissing = currentStep === "purpose" && buildData.purposes.length === 0;
+
+  const showToast = (message: string) => {
+    setToastMessage(message);
+    window.setTimeout(() => setToastMessage(""), 2000);
+  };
 
   const next = () => {
+    // UX 차단(버튼 시각적 비활성 처리)과는 별개로, 새로고침/직접 라우팅/기타 우회 경로로도
+    // 여기(실제 전이 지점)에 도달할 수 있으므로 단일 진실 공급원으로 여기서 다시 검증한다.
+    if (currentStep === "purpose" && buildData.purposes.length === 0) {
+      showToast("최소 하나의 용도를 선택해 주세요.");
+      setShakePurpose(true);
+      window.setTimeout(() => setShakePurpose(false), 400);
+      return;
+    }
+
     if (current < steps.length - 1) {
       setCurrent(current + 1);
     } else {
@@ -41,6 +60,12 @@ export default function BuildPage() {
 
   return (
     <main className="min-h-screen bg-slate-950 px-6 py-12 text-slate-100">
+      {toastMessage ? (
+        <div className="fixed right-6 top-6 z-[90] rounded-xl bg-slate-800 px-4 py-3 text-sm font-semibold text-white shadow-2xl ring-1 ring-white/10">
+          {toastMessage}
+        </div>
+      ) : null}
+
       <div className="mx-auto max-w-6xl space-y-6">
         <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-8 shadow-2xl shadow-black/40">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -65,6 +90,7 @@ export default function BuildPage() {
               onPurposeTextChange={setPurposeText}
               onToggleVideoSoftware={toggleVideoSoftware}
               onVideoSoftwareCustomTextChange={setVideoSoftwareCustomText}
+              shake={shakePurpose}
             />
           )}
 
@@ -79,11 +105,14 @@ export default function BuildPage() {
 
           {currentStep === "budget" && (
             <BudgetStep
+              mode={buildData.budget.mode}
               selectedBudget={buildData.budget.preset}
-              customRaw={buildData.budget.customRaw}
-              customValue={buildData.budget.customValue}
+              exactValue={buildData.budget.exactValue}
+              range={buildData.budget.range}
+              onModeChange={setBudgetMode}
               onPresetSelect={setBudgetPreset}
-              onCustomChange={setBudgetCustom}
+              onExactChange={setBudgetExact}
+              onRangeChange={setBudgetRange}
             />
           )}
         </div>
@@ -100,7 +129,12 @@ export default function BuildPage() {
           <button
             type="button"
             onClick={next}
-            className="inline-flex h-14 min-w-[140px] items-center justify-center rounded-3xl bg-cyan-500 px-6 text-sm font-semibold text-slate-950 shadow-sm transition hover:bg-cyan-400"
+            aria-disabled={purposeMissing}
+            className={`inline-flex h-14 min-w-[140px] items-center justify-center rounded-3xl px-6 text-sm font-semibold shadow-sm transition ${
+              purposeMissing
+                ? "cursor-not-allowed bg-slate-800 text-slate-500"
+                : "bg-cyan-500 text-slate-950 hover:bg-cyan-400"
+            }`}
           >
             {current === steps.length - 1 ? "결과 보기" : "다음 단계"}
           </button>

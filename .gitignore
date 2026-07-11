@@ -44,6 +44,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -55,3 +56,13 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# hardware intel bot local sqlite db
+hardware_intel.db
+hardware_intel.db-*
+
+# PM2 runtime logs
+/logs/
+
+# 카탈로그 스냅샷(생성 산출물) — scripts/export-catalog.cts로 재생성, 봇 서버로 수동 scp
+/bot/hardware-intel/data/

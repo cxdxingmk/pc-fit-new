@@ -2,11 +2,14 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 import MyPageTabs from "../components/MyPageTabs";
 import type { UserProfile } from "../../types/user";
 import { buildDefaultUserProfile, getStoredUserProfile, saveUserProfile, validateUserProfile } from "../../lib/userProfileStorage";
+import { SectionCard, PrimaryButton } from "../../components/pcfit-ui";
+import DarkSelect from "../../../components/ui/DarkSelect";
 
 const EMAIL_DOMAIN_OPTIONS = [
   { label: "네이버", value: "naver.com" },
@@ -66,8 +69,44 @@ function getProfileInitial(profile: UserProfile, fallbackName?: string): string 
   return source ? source.slice(0, 1).toUpperCase() : "U";
 }
 
+interface SettingRow {
+  label: string;
+  value?: string;
+  caption?: string;
+  onClick?: () => void;
+  danger?: boolean;
+}
+
+function SettingsList({ title, rows }: { title: string; rows: SettingRow[] }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <h2 className="px-1 text-xs font-bold uppercase tracking-wider text-white/35">{title}</h2>
+      <div className="overflow-hidden rounded-2xl bg-surface ring-1 ring-line">
+        {rows.map((r, i) => (
+          <button
+            key={r.label}
+            type="button"
+            onClick={r.onClick}
+            className={`flex w-full items-center gap-3 px-5 py-4 text-left transition-colors hover:bg-white/[0.03] ${i > 0 ? "border-t border-line" : ""}`}
+          >
+            <div className="min-w-0 flex-1">
+              <p className={`text-sm font-semibold ${r.danger ? "text-bad" : "text-white/90"}`}>{r.label}</p>
+              {r.caption && <p className="mt-0.5 text-xs text-white/35">{r.caption}</p>}
+            </div>
+            {r.value && <span className="max-w-[45%] truncate text-sm text-white/40">{r.value}</span>}
+            <svg className="h-4 w-4 shrink-0 text-white/25" viewBox="0 0 16 16" fill="none">
+              <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function MyPageProfilePage() {
-  const { user, mockLogin } = useAuth();
+  const { user, mockLogin, logout } = useAuth();
+  const router = useRouter();
   const [profile, setProfile] = useState<UserProfile>(buildDefaultUserProfile(user));
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [savedMessage, setSavedMessage] = useState("");
@@ -75,7 +114,14 @@ export default function MyPageProfilePage() {
   const [emailId, setEmailId] = useState("");
   const [emailDomain, setEmailDomain] = useState<EmailDomainOption>("naver.com");
   const [customEmailDomain, setCustomEmailDomain] = useState("");
+  const [isAccountEditOpen, setIsAccountEditOpen] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const showToast = (message: string) => {
+    setToastMessage(message);
+    window.setTimeout(() => setToastMessage(""), 2000);
+  };
 
   const profileInitial = useMemo(() => getProfileInitial(profile, user?.name), [profile, user?.name]);
 
@@ -167,17 +213,23 @@ export default function MyPageProfilePage() {
     setSavedMessage("개인정보가 안전하게 저장되었습니다. 고객센터 의견 제출 시 자동 연동됩니다.");
   };
 
+  const handleToggleMarketing = () => {
+    const next = { ...profile, isMarketingAgreed: !profile.isMarketingAgreed };
+    setProfile(next);
+    saveUserProfile(next);
+  };
+
   if (!user) {
     return (
-      <main className="min-h-screen bg-slate-50 px-6 py-12 text-slate-900">
-        <div className="mx-auto max-w-3xl rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-blue-600">Mock Auth</p>
+      <main className="min-h-screen bg-ink px-6 py-12 text-white">
+        <div className="mx-auto max-w-2xl rounded-3xl bg-surface p-8 shadow-card ring-1 ring-line">
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-brand-soft">Mock Auth</p>
           <h1 className="mt-2 text-3xl font-semibold">마이페이지는 로그인 후 이용 가능합니다.</h1>
-          <p className="mt-3 text-sm text-slate-600">임의 로그인 후 개인정보 관리 탭에서 연락처를 등록해 주세요.</p>
+          <p className="mt-3 text-sm text-white/60">임의 로그인 후 개인정보 관리 탭에서 연락처를 등록해 주세요.</p>
           <button
             type="button"
             onClick={mockLogin}
-            className="mt-6 rounded-2xl bg-blue-600 px-5 py-3 font-semibold text-white transition hover:bg-blue-700"
+            className="mt-6 rounded-2xl bg-brand px-5 py-3 font-semibold text-white transition hover:bg-brand-soft"
           >
             임의 로그인하기
           </button>
@@ -187,151 +239,185 @@ export default function MyPageProfilePage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 px-6 py-10 text-slate-900">
-      <div className="mx-auto flex max-w-5xl flex-col gap-6">
+    <main className="min-h-screen bg-ink px-6 py-10 text-white">
+      {toastMessage ? (
+        <div className="fixed right-6 top-20 z-[90] rounded-xl bg-surface px-4 py-2 text-sm font-semibold text-brand-soft shadow-card ring-1 ring-brand/25">
+          {toastMessage}
+        </div>
+      ) : null}
+
+      <div className="mx-auto flex max-w-2xl flex-col gap-4">
         <MyPageTabs activeTab="profile" />
 
-        <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-blue-600">Privacy Profile</p>
-          <h1 className="mt-2 text-3xl font-semibold">개선된 개인정보 관리</h1>
-          <p className="mt-3 text-sm text-slate-600">
-            고객센터 의견 제출 시 이름/연락처/이메일을 자동 연동합니다. 문의 폼에서는 개인정보를 다시 입력할 필요가 없습니다.
-          </p>
-
-          <div className="mt-8 flex items-center gap-5 rounded-2xl border border-slate-200 bg-slate-50 p-5">
-            <div className="relative h-20 w-20 overflow-hidden rounded-full border border-slate-300 bg-slate-100">
+        <div className="flex flex-col gap-8 py-4">
+          {/* 프로필 헤더 — 폼이 아니라 '내 상태' 요약 */}
+          <div className="flex items-center gap-4 px-1">
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand-dim text-xl font-bold text-brand-soft ring-1 ring-brand/20">
               {profile.profileImageDataUrl ? (
-                <Image src={profile.profileImageDataUrl} alt="프로필 이미지" width={80} height={80} className="h-full w-full object-cover" unoptimized />
+                <Image src={profile.profileImageDataUrl} alt="프로필 이미지" width={64} height={64} className="h-full w-full object-cover" unoptimized />
               ) : (
-                <div className="flex h-full w-full items-center justify-center bg-slate-100 text-2xl font-semibold text-slate-700">{profileInitial}</div>
+                profileInitial
               )}
             </div>
-            <div className="space-y-2">
-              <p className="text-sm font-semibold text-slate-800">프로필 사진</p>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
-                >
-                  사진 업로드
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setProfile((prev) => ({ ...prev, profileImageDataUrl: "" }))}
-                  className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-600 transition hover:border-slate-400"
-                >
-                  사진 삭제
-                </button>
-                <input ref={fileInputRef} type="file" accept="image/*" onChange={handleProfileImageUpload} className="hidden" />
-              </div>
-              <p className="text-xs text-slate-500">JPG, PNG, WebP 파일을 업로드할 수 있습니다. (최대 5MB)</p>
-              {imageError ? <p className="text-xs text-rose-600">{imageError}</p> : null}
+            <div className="min-w-0">
+              <p className="truncate text-xl font-extrabold text-white">{profile.nickname || profile.name || user.name}</p>
+              <p className="truncate text-sm text-white/40">{profile.email || "이메일 미등록"}</p>
             </div>
           </div>
 
-          <div className="mt-8 grid gap-5">
-            <label className="block text-sm">
-              <span className="font-semibold text-slate-700">이름</span>
-              <input
-                type="text"
-                value={profile.name}
-                onChange={(event) => setProfile((prev) => ({ ...prev, name: event.target.value }))}
-                className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-slate-900 outline-none transition focus:border-blue-500"
-                placeholder="예: 홍길동"
-              />
-            </label>
+          <SettingsList
+            title="계정"
+            rows={[
+              {
+                label: "프로필 사진·닉네임",
+                value: profile.nickname || "미설정",
+                caption: "다른 화면에서 보이는 이름이에요",
+                onClick: () => setIsAccountEditOpen((prev) => !prev),
+              },
+              { label: "휴대폰 번호", value: profile.phone || "미등록", onClick: () => setIsAccountEditOpen(true) },
+              { label: "이메일", value: profile.email || "미등록", onClick: () => setIsAccountEditOpen(true) },
+            ]}
+          />
 
-            <label className="block text-sm">
-              <span className="font-semibold text-slate-700">닉네임</span>
-              <input
-                type="text"
-                value={profile.nickname}
-                onChange={(event) => setProfile((prev) => ({ ...prev, nickname: event.target.value }))}
-                className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-slate-900 outline-none transition focus:border-blue-500"
-                placeholder="예: FIT매니저"
-              />
-            </label>
-
-            <label className="block text-sm">
-              <span className="font-semibold text-slate-700">휴대폰 번호</span>
-              <input
-                type="text"
-                value={profile.phone}
-                onChange={handlePhoneChange}
-                className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-slate-900 outline-none transition focus:border-blue-500"
-                placeholder="예: 010-1234-5678"
-                inputMode="numeric"
-                maxLength={13}
-              />
-            </label>
-
-            <div className="block text-sm">
-              <p className="font-semibold text-slate-700">이메일</p>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <input
-                  type="text"
-                  value={emailId}
-                  onChange={(event) => setEmailId(event.target.value.replace(/\s/g, ""))}
-                  className="h-10 min-w-[180px] flex-1 rounded-md border border-slate-300 bg-white px-3 text-slate-900 outline-none transition focus:border-blue-500"
-                  placeholder="아이디"
-                />
-                <span className="h-10 shrink-0 px-1 leading-10 text-slate-500">@</span>
-                <input
-                  type="text"
-                  value={customEmailDomain}
-                  onChange={(event) => setCustomEmailDomain(event.target.value.replace(/\s/g, ""))}
-                  disabled={emailDomain !== "custom"}
-                  className={`h-10 min-w-[180px] flex-1 rounded-md border px-3 text-slate-900 outline-none transition focus:border-blue-500 ${
-                    emailDomain === "custom" ? "border-slate-300 bg-white" : "border-slate-300 bg-slate-50 text-slate-500"
-                  }`}
-                  placeholder="도메인"
-                />
-                <select
-                  value={emailDomain}
-                  onChange={handleEmailDomainSelect}
-                  className="h-10 min-w-[140px] rounded-md border border-slate-300 bg-white px-3 text-slate-900 outline-none transition focus:border-blue-500"
-                >
-                  <option value="naver.com">naver.com</option>
-                  <option value="gmail.com">gmail.com</option>
-                  <option value="daum.com">daum.com</option>
-                  <option value="custom">직접 입력</option>
-                </select>
+          {isAccountEditOpen && (
+            <SectionCard className="flex flex-col gap-5 !p-6">
+              <div className="flex items-center gap-5">
+                <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-full bg-brand-dim ring-1 ring-brand/20">
+                  {profile.profileImageDataUrl ? (
+                    <Image src={profile.profileImageDataUrl} alt="프로필 이미지" width={80} height={80} className="h-full w-full object-cover" unoptimized />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-2xl font-semibold text-brand-soft">{profileInitial}</div>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm font-semibold text-white/80">프로필 사진</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="rounded-xl bg-white/[0.05] px-3 py-2 text-sm font-semibold text-white/75 ring-1 ring-line transition hover:bg-white/[0.08]"
+                    >
+                      사진 업로드
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setProfile((prev) => ({ ...prev, profileImageDataUrl: "" }))}
+                      className="rounded-xl bg-white/[0.05] px-3 py-2 text-sm font-semibold text-white/50 ring-1 ring-line transition hover:bg-white/[0.08]"
+                    >
+                      사진 삭제
+                    </button>
+                    <input ref={fileInputRef} type="file" accept="image/*" onChange={handleProfileImageUpload} className="hidden" />
+                  </div>
+                  <p className="text-xs text-white/35">JPG, PNG, WebP 파일을 업로드할 수 있습니다. (최대 5MB)</p>
+                  {imageError ? <p className="text-xs text-bad">{imageError}</p> : null}
+                </div>
               </div>
-              <p className="mt-2 text-xs text-slate-500">저장되는 이메일: {profile.email || "-"}</p>
-            </div>
 
-            <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                checked={profile.isMarketingAgreed}
-                onChange={() => setProfile((prev) => ({ ...prev, isMarketingAgreed: !prev.isMarketingAgreed }))}
-                className="h-4 w-4 rounded border-slate-300"
-              />
-              기프티콘 이벤트/업데이트 알림 수신에 동의합니다.
-            </label>
-          </div>
+              <div className="grid gap-5">
+                <label className="block text-sm">
+                  <span className="font-semibold text-white/70">이름</span>
+                  <input
+                    type="text"
+                    value={profile.name}
+                    onChange={(event) => setProfile((prev) => ({ ...prev, name: event.target.value }))}
+                    className="mt-2 w-full rounded-2xl bg-white/[0.04] px-4 py-3 text-white outline-none ring-1 ring-line transition focus:ring-2 focus:ring-brand"
+                    placeholder="예: 홍길동"
+                  />
+                </label>
 
-          {validationErrors.length > 0 ? (
-            <div className="mt-5 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
-              {validationErrors.map((error) => (
-                <p key={error}>{error}</p>
-              ))}
-            </div>
-          ) : null}
+                <label className="block text-sm">
+                  <span className="font-semibold text-white/70">닉네임</span>
+                  <input
+                    type="text"
+                    value={profile.nickname}
+                    onChange={(event) => setProfile((prev) => ({ ...prev, nickname: event.target.value }))}
+                    className="mt-2 w-full rounded-2xl bg-white/[0.04] px-4 py-3 text-white outline-none ring-1 ring-line transition focus:ring-2 focus:ring-brand"
+                    placeholder="예: FIT매니저"
+                  />
+                </label>
 
-          {savedMessage ? (
-            <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">{savedMessage}</div>
-          ) : null}
+                <label className="block text-sm">
+                  <span className="font-semibold text-white/70">휴대폰 번호</span>
+                  <input
+                    type="text"
+                    value={profile.phone}
+                    onChange={handlePhoneChange}
+                    className="mt-2 w-full rounded-2xl bg-white/[0.04] px-4 py-3 text-white outline-none ring-1 ring-line transition focus:ring-2 focus:ring-brand"
+                    placeholder="예: 010-1234-5678"
+                    inputMode="numeric"
+                    maxLength={13}
+                  />
+                </label>
 
-          <button
-            type="button"
-            onClick={handleSaveProfile}
-            className="mt-8 w-full rounded-2xl bg-blue-600 px-5 py-3 font-semibold text-white transition hover:bg-blue-700"
-          >
-            개인정보 저장하기
-          </button>
-        </section>
+                <div className="block text-sm">
+                  <p className="font-semibold text-white/70">이메일</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <input
+                      type="text"
+                      value={emailId}
+                      onChange={(event) => setEmailId(event.target.value.replace(/\s/g, ""))}
+                      className="h-11 min-w-[160px] flex-1 rounded-xl bg-white/[0.04] px-3 text-white outline-none ring-1 ring-line transition focus:ring-2 focus:ring-brand"
+                      placeholder="아이디"
+                    />
+                    <span className="h-11 shrink-0 px-1 leading-11 text-white/40">@</span>
+                    <input
+                      type="text"
+                      value={customEmailDomain}
+                      onChange={(event) => setCustomEmailDomain(event.target.value.replace(/\s/g, ""))}
+                      disabled={emailDomain !== "custom"}
+                      className="h-11 min-w-[160px] flex-1 rounded-xl bg-white/[0.04] px-3 text-white outline-none ring-1 ring-line transition focus:ring-2 focus:ring-brand disabled:text-white/30"
+                      placeholder="도메인"
+                    />
+                    <div className="w-36">
+                      <DarkSelect value={emailDomain} onChange={handleEmailDomainSelect}>
+                        <option value="naver.com">naver.com</option>
+                        <option value="gmail.com">gmail.com</option>
+                        <option value="daum.com">daum.com</option>
+                        <option value="custom">직접 입력</option>
+                      </DarkSelect>
+                    </div>
+                  </div>
+                  <p className="mt-2 text-xs text-white/35">저장되는 이메일: {profile.email || "-"}</p>
+                </div>
+              </div>
+
+              {validationErrors.length > 0 ? (
+                <div className="rounded-2xl bg-bad/10 p-4 text-sm text-bad ring-1 ring-bad/25">
+                  {validationErrors.map((error) => (
+                    <p key={error}>{error}</p>
+                  ))}
+                </div>
+              ) : null}
+
+              {savedMessage ? <div className="rounded-2xl bg-good/10 p-4 text-sm text-good ring-1 ring-good/25">{savedMessage}</div> : null}
+
+              <PrimaryButton full onClick={handleSaveProfile}>
+                개인정보 저장하기
+              </PrimaryButton>
+            </SectionCard>
+          )}
+
+          <SettingsList
+            title="알림"
+            rows={[
+              {
+                label: "이벤트·업데이트 알림",
+                value: profile.isMarketingAgreed ? "켜짐" : "꺼짐",
+                caption: "새 기능이 나오면 알려드려요",
+                onClick: handleToggleMarketing,
+              },
+            ]}
+          />
+
+          <SettingsList
+            title="지원"
+            rows={[
+              { label: "고객센터 문의하기", caption: "궁금한 점을 남겨주시면 답변드려요", onClick: () => router.push("/support") },
+              { label: "개인정보 처리방침", onClick: () => showToast("준비 중인 기능이에요.") },
+              { label: "로그아웃", danger: true, onClick: logout },
+            ]}
+          />
+        </div>
       </div>
     </main>
   );

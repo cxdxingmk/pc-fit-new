@@ -8,15 +8,30 @@
     "sync:bench:js": "node scripts/syncBenchmarks.js",
     "sync:bench": "ts-node scripts/syncBenchmarks.ts",
     "check:hardware-data": "ts-node scripts/check-hardware-data.ts",
+    "export-catalog-snapshot": "ts-node -P scripts/tsconfig.cjs.json scripts/export-catalog.cts",
+    "apply-proposals": "node scripts/applyProposals.ts",
+    "bot:hardware-intel": "node bot/hardware-intel/index.ts",
+    "bot:start": "pm2 start ecosystem.config.js",
+    "bot:stop": "pm2 stop hardware-intel-bot",
+    "bot:restart": "pm2 restart hardware-intel-bot",
+    "bot:logs": "pm2 logs hardware-intel-bot",
+    "bot:status": "pm2 status",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run"
   },
   "dependencies": {
+    "discord.js": "^14.26.4",
+    "dotenv": "^17.4.2",
+    "html2canvas": "^1.4.1",
     "next": "16.2.9",
+    "node-cron": "^4.6.0",
+    "node-html-parser": "^9.0.0",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "recharts": "^3.9.2",
+    "telegraf": "^4.16.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -25,7 +40,9 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
+    "pm2": "^7.0.3",
     "tailwindcss": "^4",
+    "ts-morph": "^28.0.0",
     "ts-node": "^10.9.2",
     "typescript": "^5",
     "vitest": "^4.1.10"

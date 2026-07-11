@@ -30,6 +30,8 @@ type Props = {
   onPurposeTextChange: (text: string) => void;
   onToggleVideoSoftware: (software: string) => void;
   onVideoSoftwareCustomTextChange: (text: string) => void;
+  /** 최소 1개 선택 없이 다음 단계로 넘어가려 했을 때 잠깐 흔들어 미선택 상태를 직관적으로 알린다. */
+  shake?: boolean;
 };
 
 export default function PurposeStep({
@@ -41,6 +43,7 @@ export default function PurposeStep({
   onPurposeTextChange,
   onToggleVideoSoftware,
   onVideoSoftwareCustomTextChange,
+  shake = false,
 }: Props) {
   return (
     <section className="rounded-3xl border border-white/10 bg-slate-900/70 p-8 shadow-sm">
@@ -50,7 +53,7 @@ export default function PurposeStep({
         <p className="mt-2 text-sm text-slate-300">여러 가지를 동시에 선택할 수 있으며, ‘기타’ 선택 시 추가 입력창이 나타납니다.</p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className={`grid gap-4 sm:grid-cols-2 lg:grid-cols-3 ${shake ? "animate-shake" : ""}`}>
         {purposeOptions.map((option) => {
           const active = selectedPurposes.includes(option.value);
           return (

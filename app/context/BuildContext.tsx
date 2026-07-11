@@ -3,8 +3,25 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 import type { SavedEstimate } from "../types/recommend";
-import type { ExistingPartsState, CaseOwnershipOption, PurposeType } from "../types/build";
+import type { ExistingPartsState, CaseOwnershipOption, PurposeType, BudgetRange } from "../types/build";
 import { readJsonFromStorage, writeJsonToStorage } from "../lib/localStorageJson";
+
+export type { BudgetRange };
+
+/** 듀얼 레인지 슬라이더("범위로 선택")와 "정확한 금액 입력" 둘 다 이 하한/상한을 공유한다. */
+export const BUDGET_SLIDER_MIN = 500_000;
+export const BUDGET_SLIDER_MAX = 10_000_000;
+export const BUDGET_SLIDER_STEP = 100_000;
+
+/** 고정 구간 버튼도 결과적으로 슬라이더와 동일한 {min,max} 형태로 귀결시켜, 추천 로직에
+ *  전달되는 데이터 형식을 하나로 통일한다. */
+const PRESET_BUDGET_RANGES: Record<string, BudgetRange> = {
+  "100만원 이하": { min: BUDGET_SLIDER_MIN, max: 1_000_000 },
+  "100~150만원": { min: 1_000_000, max: 1_500_000 },
+  "150~200만원": { min: 1_500_000, max: 2_000_000 },
+  "200~300만원": { min: 2_000_000, max: 3_000_000 },
+  "300만원 이상": { min: 3_000_000, max: BUDGET_SLIDER_MAX },
+};
 
 const SAVED_ESTIMATES_STORAGE_KEY = "pc_fit_saved_estimates";
 
@@ -14,8 +31,11 @@ export type BudgetOption =
   | "100~150만원"
   | "150~200만원"
   | "200~300만원"
-  | "300만원 이상"
-  | "기타";
+  | "300만원 이상";
+
+/** 예산을 정하는 세 가지 독립된 방식 — 서로 나란한 선택지이며 서로를 하위/상위로 두지 않는다.
+ *  preset/range → {min,max}(하한 강제 + 상한 소프트 페널티), exact → 단일 목표값(상한만 소프트 페널티). */
+export type BudgetMode = "preset" | "exact" | "range";
 export type EntryMode = "select" | "manual";
 export type OwnedPartType =
   | "CPU"
@@ -37,9 +57,12 @@ export type OwnedPartDetail = {
 export type OwnedPartsState = Record<OwnedPartType, OwnedPartDetail>;
 
 export type BudgetState = {
+  mode: BudgetMode;
   preset: BudgetOption | null;
-  customRaw: string;
-  customValue: number | null;
+  /** mode === "exact"일 때만 의미 있는 단일 목표값. */
+  exactValue: number | null;
+  /** mode === "preset" | "range"일 때만 의미 있는 {min,max}. */
+  range: BudgetRange | null;
 };
 
 export type BuildData = {
@@ -62,8 +85,10 @@ type BuildContextType = {
   setPurposeText: (text: string) => void;
   toggleVideoSoftware: (software: string) => void;
   setVideoSoftwareCustomText: (text: string) => void;
+  setBudgetMode: (mode: BudgetMode) => void;
   setBudgetPreset: (preset: BudgetOption) => void;
-  setBudgetCustom: (customRaw: string, customValue: number | null) => void;
+  setBudgetExact: (value: number | null) => void;
+  setBudgetRange: (range: BudgetRange) => void;
   toggleOwnedPart: (part: OwnedPartType) => void;
   updateOwnedPart: (
     part: OwnedPartType,
@@ -108,9 +133,10 @@ const initialBuildData: BuildData = {
   existingParts: initialExistingParts,
   caseOwnership: "owned",
   budget: {
+    mode: "preset",
     preset: null,
-    customRaw: "",
-    customValue: null,
+    exactValue: null,
+    range: null,
   },
   answers: {},
   savedEstimates: [],
@@ -191,31 +217,49 @@ export function BuildProvider({
     });
   };
 
-  const setBudgetPreset = (preset: BudgetOption) => {
-    setBuildData((prev) => ({
-      ...prev,
-      budget: {
-        preset,
-        customRaw: preset === "기타" ? prev.budget.customRaw : "",
-        customValue: preset === "기타" ? prev.budget.customValue : null,
-      },
-      answers: { ...prev.answers, 3: [preset] },
-    }));
+  // 탭만 전환 — 값 자체(answers[3])는 건드리지 않는다. "정확한 금액 입력" 탭은 처음엔 빈 채로
+  // 열리는 게 자연스러워서(아직 아무 숫자도 입력 안 함), 탭 전환과 값 확정을 분리해야 한다.
+  const setBudgetMode = (mode: BudgetMode) => {
+    setBuildData((prev) => ({ ...prev, budget: { ...prev.budget, mode } }));
   };
 
-  const setBudgetCustom = (customRaw: string, customValue: number | null) => {
-    setBuildData((prev) => ({
-      ...prev,
-      budget: {
-        preset: "기타",
-        customRaw,
-        customValue,
-      },
-      answers: {
-        ...prev.answers,
-        3: [customValue ? `${customValue.toLocaleString()}원` : "기타"],
-      },
-    }));
+  const setBudgetPreset = (preset: BudgetOption) => {
+    setBuildData((prev) => {
+      const range = PRESET_BUDGET_RANGES[preset];
+      const target = Math.round((range.min + range.max) / 2);
+      return {
+        ...prev,
+        budget: { mode: "preset", preset, exactValue: null, range },
+        // answers[3]은 추천 로직(pickBudgetTarget)이 숫자 문자열로 그대로 파싱하는 값 — 프리셋도
+        // 결과적으로 {min,max}의 중간값을 여기 태운다(실제 하한/상한은 budget.range로 별도 전달됨).
+        answers: { ...prev.answers, 3: [String(target)] },
+      };
+    });
+  };
+
+  /** "정확한 금액 입력" — 입력값을 ±10% range로 변환해 "범위로 선택"과 동일한 하한 강제 +
+   *  다양성 필터 경로를 타게 한다. exactValue는 별도로 남겨서(range와 다름) TOP1을 이 금액에
+   *  가장 가까운 조합으로 우선 배치하는 데 쓴다(recommender.ts의 preferredBudgetTarget). */
+  const setBudgetExact = (value: number | null) => {
+    setBuildData((prev) => {
+      const range = value !== null ? { min: Math.round(value * 0.9), max: Math.round(value * 1.1) } : null;
+      return {
+        ...prev,
+        budget: { mode: "exact", preset: null, exactValue: value, range },
+        answers: { ...prev.answers, 3: value !== null ? [String(value)] : [] },
+      };
+    });
+  };
+
+  const setBudgetRange = (range: BudgetRange) => {
+    setBuildData((prev) => {
+      const target = Math.round((range.min + range.max) / 2);
+      return {
+        ...prev,
+        budget: { mode: "range", preset: null, exactValue: null, range },
+        answers: { ...prev.answers, 3: [String(target)] },
+      };
+    });
   };
 
   const setPurposeText = (text: string) => {
@@ -346,8 +390,10 @@ export function BuildProvider({
         setPurposeText,
         toggleVideoSoftware,
         setVideoSoftwareCustomText,
+        setBudgetMode,
         setBudgetPreset,
-        setBudgetCustom,
+        setBudgetExact,
+        setBudgetRange,
         toggleOwnedPart,
         updateOwnedPart,
         updateExistingPart,

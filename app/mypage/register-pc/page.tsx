@@ -17,6 +17,7 @@ import Card from "../../../components/ui/Card";
 import AccordionSection from "../../../components/ui/AccordionSection";
 import CascadingPartSelect from "../../../components/ui/CascadingPartSelect";
 import { useCascadingPartSelect } from "../../../components/ui/useCascadingPartSelect";
+import DarkSelect from "../../../components/ui/DarkSelect";
 
 const storageKey = "user_pc_spec";
 const ramCapacityOptions = ["8GB", "16GB", "32GB", "64GB"] as const;
@@ -189,6 +190,7 @@ export default function RegisterPcPage() {
   const [monitorCount, setMonitorCount] = useState(initialSelection.monitorCount);
   const [commandScanRawText, setCommandScanRawText] = useState(initialSelection.commandScanRawText);
   const [openSection, setOpenSection] = useState<"spec" | "auto" | "manual" | null>("manual");
+  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
 
   const [isCommandCopied, setIsCommandCopied] = useState(false);
   const [isExampleOpen, setIsExampleOpen] = useState(false);
@@ -471,15 +473,15 @@ export default function RegisterPcPage() {
 
   if (!user) {
     return (
-      <main className="min-h-screen bg-white px-6 py-12 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
-        <div className="mx-auto max-w-3xl rounded-3xl border border-slate-200 bg-slate-50 p-8 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          <p className="text-sm uppercase tracking-[0.3em] text-cyan-600 dark:text-cyan-300">Mock Auth</p>
+      <main className="min-h-screen bg-ink px-6 py-12 text-white">
+        <div className="mx-auto max-w-2xl rounded-3xl bg-surface p-8 shadow-card ring-1 ring-line">
+          <p className="text-sm uppercase tracking-[0.3em] text-brand-soft">Mock Auth</p>
           <h1 className="mt-2 text-3xl font-semibold">마이페이지는 로그인 후 이용 가능합니다.</h1>
-          <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">임의 로그인으로 테스트 유저 계정에 바로 진입해 내 PC를 저장해 보세요.</p>
+          <p className="mt-3 text-sm text-white/60">임의 로그인으로 테스트 유저 계정에 바로 진입해 내 PC를 저장해 보세요.</p>
           <button
             type="button"
             onClick={mockLogin}
-            className="mt-6 rounded-2xl bg-cyan-500 px-5 py-3 font-semibold text-slate-950 transition hover:bg-cyan-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2"
+            className="mt-6 rounded-2xl bg-brand px-5 py-3 font-semibold text-white transition hover:bg-brand-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-ink"
           >
             임의 로그인하기
           </button>
@@ -489,24 +491,24 @@ export default function RegisterPcPage() {
   }
 
   return (
-    <main className="min-h-screen bg-white px-6 py-10 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+    <main className="min-h-screen bg-ink px-6 py-10 text-white">
       {toastMessage ? (
-        <div className="fixed right-6 top-20 z-[90] rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 shadow-lg dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
+        <div className="fixed right-6 top-20 z-[90] rounded-xl bg-surface px-4 py-2 text-sm font-semibold text-good shadow-card ring-1 ring-good/25">
           {toastMessage}
         </div>
       ) : null}
 
-      <div className="mx-auto flex max-w-6xl flex-col gap-4">
+      <div className="mx-auto flex max-w-2xl flex-col gap-4">
         <MyPageTabs activeTab="register" />
 
         <div className="flex flex-col gap-4">
           <AccordionSection title="내 PC 사양" isOpen={openSection === "spec"} onToggle={() => setOpenSection((prev) => (prev === "spec" ? null : "spec"))}>
             {!savedSnapshot ? (
-              <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-5 py-6 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-400">
+              <div className="rounded-xl border border-dashed border-line bg-white/[0.03] px-5 py-6 text-sm text-white/40">
                 등록된 하드웨어가 없습니다
               </div>
             ) : (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-2 gap-3">
                 <SpecTile emoji="🧠" label="CPU" value={snapshotCpuName} />
                 <SpecTile emoji="🎮" label="GPU" value={snapshotGpuName} />
                 <SpecTile emoji="🧩" label="메인보드" value={snapshotBoardName} />
@@ -522,68 +524,68 @@ export default function RegisterPcPage() {
           </AccordionSection>
 
           <AccordionSection title="내 컴퓨터 자동 등록" isOpen={openSection === "auto"} onToggle={() => setOpenSection((prev) => (prev === "auto" ? null : "auto"))}>
-            <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">CMD 결과 붙여넣기만 하면 주요 부품을 자동 인식해 바로 저장합니다.</p>
+            <p className="mb-3 text-sm text-white/60">CMD 결과 붙여넣기만 하면 주요 부품을 자동 인식해 바로 저장합니다.</p>
             <Card className="p-4" muted>
               <button
                 type="button"
                 onClick={handleVideoGuideClick}
-                className="inline-flex h-10 items-center rounded-md border border-slate-300 bg-transparent px-4 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2 dark:border-slate-600 dark:text-slate-200 dark:hover:border-slate-400 dark:hover:text-white"
+                className="inline-flex h-10 items-center rounded-xl bg-white/[0.04] px-4 text-sm font-medium text-white/75 ring-1 ring-line transition hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
               >
                 영상으로 쉽게 배우기 🎬
               </button>
 
-              <div className="mt-3 space-y-3 text-sm text-slate-600 dark:text-slate-300">
+              <div className="mt-3 space-y-3 text-sm text-white/60">
                 <Card className="p-3">
-                  <p className="font-semibold text-slate-900 dark:text-slate-100">1단계: 검은창(CMD) 열기</p>
+                  <p className="font-semibold text-white/90">1단계: 검은창(CMD) 열기</p>
                   <p className="mt-1 leading-6">키보드의 윈도우 키를 누른 채로 R을 누른 뒤, 나오는 작은 창에 cmd라고 적고 엔터를 치세요. (검은색 창이 켜집니다)</p>
                 </Card>
 
                 <Card className="p-3">
-                  <p className="font-semibold text-slate-900 dark:text-slate-100">2단계: 마법 주문 복사하기</p>
+                  <p className="font-semibold text-white/90">2단계: 마법 주문 복사하기</p>
                   <p className="mt-1 leading-6">아래 버튼을 누르면 컴퓨터 사양을 찾아내는 명령어가 자동으로 복사됩니다.</p>
-                  <div className="mt-2 overflow-x-auto rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-cyan-700 dark:border-slate-800 dark:bg-slate-950 dark:text-cyan-200">
+                  <div className="mt-2 overflow-x-auto rounded-xl bg-white/[0.03] px-3 py-2 text-xs text-brand-soft ring-1 ring-line">
                     <code className="whitespace-nowrap">{wmiScanCommand}</code>
                   </div>
                   <button
                     type="button"
                     onClick={handleCopyCommand}
-                    className="mt-3 inline-flex h-10 items-center rounded-md border border-cyan-500/40 bg-cyan-500 px-4 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2"
+                    className="mt-3 inline-flex h-10 items-center rounded-xl bg-brand px-4 text-sm font-semibold text-white transition hover:bg-brand-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                   >
                     명령어 복사하기 📋
                   </button>
-                  {isCommandCopied ? <p className="mt-2 text-xs font-semibold text-emerald-600 dark:text-emerald-300">복사 완료! 👍</p> : null}
+                  {isCommandCopied ? <p className="mt-2 text-xs font-semibold text-good">복사 완료! 👍</p> : null}
                 </Card>
 
                 <Card className="p-3">
-                  <p className="font-semibold text-slate-900 dark:text-slate-100">3단계: 검은창에 붙여넣고 엔터</p>
+                  <p className="font-semibold text-white/90">3단계: 검은창에 붙여넣고 엔터</p>
                   <p className="mt-1 leading-6">켜진 검은색 창에 마우스 우클릭을 하거나 Ctrl + V를 눌러 붙여넣은 뒤, 엔터(Enter) 키를 탁 치세요.</p>
                 </Card>
 
                 <Card className="p-3">
-                  <p className="font-semibold text-slate-900 dark:text-slate-100">4단계: 결과물 전체 복사하기</p>
+                  <p className="font-semibold text-white/90">4단계: 결과물 전체 복사하기</p>
                   <p className="mt-1 leading-6">창에 글자들이 주르륵 나타나면, 마우스로 글자 전체를 드래그해서 복사(Ctrl + C)하세요.</p>
                   <button
                     type="button"
                     onClick={() => setIsExampleOpen((prev) => !prev)}
-                    className="mt-3 inline-flex h-9 items-center rounded-md border border-slate-300 px-3 text-xs font-semibold text-slate-700 transition hover:border-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2 dark:border-slate-600 dark:text-slate-200 dark:hover:border-slate-400"
+                    className="mt-3 inline-flex h-9 items-center rounded-xl bg-white/[0.04] px-3 text-xs font-semibold text-white/75 ring-1 ring-line transition hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
                   >
                     💡 예시 화면 보기
                   </button>
                   {isExampleOpen ? (
-                    <pre className="mt-3 overflow-x-auto rounded-md border border-slate-200 bg-white p-3 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                    <pre className="mt-3 overflow-x-auto rounded-xl bg-white/[0.03] p-3 text-xs text-white/70 ring-1 ring-line">
 {`Name\nAMD Ryzen 7 9700X\n\nName\nNVIDIA GeForce RTX 5070\n\nCapacity      Speed\n17179869184   5600\n17179869184   5600\n\nModel                         Size\nSamsung SSD 990 PRO 1TB       1000202273280`}
                     </pre>
                   ) : null}
                 </Card>
 
                 <Card className="p-3">
-                  <p className="font-semibold text-slate-900 dark:text-slate-100">5단계: 아래 칸에 붙여넣고 끝내기</p>
+                  <p className="font-semibold text-white/90">5단계: 아래 칸에 붙여넣고 끝내기</p>
                   <p className="mt-1 leading-6">복사한 글자를 아래 커다란 상자에 붙여넣고 자동 등록 및 저장 버튼만 누르면 내 PC 등록이 안전하게 완료됩니다!</p>
                 </Card>
               </div>
 
               <div className="mt-4">
-                <label htmlFor="scan-raw-text" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                <label htmlFor="scan-raw-text" className="text-sm font-medium text-white/60">
                   CMD 결과 붙여넣기
                 </label>
                 <textarea
@@ -592,75 +594,57 @@ export default function RegisterPcPage() {
                   onChange={(event) => setCommandScanRawText(event.target.value)}
                   onPaste={handleScanTextPaste}
                   placeholder="CMD 실행 결과를 여기에 붙여넣어 주세요."
-                  className="mt-2 h-40 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
+                  className="mt-2 h-40 w-full rounded-xl bg-white/[0.04] px-4 py-3 text-sm text-white placeholder:text-white/30 ring-1 ring-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
                 />
                 <button
                   type="button"
                   onClick={handleAutoRegisterFromCommand}
-                  className="mt-3 inline-flex h-10 items-center rounded-md bg-cyan-500 px-4 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2"
+                  className="mt-3 inline-flex h-10 items-center rounded-xl bg-brand px-4 text-sm font-semibold text-white transition hover:bg-brand-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                 >
                   자동 등록 및 저장
                 </button>
               </div>
 
               {scanStatusMessage ? (
-                <p className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
-                  {scanStatusMessage}
-                </p>
+                <p className="mt-4 rounded-xl bg-good/10 px-4 py-3 text-sm text-good ring-1 ring-good/25">{scanStatusMessage}</p>
               ) : null}
             </Card>
           </AccordionSection>
 
           <AccordionSection title="내 PC 직접 입력" isOpen={openSection === "manual"} onToggle={() => setOpenSection((prev) => (prev === "manual" ? null : "manual"))}>
             <div className="space-y-4">
-              <CascadingPartSelect
-                title="CPU"
-                state={{ ...cpuCascade, selectModel: handleCpuModelSelect }}
-              />
+              <CascadingPartSelect title="CPU" state={{ ...cpuCascade, selectModel: handleCpuModelSelect }} />
 
-              <CascadingPartSelect
-                title="GPU"
-                state={{ ...gpuCascade, selectModel: handleGpuModelSelect }}
-              />
+              <CascadingPartSelect title="GPU" state={{ ...gpuCascade, selectModel: handleGpuModelSelect }} />
 
               <div>
-                <span className="block text-sm font-medium text-slate-700 dark:text-slate-300">RAM</span>
-                <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_140px]">
-                  <select
-                    aria-label="RAM 용량"
-                    value={ramCapacity}
-                    onChange={(event) => setRamCapacity(event.target.value)}
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-                  >
+                <span className="block text-sm font-medium text-white/70">RAM</span>
+                <div className="mt-2 grid grid-cols-[minmax(0,1fr)_140px] gap-3">
+                  <DarkSelect aria-label="RAM 용량" value={ramCapacity} onChange={(event) => setRamCapacity(event.target.value)}>
                     {ramCapacityOptions.map((ramOption) => (
                       <option key={ramOption} value={ramOption}>
                         {ramOption}
                       </option>
                     ))}
-                  </select>
-                  <select
-                    value={ramCount}
-                    onChange={(event) => setRamCount(Number(event.target.value))}
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-                    aria-label="RAM 개수"
-                  >
+                  </DarkSelect>
+                  <DarkSelect aria-label="RAM 개수" value={ramCount} onChange={(event) => setRamCount(Number(event.target.value))}>
                     {[1, 2, 3, 4].map((countOption) => (
                       <option key={countOption} value={countOption}>
                         {countOption}개
                       </option>
                     ))}
-                  </select>
+                  </DarkSelect>
                 </div>
-                <p className="mt-2 text-xs text-cyan-700 dark:text-cyan-300">
+                <p className="mt-2 text-xs text-brand-soft">
                   총 RAM 용량: {parseRamCapacityToGb(ramCapacity) * ramCount}GB ({ramCapacity} x {ramCount})
                 </p>
 
-                <label className="mt-3 flex min-h-11 items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-white/5 dark:text-slate-200">
+                <label className="mt-3 flex min-h-11 items-center gap-3 rounded-xl bg-white/[0.03] px-3 py-2 text-xs text-white/70 ring-1 ring-line">
                   <input
                     type="checkbox"
                     checked={ramDetailedInputEnabled}
                     onChange={() => setRamDetailedInputEnabled((prev) => !prev)}
-                    className="h-4 w-4 rounded border-slate-300 dark:border-slate-600"
+                    className="h-4 w-4 rounded border-white/20 bg-white/[0.04] accent-brand"
                   />
                   + 상세 제품명 직접 입력 (더 정밀한 분석)
                 </label>
@@ -671,135 +655,145 @@ export default function RegisterPcPage() {
                     value={ramProductName}
                     onChange={(event) => setRamProductName(event.target.value)}
                     placeholder="예: 삼성전자 DDR5-5600"
-                    className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-500"
+                    className="mt-2 w-full rounded-xl bg-white/[0.04] px-4 py-3 text-sm text-white placeholder:text-white/30 ring-1 ring-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
                   />
                 ) : null}
               </div>
 
-              <div>
-                <span className="block text-sm font-medium text-slate-700 dark:text-slate-300">SSD</span>
-                <select
-                  aria-label="SSD 용량"
-                  value={ssdCapacityOption}
-                  onChange={(event) => setSsdCapacityOption(event.target.value)}
-                  className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-                >
-                  {ssdCapacityOptions.map((ssdOption) => (
-                    <option key={ssdOption} value={ssdOption}>
-                      {ssdOption}
-                    </option>
-                  ))}
-                </select>
+              <AccordionSection
+                title="더 정확하게 진단하기 (선택)"
+                isOpen={isAdvancedOpen}
+                onToggle={() => setIsAdvancedOpen((prev) => !prev)}
+              >
+                <div className="space-y-4">
+                  <div>
+                    <span className="block text-sm font-medium text-white/70">SSD</span>
+                    <div className="mt-2">
+                      <DarkSelect aria-label="SSD 용량" value={ssdCapacityOption} onChange={(event) => setSsdCapacityOption(event.target.value)}>
+                        {ssdCapacityOptions.map((ssdOption) => (
+                          <option key={ssdOption} value={ssdOption}>
+                            {ssdOption}
+                          </option>
+                        ))}
+                      </DarkSelect>
+                    </div>
 
-                <label className="mt-3 flex min-h-11 items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-white/5 dark:text-slate-200">
-                  <input
-                    type="checkbox"
-                    checked={ssdDetailedInputEnabled}
-                    onChange={() => setSsdDetailedInputEnabled((prev) => !prev)}
-                    className="h-4 w-4 rounded border-slate-300 dark:border-slate-600"
+                    <label className="mt-3 flex min-h-11 items-center gap-3 rounded-xl bg-white/[0.03] px-3 py-2 text-xs text-white/70 ring-1 ring-line">
+                      <input
+                        type="checkbox"
+                        checked={ssdDetailedInputEnabled}
+                        onChange={() => setSsdDetailedInputEnabled((prev) => !prev)}
+                        className="h-4 w-4 rounded border-white/20 bg-white/[0.04] accent-brand"
+                      />
+                      + 상세 제품명 직접 입력 (더 정밀한 분석)
+                    </label>
+
+                    {ssdDetailedInputEnabled ? (
+                      <input
+                        type="text"
+                        value={ssdProductName}
+                        onChange={(event) => setSsdProductName(event.target.value)}
+                        placeholder="예: SK하이닉스 Gold P31"
+                        className="mt-2 w-full rounded-xl bg-white/[0.04] px-4 py-3 text-sm text-white placeholder:text-white/30 ring-1 ring-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                      />
+                    ) : null}
+                  </div>
+
+                  <CascadingPartSelect
+                    title="메인보드 (Motherboard)"
+                    groupLabel="칩셋"
+                    state={{ ...motherboardCascade, selectModel: handleMotherboardModelSelect }}
                   />
-                  + 상세 제품명 직접 입력 (더 정밀한 분석)
-                </label>
 
-                {ssdDetailedInputEnabled ? (
-                  <input
-                    type="text"
-                    value={ssdProductName}
-                    onChange={(event) => setSsdProductName(event.target.value)}
-                    placeholder="예: SK하이닉스 Gold P31"
-                    className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-500"
-                  />
-                ) : null}
-              </div>
+                  <div>
+                    <label htmlFor="psu-watt" className="block text-sm font-medium text-white/70">
+                      파워 용량
+                    </label>
+                    <input
+                      id="psu-watt"
+                      value={psuWatt}
+                      onChange={(event) => setPsuWatt(event.target.value)}
+                      className="mt-2 w-full rounded-xl bg-white/[0.04] px-4 py-3 text-sm text-white ring-1 ring-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                    />
+                  </div>
 
-              <CascadingPartSelect
-                title="메인보드 (Motherboard)"
-                groupLabel="칩셋"
-                state={{ ...motherboardCascade, selectModel: handleMotherboardModelSelect }}
-              />
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label htmlFor="monitor-resolution" className="block text-sm font-medium text-white/70">
+                        모니터 해상도
+                      </label>
+                      <div className="mt-2">
+                        <DarkSelect
+                          id="monitor-resolution"
+                          value={monitorResolution}
+                          onChange={(event) => setMonitorResolution(event.target.value as (typeof monitorResolutionOptions)[number])}
+                        >
+                          {monitorResolutionOptions.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </DarkSelect>
+                      </div>
+                    </div>
 
-              <div>
-                <label htmlFor="psu-watt" className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                  파워 용량
-                </label>
-                <input
-                  id="psu-watt"
-                  value={psuWatt}
-                  onChange={(event) => setPsuWatt(event.target.value)}
-                  className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-                />
-              </div>
+                    <div>
+                      <label htmlFor="monitor-refresh-rate" className="block text-sm font-medium text-white/70">
+                        모니터 주사율(Hz)
+                      </label>
+                      <input
+                        id="monitor-refresh-rate"
+                        type="number"
+                        min={60}
+                        max={500}
+                        step={1}
+                        value={monitorRefreshRate}
+                        onChange={(event) => setMonitorRefreshRate(Number(event.target.value) || 60)}
+                        className="mt-2 w-full rounded-xl bg-white/[0.04] px-4 py-3 text-sm text-white ring-1 ring-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                      />
+                    </div>
 
-              <div className="grid gap-3 md:grid-cols-3">
-                <div>
-                  <label htmlFor="monitor-resolution" className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                    모니터 해상도
+                    <div>
+                      <label htmlFor="monitor-count" className="block text-sm font-medium text-white/70">
+                        모니터 개수
+                      </label>
+                      <div className="mt-2">
+                        <DarkSelect id="monitor-count" value={monitorCount} onChange={(event) => setMonitorCount(Number(event.target.value))}>
+                          {[1, 2, 3].map((countOption) => (
+                            <option key={countOption} value={countOption}>
+                              {countOption}대
+                            </option>
+                          ))}
+                        </DarkSelect>
+                      </div>
+                    </div>
+                  </div>
+
+                  <label className="flex min-h-11 items-center gap-3 rounded-xl bg-white/[0.03] px-3 py-2 text-sm text-white/70 ring-1 ring-line">
+                    <input
+                      type="checkbox"
+                      checked={hasCase}
+                      onChange={() => setHasCase((value) => !value)}
+                      className="h-4 w-4 rounded border-white/20 bg-white/[0.04] accent-brand"
+                    />
+                    케이스 보유 여부
                   </label>
-                  <select
-                    id="monitor-resolution"
-                    value={monitorResolution}
-                    onChange={(event) => setMonitorResolution(event.target.value as (typeof monitorResolutionOptions)[number])}
-                    className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-                  >
-                    {monitorResolutionOptions.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
                 </div>
+              </AccordionSection>
 
-                <div>
-                  <label htmlFor="monitor-refresh-rate" className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                    모니터 주사율(Hz)
-                  </label>
-                  <input
-                    id="monitor-refresh-rate"
-                    type="number"
-                    min={60}
-                    max={500}
-                    step={1}
-                    value={monitorRefreshRate}
-                    onChange={(event) => setMonitorRefreshRate(Number(event.target.value) || 60)}
-                    className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="monitor-count" className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                    모니터 개수
-                  </label>
-                  <select
-                    id="monitor-count"
-                    value={monitorCount}
-                    onChange={(event) => setMonitorCount(Number(event.target.value))}
-                    className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-                  >
-                    {[1, 2, 3].map((countOption) => (
-                      <option key={countOption} value={countOption}>
-                        {countOption}대
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between dark:border-slate-700 dark:bg-white/5">
-                <label className="flex min-h-11 items-center gap-3 text-sm">
-                  <input type="checkbox" checked={hasCase} onChange={() => setHasCase((value) => !value)} className="h-4 w-4 rounded border-slate-300 dark:border-slate-600" />
-                  케이스 보유 여부
-                </label>
+              <div className="flex flex-col gap-3 rounded-xl bg-white/[0.03] px-4 py-3 ring-1 ring-line sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs text-white/40">CPU · GPU · RAM만으로도 바로 진단할 수 있어요.</p>
                 <button
                   type="button"
                   onClick={handleSave}
-                  className="min-h-11 rounded-lg bg-cyan-500 px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2"
+                  className="min-h-11 rounded-xl bg-brand px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-ink"
                 >
                   내 컴퓨터 사양 저장하기
                 </button>
               </div>
 
               <div className="flex justify-end">
-                {savedMessage ? <p className="text-xs text-emerald-600 dark:text-emerald-300">{savedMessage}</p> : null}
+                {savedMessage ? <p className="text-xs text-good">{savedMessage}</p> : null}
               </div>
             </div>
           </AccordionSection>
@@ -812,10 +806,10 @@ export default function RegisterPcPage() {
 function SpecTile({ emoji, label, value }: { emoji: string; label: string; value: string }) {
   return (
     <Card className="p-4" muted>
-      <p className="text-xs font-medium uppercase tracking-wide text-cyan-700 dark:text-cyan-300">
+      <p className="text-xs font-medium uppercase tracking-wide text-brand-soft">
         {emoji} {label}
       </p>
-      <p className="mt-2 break-words text-sm text-slate-900 dark:text-slate-100">{value}</p>
+      <p className="mt-2 break-words text-sm text-white/85">{value}</p>
     </Card>
   );
 }

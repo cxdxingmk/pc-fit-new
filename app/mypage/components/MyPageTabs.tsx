@@ -14,7 +14,7 @@ export default function MyPageTabs({ activeTab }: MyPageTabsProps) {
           <Link
             href="/mypage/register-pc"
             className={`block rounded-xl px-4 py-3 text-center text-sm font-semibold transition ${
-              activeTab === "register" ? "bg-cyan-500 text-slate-950" : "bg-white/5 text-slate-200 hover:bg-white/10"
+              activeTab === "register" ? "bg-brand text-white" : "bg-white/5 text-slate-200 hover:bg-white/10"
             }`}
           >
             💻 내 PC 등록
@@ -24,7 +24,7 @@ export default function MyPageTabs({ activeTab }: MyPageTabsProps) {
           <Link
             href="/mypage/analysis"
             className={`block rounded-xl px-4 py-3 text-center text-sm font-semibold transition ${
-              activeTab === "analysis" ? "bg-cyan-500 text-slate-950" : "bg-white/5 text-slate-200 hover:bg-white/10"
+              activeTab === "analysis" ? "bg-brand text-white" : "bg-white/5 text-slate-200 hover:bg-white/10"
             }`}
           >
             📊 내 PC 분석

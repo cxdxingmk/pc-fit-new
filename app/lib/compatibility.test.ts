@@ -144,7 +144,8 @@ describe("compatibilityScore", () => {
   it("applies the large CPU/GPU gap penalty when the gap exceeds 20", () => {
     const result = compatibilityScore(makeCpu({ gameScore: 95 }), makeGpu({ gameScore: 60 }));
     expect(result.score).toBe(100 - 24);
-    expect(result.warnings.some((w) => w.includes("병목"))).toBe(true);
+    expect(result.warnings.some((w) => w.message.includes("병목"))).toBe(true);
+    expect(result.warnings.find((w) => w.message.includes("병목"))?.severity).toBe("critical");
   });
 
   it("applies the small CPU/GPU gap penalty when the gap is between 10 and 20", () => {
@@ -165,13 +166,15 @@ describe("compatibilityScore", () => {
   it("penalizes a CPU/RAM DDR mismatch", () => {
     const result = compatibilityScore(makeCpu({ ddr: "DDR5" }), makeGpu(), makeRam({ ddr: "DDR4" }));
     expect(result.score).toBe(100 - 20);
-    expect(result.warnings.some((w) => w.includes("DDR"))).toBe(true);
+    expect(result.warnings.some((w) => w.message.includes("DDR"))).toBe(true);
+    expect(result.warnings.find((w) => w.message.includes("DDR"))?.severity).toBe("warn");
   });
 
   it("heavily penalizes a CPU/motherboard socket mismatch", () => {
     const result = compatibilityScore(makeCpu({ socket: "AM5" }), makeGpu(), undefined, undefined, makeMotherboard({ socket: "LGA1700" }));
     expect(result.score).toBe(100 - 30);
-    expect(result.warnings.some((w) => w.includes("소켓"))).toBe(true);
+    expect(result.warnings.some((w) => w.message.includes("소켓"))).toBe(true);
+    expect(result.warnings.find((w) => w.message.includes("소켓"))?.severity).toBe("critical");
   });
 
   it("penalizes a motherboard/RAM DDR mismatch", () => {

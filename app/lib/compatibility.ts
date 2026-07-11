@@ -5,6 +5,15 @@ import type { SSD } from "../database/ssd";
 import type { MotherBoard } from "../database/motherboard";
 import type { PSU } from "../database/psu";
 
+/** critical(치명적): 조합 자체가 불가능하거나 심각한 병목. warn(주의): 동작은 하나 최적은 아님.
+ *  info(정보): 감점은 있지만 실사용에 거의 영향 없는 참고용 안내. */
+export type CompatibilitySeverity = "critical" | "warn" | "info";
+
+export interface CompatibilityWarning {
+  severity: CompatibilitySeverity;
+  message: string;
+}
+
 // CPU/GPU 성능 격차에 따른 병목 페널티
 const CPU_GPU_GAP_LARGE = 20;
 const CPU_GPU_GAP_SMALL = 10;
@@ -72,40 +81,40 @@ export function compatibilityScore(
   powerLimit?: number
 ) {
   let score = 100;
-  const warnings: string[] = [];
+  const warnings: CompatibilityWarning[] = [];
 
   const diff = Math.abs(cpu.gameScore - gpu.gameScore);
   if (diff > CPU_GPU_GAP_LARGE) {
     score -= PENALTY_CPU_GPU_GAP_LARGE;
-    warnings.push("CPU와 GPU 성능 차이가 커서 병목 가능성이 있습니다.");
+    warnings.push({ severity: "critical", message: "CPU와 GPU 성능 차이가 커서 병목 가능성이 있습니다." });
   } else if (diff > CPU_GPU_GAP_SMALL) {
     score -= PENALTY_CPU_GPU_GAP_SMALL;
-    warnings.push("CPU와 GPU 성능 밸런스가 약간 맞지 않습니다.");
+    warnings.push({ severity: "warn", message: "CPU와 GPU 성능 밸런스가 약간 맞지 않습니다." });
   }
 
   if (cpu.pcie && gpu.pcie && normalizePcie(cpu.pcie) !== normalizePcie(gpu.pcie)) {
     score -= PENALTY_PCIE_MISMATCH;
-    warnings.push("PCIe 버전이 서로 달라 성능 제한 가능성이 있습니다.");
+    warnings.push({ severity: "info", message: "PCIe 버전이 서로 달라 성능 제한 가능성이 있습니다." });
   }
 
   if (ram && cpu.ddr && ram.ddr && cpu.ddr !== ram.ddr) {
     score -= PENALTY_RAM_DDR_MISMATCH;
-    warnings.push("CPU와 RAM의 DDR 규격이 맞지 않습니다.");
+    warnings.push({ severity: "warn", message: "CPU와 RAM의 DDR 규격이 맞지 않습니다." });
   }
 
   if (motherboard && cpu.socket && motherboard.socket && cpu.socket !== motherboard.socket) {
     score -= PENALTY_SOCKET_MISMATCH;
-    warnings.push("CPU와 메인보드 소켓이 일치하지 않아 조합이 불가능합니다.");
+    warnings.push({ severity: "critical", message: "CPU와 메인보드 소켓이 일치하지 않아 조합이 불가능합니다." });
   }
 
   if (motherboard && ram?.ddr && motherboard.ddr && ram.ddr !== motherboard.ddr) {
     score -= PENALTY_MB_RAM_DDR_MISMATCH;
-    warnings.push("RAM 규격이 메인보드가 지원하는 규격과 다릅니다.");
+    warnings.push({ severity: "warn", message: "RAM 규격이 메인보드가 지원하는 규격과 다릅니다." });
   }
 
   if (ssd && cpu.pcie && ssd.interface && normalizePcie(cpu.pcie) !== normalizePcie(ssd.interface)) {
     score -= PENALTY_SSD_PCIE_MISMATCH;
-    warnings.push("SSD 인터페이스와 플랫폼 최적화가 완벽하지 않습니다.");
+    warnings.push({ severity: "info", message: "SSD 인터페이스와 플랫폼 최적화가 완벽하지 않습니다." });
   }
 
   if (ssd && motherboard) {
@@ -114,18 +123,18 @@ export function compatibilityScore(
 
     if (ssdIsSata && typeof motherboard.sataPorts === "number" && motherboard.sataPorts <= 0) {
       score -= PENALTY_SATA_NO_PORTS;
-      warnings.push("SATA SSD를 선택했지만 메인보드 SATA 포트가 부족합니다.");
+      warnings.push({ severity: "warn", message: "SATA SSD를 선택했지만 메인보드 SATA 포트가 부족합니다." });
     }
 
     if (!ssdIsSata && typeof motherboard.m2Slots === "number" && motherboard.m2Slots <= 0) {
       score -= PENALTY_NVME_NO_SLOT;
-      warnings.push("NVMe SSD를 선택했지만 메인보드 M.2 슬롯이 없습니다.");
+      warnings.push({ severity: "warn", message: "NVMe SSD를 선택했지만 메인보드 M.2 슬롯이 없습니다." });
     }
 
     if (nvmeGen && Array.isArray(motherboard.supportedNvmeGenerations)) {
       if (!motherboard.supportedNvmeGenerations.includes(nvmeGen)) {
         score -= PENALTY_NVME_GEN_UNSUPPORTED;
-        warnings.push(`NVMe Gen${nvmeGen} SSD를 선택했지만 메인보드가 해당 세대를 지원하지 않습니다.`);
+        warnings.push({ severity: "warn", message: `NVMe Gen${nvmeGen} SSD를 선택했지만 메인보드가 해당 세대를 지원하지 않습니다.` });
       }
     }
   }
@@ -134,10 +143,10 @@ export function compatibilityScore(
     const requiredPower = cpu.tdp + gpu.tgp + SYSTEM_OVERHEAD_WATTS;
     if (psu.wattage < requiredPower) {
       score -= PENALTY_PSU_INSUFFICIENT;
-      warnings.push(`파워 용량이 부족합니다. 최소 ${requiredPower}W가 필요합니다.`);
+      warnings.push({ severity: "critical", message: `파워 용량이 부족합니다. 최소 ${requiredPower}W가 필요합니다.` });
     } else if (psu.wattage < requiredPower + PSU_HEADROOM_MARGIN_WATTS) {
       score -= PENALTY_PSU_LOW_HEADROOM;
-      warnings.push("파워 여유가 다소 적어 안정적인 운영에 약간의 여지가 있습니다.");
+      warnings.push({ severity: "info", message: "파워 여유가 다소 적어 안정적인 운영에 약간의 여지가 있습니다." });
     }
   }
 
@@ -145,7 +154,7 @@ export function compatibilityScore(
     const requiredPower = cpu.tdp + gpu.tgp + SYSTEM_OVERHEAD_WATTS;
     if (powerLimit < requiredPower) {
       score -= PENALTY_EXISTING_PSU_INSUFFICIENT;
-      warnings.push(`보유 파워 용량이 ${requiredPower}W 기준을 넘습니다.`);
+      warnings.push({ severity: "critical", message: `보유 파워 용량이 ${requiredPower}W 기준을 넘습니다.` });
     }
   }
 

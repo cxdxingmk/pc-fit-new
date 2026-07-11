@@ -1,5 +1,4 @@
 import { compatibilityScore, recencyBoost } from "./compatibility";
-import { defaultDataSource } from "./dataSource";
 import { getCpuBenchmark } from "../../database/mapping/cpuMap";
 import { getGpuBenchmark } from "../../database/mapping/gpuMap";
 
@@ -17,7 +16,7 @@ import type { RAM } from "../database/ram";
 import type { SSD } from "../database/ssd";
 import type { MotherBoard } from "../database/motherboard";
 import type { PSU } from "../database/psu";
-import type { ExistingPartsState, CaseOwnershipOption, PurposeType } from "../types/build";
+import type { ExistingPartsState, CaseOwnershipOption, PurposeType, BudgetRange } from "../types/build";
 import type { RecommendationResult } from "../types/recommend";
 
 type Answers = Record<number, string[]>;
@@ -101,6 +100,9 @@ function parseWattage(value: string) {
   return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
 }
 
+// placeholder(0/음수/비정상) 가격 여부 — 동점자 비교에서 변별력을 잃지 않도록 판정한다.
+const isPlaceholderPrice = (p: number): boolean => !Number.isFinite(p) || p <= 0;
+
 // 예산 이내에서는 성능이 랭킹을 주도하되, 예산을 넘어서는 순간 급격히 깎이도록 만드는 배율.
 // 절대 원화 차액(diff/30000)이 아니라 "예산 대비 초과 비율"로 계산해야 예산 규모와 무관하게
 // 일관된 패널티가 걸린다(예: 30만원 초과가 100만원 예산에서는 치명적이지만 350만원 예산에서는 오차 수준).
@@ -119,6 +121,14 @@ export function computeBudgetFactor(totalPrice: number, budgetTarget: number | n
   return Math.exp(-3 * overageRatio); // 10% 초과 -> 약 0.74배, 50% 초과 -> 약 0.22배, 100% 초과 -> 약 0.05배
 }
 
+// 예산과 극단적으로 동떨어진(대략 100%+ 초과, 즉 목표가의 2배 이상) 조합은 점수를 깎는 정도가
+// 아니라 아예 결과에서 제외한다. 하한(budgetMin)은 이미 "이 아래는 안 보여준다"는 하드 컷인데
+// 상한 쪽은 소프트 페널티뿐이라, 목표가가 아주 낮을 때(예: 정확한 금액 55만원 -> ±10% 49.5만~
+// 60.5만) 카탈로그의 가장 싼 조합조차 하한은 가볍게 통과해버려 "174만원짜리를 0.3점으로" 보여주는
+// 비일관성이 생겼다. 목표가가 아주 높아 하한 컷으로 이미 결과가 텅 비는 경우와 대칭이 되도록,
+// 상한 쪽도 "터무니없이 안 맞음"은 하드 컷으로 통일한다.
+const MIN_REASONABLE_BUDGET_FACTOR = 0.05;
+
 function rateRam(ram: RAM, purpose: Purpose) {
   if (purpose === "gaming") return ram.gameScore;
   if (purpose === "ai") return ram.aiScore;
@@ -131,15 +141,19 @@ function rateSsd(ssd: SSD, purpose: Purpose) {
   return ssd.workScore;
 }
 
+// qualityScore(실측 안정성 등급)가 있는 부품은 벤치마크 점수와 반반 블렌드해 우선순위에 반영한다.
+// 레거시 카탈로그 항목(qualityScore 없음)은 기존과 동일하게 동작한다.
 function rateMotherboard(mb: MotherBoard) {
-  return (mb.gameScore + mb.workScore + mb.aiScore) / 3;
+  const perf = (mb.gameScore + mb.workScore + mb.aiScore) / 3;
+  return typeof mb.qualityScore === "number" ? perf * 0.5 + mb.qualityScore * 0.5 : perf;
 }
 
 function ratePsu(psu: PSU, cpu: CPU, gpu: GPU) {
   const required = cpu.tdp + gpu.tgp + 150;
   const base = psu.wattage >= required ? 80 : 55;
   const efficiencyBonus = psu.efficiency === "80 PLUS Platinum" ? 10 : psu.efficiency === "80 PLUS Titanium" ? 12 : 8;
-  return Math.min(100, base + efficiencyBonus);
+  const baseline = Math.min(100, base + efficiencyBonus);
+  return typeof psu.qualityScore === "number" ? baseline * 0.5 + psu.qualityScore * 0.5 : baseline;
 }
 
 function createReason(score: number, compatibility: number, caseOwnership: CaseOwnershipOption) {
@@ -211,6 +225,34 @@ function groupMotherboardsBySocketAndDdr(mbs: MotherBoard[]): Map<string, Mother
   return map;
 }
 
+/** 랭킹 파이프라인 내부에서만 쓰는 확장 후보 — buildKey/cpuId/gpuId/원시 성능점수를 함께 나른다.
+ *  RecommendationResult(공개 타입)에는 없는 필드라 별도 타입으로 둔다. */
+export interface RankedCandidate {
+  candidate: RecommendationResult;
+  buildKey: string;
+  cpuId: string;
+  gpuId: string;
+  gpuScore: number;
+  cpuScore: number;
+  /** 예산 배율(computeBudgetFactor) 반영 전의 순수 성능+최신성 점수 — "최고성능 지향" 전략의 기준. */
+  normalizedBaseScore: number;
+}
+
+// 결정적 다단계 비교자 — 동점자도 매 실행 항상 같은 순서로 정렬되도록 보장한다.
+// 1차: 종합 점수 내림차순  2차: GPU 성능 내림차순  3차: CPU 성능 내림차순
+// 4차: 실가격 오름차순(placeholder는 최후순위로 밀림)  5차: id 사전순(최종 결정성).
+export function compareCandidates(a: RankedCandidate, b: RankedCandidate): number {
+  if (b.candidate.finalScore !== a.candidate.finalScore) return b.candidate.finalScore - a.candidate.finalScore;
+  if (b.gpuScore !== a.gpuScore) return b.gpuScore - a.gpuScore;
+  if (b.cpuScore !== a.cpuScore) return b.cpuScore - a.cpuScore;
+
+  const aPrice = isPlaceholderPrice(a.candidate.totalPrice) ? Number.MAX_SAFE_INTEGER : a.candidate.totalPrice;
+  const bPrice = isPlaceholderPrice(b.candidate.totalPrice) ? Number.MAX_SAFE_INTEGER : b.candidate.totalPrice;
+  if (aPrice !== bPrice) return aPrice - bPrice;
+
+  return a.candidate.id.localeCompare(b.candidate.id);
+}
+
 export function generateCandidates(
   cpus: CPU[],
   gpus: GPU[],
@@ -221,7 +263,9 @@ export function generateCandidates(
   purpose: Purpose,
   budgetTarget: number | null,
   existingParts: ExistingPartsState,
-  caseOwnership: CaseOwnershipOption
+  caseOwnership: CaseOwnershipOption,
+  budgetMin: number | null = null,
+  preferredBudgetTarget: number | null = null
 ): RecommendationResult[] {
   const cpuPool = selectDiversePool(cpus, purpose, CPU_POOL_PER_TIER);
   const gpuPool = selectDiversePool(gpus, purpose, GPU_POOL_PER_TIER);
@@ -234,7 +278,9 @@ export function generateCandidates(
   }
   const ramsByDdr = groupRamsByDdr(rams);
 
-  const candidates: RecommendationResult[] = [];
+  // buildKey(핵심 부품 조합: cpu+gpu+mb+psu)와 gpu.id, 원시 성능점수를 함께 추적해
+  // 최종 랭킹 단계에서 결정적 동점자 비교 + 완전 중복 제거 + GPU 편중 완화 필터를 적용한다.
+  const pool: RankedCandidate[] = [];
 
   for (const cpu of cpuPool) {
     const motherboardsToUse = mbsBySocketDdr.get(`${cpu.socket}|${cpu.ddr}`) ?? mbsBySocket.get(cpu.socket) ?? [];
@@ -246,15 +292,41 @@ export function generateCandidates(
       const powerLimit = existingParts.Power.enabled ? parseWattage(existingParts.Power.wattage) : null;
       if (powerLimit && powerLimit < cpu.tdp + gpu.tgp + 150) continue;
 
+      // 결정적 동점자 비교용 원시 성능점수 — buildCandidate 내부의 cpuScore/gpuScore 산출식과 동일하다.
+      const cpuBench = getCpuBenchmark(cpu.id);
+      const gpuBench = getGpuBenchmark(gpu.id);
+      const benchKey = purpose === "gaming" ? "game" : purpose === "ai" ? "ai" : "work";
+      const cpuScore = (cpuBench as { game?: number; work?: number; ai?: number })[benchKey] ?? cpu.gameScore;
+      const gpuScore = (gpuBench as { game?: number; work?: number; ai?: number })[benchKey] ?? gpu.gameScore;
+
+      // 메인보드 품질 하한선 — CPU TDP가 높을수록(=발열/전력 부하가 큰 CPU) 검증된 VRM
+      // 설계의 보드만 허용한다. qualityScore 없는 레거시 항목은 하한선 적용 없이 통과.
+      const minBoardQuality = cpu.tdp >= 150 ? 78 : cpu.tdp >= 100 ? 65 : 0;
+
       for (const ram of ramsToUse) {
         for (const ssd of ssds) {
           for (const mb of motherboardsToUse) {
             if (mb.ddr !== ram.ddr) continue;
+            if (typeof mb.qualityScore === "number" && mb.qualityScore < minBoardQuality) continue;
 
             for (const psu of psus) {
-              const candidate = buildCandidate(cpu, gpu, ram, ssd, mb, psu, purpose, budgetTarget, existingParts, caseOwnership);
-              if (candidate) {
-                candidates.push(candidate);
+              // 메인보드/PSU 결합: 소켓·DDR 호환 메인보드(위에서 이미 필터링)에
+              // 부하 기준 충분 용량 PSU만 결합한다 — 용량 미달 PSU는 감점이 아니라 원천 제외.
+              if (psu.wattage < cpu.tdp + gpu.tgp + 150) continue;
+              // PSU 신뢰도 하한선 — qualityScore 없는 레거시 항목은 하한선 적용 없이 통과.
+              if (typeof psu.qualityScore === "number" && psu.qualityScore < 70) continue;
+
+              const built = buildCandidate(cpu, gpu, ram, ssd, mb, psu, purpose, budgetTarget, existingParts, caseOwnership, budgetMin);
+              if (built) {
+                pool.push({
+                  candidate: built.result,
+                  buildKey: `${cpu.id}::${gpu.id}::${mb.id}::${psu.id}`,
+                  cpuId: cpu.id,
+                  gpuId: gpu.id,
+                  gpuScore,
+                  cpuScore,
+                  normalizedBaseScore: built.normalizedBaseScore,
+                });
               }
             }
           }
@@ -263,8 +335,107 @@ export function generateCandidates(
     }
   }
 
-  candidates.sort((a, b) => b.finalScore - a.finalScore);
-  return candidates.slice(0, 3);
+  return selectTopByStrategy(pool, budgetTarget, preferredBudgetTarget);
+}
+
+// TOP1/2/3은 "균형 최적/가성비 추천/최고성능 지향" 라벨이 실제로 의미가 있도록 서로 다른
+// 목적함수로 뽑는다(app/result/page.tsx의 STRATEGY_TAGS 순서와 정확히 일치) — 이전에는 셋 다
+// 동일한 finalScore 랭킹의 1/2/3위였을 뿐이라 라벨과 무관하게 사실상 같은 조합(특히 CPU)이
+// 반복됐다. 전략별 정렬 후 앞서 채택된 슬롯과 CPU/GPU가 겹치지 않는 후보를 우선 채택한다.
+type Strategy = "balanced" | "value" | "performance";
+const STRATEGIES: Strategy[] = ["balanced", "value", "performance"];
+
+// 가성비: 100만원당 종합점수. 성능 자체보다 "가격 대비 얼마나 효율적인가"를 우선한다.
+function valueScoreOf(rc: RankedCandidate): number {
+  const price = isPlaceholderPrice(rc.candidate.totalPrice) ? Number.MAX_SAFE_INTEGER : rc.candidate.totalPrice;
+  return (rc.candidate.finalScore / price) * 1_000_000;
+}
+
+function scoreForStrategy(rc: RankedCandidate, strategy: Strategy, preferredTarget: number | null): number {
+  // "정확한 금액 입력"(exact 모드)은 ±10% 범위로 변환돼 range 모드와 같은 경로를 타지만, "정확히
+  // 이 금액"이라는 사용자 의도는 균형(TOP1) 슬롯에서만큼은 살려준다 — 종합점수 최댓값이 아니라
+  // 입력 금액과의 거리가 가장 가까운 조합을 최우선으로 삼는다(값이 작을수록 좋으므로 부호 반전).
+  if (strategy === "balanced" && preferredTarget !== null) {
+    return -Math.abs(rc.candidate.totalPrice - preferredTarget);
+  }
+  if (strategy === "value") return valueScoreOf(rc);
+  if (strategy === "performance") return rc.normalizedBaseScore; // 예산 배율 미반영 — 순수 성능/최신성 최대화
+  return rc.candidate.finalScore; // balanced(타겟 없음): 기존처럼 목적 가중치+최신성+예산배율을 모두 반영한 종합점수
+}
+
+function compareForStrategy(a: RankedCandidate, b: RankedCandidate, strategy: Strategy, preferredTarget: number | null): number {
+  const diff = scoreForStrategy(b, strategy, preferredTarget) - scoreForStrategy(a, strategy, preferredTarget);
+  if (diff !== 0) return diff;
+  return compareCandidates(a, b); // 전략별 점수가 같으면 기존 결정적 tie-break로 폴백
+}
+
+// 후보 풀은 CPU×GPU×RAM×SSD×메인보드×PSU 조합이라 수천~수만 건까지 커질 수 있다. 매 전략마다
+// 풀 전체를 O(n log n) 정렬하면(3회) 비용이 커지므로, 정렬 대신 O(n) 단일 스캔으로 "이번 전략
+// 기준 최선"을 찾는다 — 1순위(CPU/GPU 모두 다름)/2순위(CPU만 다름)/3순위(buildKey만 다름) 각각을
+// 스캔 한 번에 동시에 추적한다.
+function pickBestForStrategy(
+  pool: RankedCandidate[],
+  strategy: Strategy,
+  usedCpuIds: Set<string>,
+  usedGpuIds: Set<string>,
+  usedBuildKeys: Set<string>,
+  preferredTarget: number | null,
+  extraFilter?: (rc: RankedCandidate) => boolean
+): RankedCandidate | undefined {
+  let bestFull: RankedCandidate | undefined;
+  let bestCpuOnly: RankedCandidate | undefined;
+  let bestAny: RankedCandidate | undefined;
+
+  for (const rc of pool) {
+    if (usedBuildKeys.has(rc.buildKey)) continue;
+    if (extraFilter && !extraFilter(rc)) continue;
+    if (!bestAny || compareForStrategy(rc, bestAny, strategy, preferredTarget) < 0) bestAny = rc;
+
+    if (usedCpuIds.has(rc.cpuId)) continue;
+    if (!bestCpuOnly || compareForStrategy(rc, bestCpuOnly, strategy, preferredTarget) < 0) bestCpuOnly = rc;
+
+    if (usedGpuIds.has(rc.gpuId)) continue;
+    if (!bestFull || compareForStrategy(rc, bestFull, strategy, preferredTarget) < 0) bestFull = rc;
+  }
+
+  // 1순위: 이미 채택된 슬롯과 CPU/GPU가 모두 다른 후보 (완전한 다양성)
+  // 2순위: CPU만이라도 다른 후보 (원인이었던 "CPU 전부 동일" 문제의 핵심 방어선)
+  // 3순위: 그래도 없으면 buildKey 중복만 피해 재충원(빈 슬롯 방지, 후보 풀이 얕을 때의 안전망)
+  return bestFull ?? bestCpuOnly ?? bestAny;
+}
+
+// "최고성능 지향"이 예산과 완전히 무관하게 카탈로그 최상급 조합만 골라버리면, 화면에 공통으로
+// 표시되는 finalScore(예산 배율이 반영된 "종합 X점")가 극단적으로 낮게 나와(예: 0.6점) 다른 두
+// 카드와 나란히 볼 때 마치 오류처럼 보인다. 그래서 예산 대비 지나치게 벗어난(대략 20%대 초과를
+// 넘어서는) 조합은 성능 전략에서도 우선 배제하고, 그 안에서만 순수 성능을 최대화한다 — 그래도
+// 후보가 없으면(예산이 극단적으로 낮은 등) 안전망으로 예산 무관 최고성능으로 폴백한다.
+const PERFORMANCE_BUDGET_FACTOR_FLOOR = 0.5;
+
+function selectTopByStrategy(pool: RankedCandidate[], budgetTarget: number | null, preferredTarget: number | null = null): RecommendationResult[] {
+  const usedCpuIds = new Set<string>();
+  const usedGpuIds = new Set<string>();
+  const usedBuildKeys = new Set<string>();
+  const result: RecommendationResult[] = [];
+
+  for (const strategy of STRATEGIES) {
+    let picked: RankedCandidate | undefined;
+
+    if (strategy === "performance" && budgetTarget) {
+      const withinEnvelope = (rc: RankedCandidate) => computeBudgetFactor(rc.candidate.totalPrice, budgetTarget) >= PERFORMANCE_BUDGET_FACTOR_FLOOR;
+      picked = pickBestForStrategy(pool, strategy, usedCpuIds, usedGpuIds, usedBuildKeys, preferredTarget, withinEnvelope);
+    }
+    if (!picked) {
+      picked = pickBestForStrategy(pool, strategy, usedCpuIds, usedGpuIds, usedBuildKeys, preferredTarget);
+    }
+
+    if (!picked) continue;
+    usedCpuIds.add(picked.cpuId);
+    usedGpuIds.add(picked.gpuId);
+    usedBuildKeys.add(picked.buildKey);
+    result.push(picked.candidate);
+  }
+
+  return result;
 }
 
 function buildCandidate(
@@ -277,8 +448,9 @@ function buildCandidate(
   purpose: Purpose,
   budgetTarget: number | null,
   existingParts: ExistingPartsState,
-  caseOwnership: CaseOwnershipOption
-): RecommendationResult | null {
+  caseOwnership: CaseOwnershipOption,
+  budgetMin: number | null
+): { result: RecommendationResult; normalizedBaseScore: number } | null {
   const { score: compatibilityScoreVal, warnings } = compatibilityScore(
     cpu,
     gpu,
@@ -326,16 +498,28 @@ function buildCandidate(
   const gpuPrice = priceTierToPrice[gpu.priceTier] ?? 0;
   const ramPrice = priceTierToPrice[ram.priceTier] ?? 0;
   const ssdPrice = priceTierToPrice[ssd.priceTier] ?? 0;
-  const motherboardPrice = priceTierToPrice[mb.priceTier] ?? 0;
-  const psuPrice = priceTierToPrice[psu.priceTier] ?? 0;
+  // hardwareSeed.ts 병합분은 priceTier 대신 실거래가(price)를 들고 있다 — 있으면 우선 사용.
+  const motherboardPrice = mb.price ?? (mb.priceTier ? priceTierToPrice[mb.priceTier] : 0) ?? 0;
+  const psuPrice = psu.price ?? (psu.priceTier ? priceTierToPrice[psu.priceTier] : 0) ?? 0;
   const casePrice = caseOwnership === "owned" ? 0 : CASE_PRICE;
 
   const totalPrice = cpuPrice + gpuPrice + ramPrice + ssdPrice + motherboardPrice + psuPrice + casePrice;
 
+  // 듀얼 레인지 슬라이더의 최소 예산 — max(budgetTarget)는 기존처럼 소프트 페널티(초과할수록
+  // 지수감쇠)로 다루지만, min은 "이 아래로는 아예 보여주지 않는다"는 하드 하한이라 원천 제외한다.
+  if (budgetMin && totalPrice < budgetMin) {
+    return null;
+  }
+
   const budgetFactor = computeBudgetFactor(totalPrice, budgetTarget);
+  if (budgetTarget && budgetFactor < MIN_REASONABLE_BUDGET_FACTOR) {
+    return null;
+  }
   const finalScore = Math.round(Math.min(100, Math.max(0, normalizedBaseScore * budgetFactor)) * 100) / 100;
 
-  return {
+  // 점수-부품 원자성: finalScore는 여기서 단 1회 계산되어 이 객체에 귀속되고,
+  // Object.freeze로 동결해 이후 파이프라인(정렬/필터/렌더)에서 재계산·변조가 불가능하게 한다.
+  const result = Object.freeze({
     id: candidateId(cpu, gpu, ram, ssd, mb, psu),
     cpu: cpu.name,
     gpu: gpu.name,
@@ -365,7 +549,9 @@ function buildCandidate(
     warnings,
     finalScore,
     reason: createReason(finalScore, compatibilityScoreVal, caseOwnership),
-  };
+  });
+
+  return { result, normalizedBaseScore };
 }
 
 export function recommend(
@@ -380,43 +566,32 @@ export function recommend(
     Power: { enabled: false, wattage: "" },
   },
   caseOwnership: CaseOwnershipOption = "owned",
-  purposes?: PurposeType[]
+  purposes?: PurposeType[],
+  // 듀얼 레인지 슬라이더(또는 프리셋에서 매핑된) {min,max} — 주어지면 answers[3] 문자열 파싱보다
+  // 우선한다. max는 기존 budgetTarget과 동일하게 소프트 페널티 기준으로, min은 하드 하한으로 쓰인다.
+  budgetRange?: BudgetRange | null,
+  // "정확한 금액 입력"이 ±10% range로 변환돼 위 budgetRange 경로를 타되, 균형(TOP1) 슬롯만큼은
+  // 종합점수 최댓값 대신 이 값과 가장 가까운 조합을 우선 채택하도록 한다.
+  preferredBudgetTarget?: number | null
 ): RecommendationResult[] {
   const purpose = pickPurpose(answers, purposes);
-  const budgetTarget = pickBudgetTarget(answers);
+  const budgetTarget = budgetRange ? budgetRange.max : pickBudgetTarget(answers);
+  const budgetMin = budgetRange?.min ?? null;
 
-  return generateCandidates(_cpus, _gpus, _rams, _ssds, _motherboards, _psus, purpose, budgetTarget, existingParts, caseOwnership);
-}
-
-export async function recommendAsync(
-  answers: Answers,
-  existingParts: ExistingPartsState = {
-    CPU: { enabled: false, brand: "", model: "" },
-    GPU: { enabled: false, brand: "", manufacturer: "", model: "" },
-    RAM: { enabled: false, ddr: "", capacity: "", brand: "", model: "" },
-    SSD: { enabled: false, capacity: "", brand: "", model: "" },
-    HDD: { enabled: false, capacity: "" },
-    Motherboard: { enabled: false, series: "", manufacturer: "", model: "" },
-    Power: { enabled: false, wattage: "" },
-  },
-  caseOwnership: CaseOwnershipOption = "owned",
-  purposes?: PurposeType[]
-): Promise<RecommendationResult[]> {
-  const ds = defaultDataSource;
-
-  const [cpus, gpus, rams, ssds, mbs, psus] = await Promise.all([
-    ds.getCpuData(),
-    ds.getGpuData(),
-    ds.getRamData(),
-    ds.getSsdData(),
-    ds.getMotherboardData(),
-    ds.getPsuData(),
-  ]);
-
-  const purpose = pickPurpose(answers, purposes);
-  const budgetTarget = pickBudgetTarget(answers);
-
-  return generateCandidates(cpus, gpus, rams, ssds, mbs, psus, purpose, budgetTarget, existingParts, caseOwnership);
+  return generateCandidates(
+    _cpus,
+    _gpus,
+    _rams,
+    _ssds,
+    _motherboards,
+    _psus,
+    purpose,
+    budgetTarget,
+    existingParts,
+    caseOwnership,
+    budgetMin,
+    preferredBudgetTarget ?? null
+  );
 }
 
 export { recommend as default };

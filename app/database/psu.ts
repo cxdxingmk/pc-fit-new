@@ -2,7 +2,7 @@ export interface PSU {
   id: string;
 
   name: string;
-  brand: "Seasonic" | "Corsair" | "Antec" | "Cooler Master" | "Thermaltake" | "Be Quiet!";
+  brand: "Seasonic" | "Corsair" | "Antec" | "Cooler Master" | "Thermaltake" | "Be Quiet!" | "ASUS" | "MSI" | "NZXT" | "FSP" | "Super Flower";
 
   wattage: number;
   efficiency: "80 PLUS Bronze" | "80 PLUS Gold" | "80 PLUS Platinum" | "80 PLUS Titanium";
@@ -10,7 +10,18 @@ export interface PSU {
   formFactor: "ATX" | "SFX";
 
   releaseYear: number;
-  priceTier: "budget" | "mid" | "high";
+
+  /**
+   * 신뢰도 점수(0~100) — 제조사 tier list + 인증 등급 기반. 가격이 아니라 이 값을
+   * 우선해 고른다. 레거시 카탈로그 항목은 데이터가 없어 undefined이며, 이 경우
+   * 추천 엔진의 품질 하한선 필터를 통과한 것으로 간주한다(recommender.ts 참고).
+   */
+  qualityScore?: number;
+
+  /** 실거래가(KRW) — 있으면 priceTier 대신 이 값을 우선 사용한다(recommender.ts 참고). */
+  price?: number;
+
+  priceTier?: "budget" | "mid" | "high";
 }
 
 export const psus: PSU[] = [
@@ -101,5 +112,163 @@ export const psus: PSU[] = [
     formFactor: "ATX",
     releaseYear: 2024,
     priceTier: "high",
+  },
+
+  // ── hardwareSeed.ts 병합분 (2026년 중반 시드 — qualityScore 기반 신뢰도 등급 보유) ──
+  {
+    id: "psu-asus-tuf-650g",
+    name: "ASUS TUF Gaming 650W Gold",
+    brand: "ASUS",
+    wattage: 650,
+    efficiency: "80 PLUS Gold",
+    modularity: "full",
+    formFactor: "ATX",
+    releaseYear: 2025,
+    qualityScore: 74,
+    price: 120_000,
+  },
+  {
+    id: "psu-seasonic-focus-gx750",
+    name: "Seasonic FOCUS GX-750",
+    brand: "Seasonic",
+    wattage: 750,
+    efficiency: "80 PLUS Gold",
+    modularity: "full",
+    formFactor: "ATX",
+    releaseYear: 2025,
+    qualityScore: 93,
+    price: 160_000,
+  },
+  {
+    id: "psu-bequiet-purepower12-750",
+    name: "be quiet! Pure Power 12 M 750W",
+    brand: "Be Quiet!",
+    wattage: 750,
+    efficiency: "80 PLUS Gold",
+    modularity: "full",
+    formFactor: "ATX",
+    releaseYear: 2025,
+    qualityScore: 88,
+    price: 150_000,
+  },
+  {
+    id: "psu-thermaltake-gf3-750",
+    name: "Thermaltake Toughpower GF3 750W",
+    brand: "Thermaltake",
+    wattage: 750,
+    efficiency: "80 PLUS Gold",
+    modularity: "full",
+    formFactor: "ATX",
+    releaseYear: 2025,
+    qualityScore: 75,
+    price: 150_000,
+  },
+  {
+    id: "psu-corsair-rm850x-shift",
+    name: "Corsair RM850x (Shift)",
+    brand: "Corsair",
+    wattage: 850,
+    efficiency: "80 PLUS Gold",
+    modularity: "full",
+    formFactor: "ATX",
+    releaseYear: 2025,
+    qualityScore: 91,
+    price: 180_000,
+  },
+  {
+    id: "psu-coolermaster-mwe-gold-850-v3",
+    name: "Cooler Master MWE Gold 850 V3 (ATX 3.1)",
+    brand: "Cooler Master",
+    wattage: 850,
+    efficiency: "80 PLUS Gold",
+    modularity: "full",
+    formFactor: "ATX",
+    releaseYear: 2025,
+    qualityScore: 78,
+    price: 140_000,
+  },
+  {
+    id: "psu-superflower-leadex7-850",
+    name: "Super Flower Leadex VII 850W",
+    brand: "Super Flower",
+    wattage: 850,
+    efficiency: "80 PLUS Gold",
+    modularity: "full",
+    formFactor: "ATX",
+    releaseYear: 2025,
+    qualityScore: 90,
+    price: 170_000,
+  },
+  {
+    id: "psu-msi-mag-a850gl",
+    name: "MSI MAG A850GL PCIE5",
+    brand: "MSI",
+    wattage: 850,
+    efficiency: "80 PLUS Gold",
+    modularity: "full",
+    formFactor: "ATX",
+    releaseYear: 2025,
+    qualityScore: 76,
+    price: 150_000,
+  },
+  {
+    id: "psu-fsp-hydro-g-pro-850",
+    name: "FSP Hydro G Pro 850W",
+    brand: "FSP",
+    wattage: 850,
+    efficiency: "80 PLUS Gold",
+    modularity: "full",
+    formFactor: "ATX",
+    releaseYear: 2025,
+    qualityScore: 77,
+    price: 140_000,
+  },
+  {
+    id: "psu-corsair-rm1000x-shift",
+    name: "Corsair RM1000x Shift",
+    brand: "Corsair",
+    wattage: 1000,
+    efficiency: "80 PLUS Gold",
+    modularity: "full",
+    formFactor: "ATX",
+    releaseYear: 2025,
+    qualityScore: 92,
+    price: 230_000,
+  },
+  {
+    id: "psu-seasonic-prime-tx1000",
+    name: "Seasonic PRIME TX-1000",
+    wattage: 1000,
+    brand: "Seasonic",
+    efficiency: "80 PLUS Titanium",
+    modularity: "full",
+    formFactor: "ATX",
+    releaseYear: 2025,
+    qualityScore: 97,
+    price: 350_000,
+  },
+  {
+    id: "psu-bequiet-darkpower13-1000",
+    name: "be quiet! Dark Power 13 1000W",
+    brand: "Be Quiet!",
+    wattage: 1000,
+    efficiency: "80 PLUS Titanium",
+    modularity: "full",
+    formFactor: "ATX",
+    releaseYear: 2025,
+    qualityScore: 95,
+    price: 340_000,
+  },
+  {
+    id: "psu-nzxt-c1500-platinum",
+    name: "NZXT C1500 Platinum",
+    brand: "NZXT",
+    wattage: 1500,
+    efficiency: "80 PLUS Platinum",
+    modularity: "full",
+    formFactor: "ATX",
+    releaseYear: 2025,
+    qualityScore: 83,
+    price: 400_000,
   },
 ];
