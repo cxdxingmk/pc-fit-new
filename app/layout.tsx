@@ -41,7 +41,7 @@ export default function RootLayout({
           href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css"
         />
       </head>
-      <body className="min-h-screen bg-ink text-white antialiased selection:bg-brand/30">
+      <body className="min-h-screen overflow-x-clip bg-ink text-white antialiased selection:bg-brand/30">
         <div
           aria-hidden="true"
           className="pointer-events-none fixed inset-x-0 top-[-200px] mx-auto h-[480px] w-[720px] rounded-full bg-brand/10 blur-[120px]"

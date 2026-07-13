@@ -22,6 +22,7 @@
 
 import { useMemo } from "react";
 import InfoTooltip from "./InfoTooltip";
+import Callout from "./Callout";
 import {
   calculatePsuRecommendation,
   evaluatePsuAdequacy,
@@ -75,11 +76,8 @@ export function PsuAlertBanner({ recommendation, adequacy }: { recommendation: P
   if (adequacy !== "insufficient") return null;
 
   return (
-    <div role="alert" className="flex items-center justify-center gap-2 rounded-lg bg-warn/10 px-3 py-2.5 text-xs text-warn ring-1 ring-warn/20">
-      <span aria-hidden="true">⚠️</span>
-      <span>
-        안정적인 시스템 구동을 위해 <strong className="font-semibold">{recommendation.recommendedWatt}W 이상</strong>의 파워를 권장합니다.
-      </span>
-    </div>
+    <Callout variant="warning" role="alert">
+      안정적인 시스템 구동을 위해 <strong className="font-semibold">{recommendation.recommendedWatt}W 이상</strong>의 파워를 권장합니다.
+    </Callout>
   );
 }

@@ -22,6 +22,8 @@
 
 import { useCallback, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { PsuAlertBanner, PsuInlineGuide, usePsuGuide } from "@/components/ui/PsuGuide";
+import DarkSelect from "@/components/ui/DarkSelect";
+import Callout from "@/components/ui/Callout";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 타입 정의 — 기존 데이터 구조에 맞춰 필드명만 매핑해서 사용하세요
@@ -109,7 +111,7 @@ function CompactRadar({ scores }: { scores: PerformanceScores }) {
       {[0.33, 0.66, 1].map((r) => (
         <polygon key={r} points={gridPolygon(r)} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
       ))}
-      <polygon points={dataPolygon} fill="rgba(76,125,255,0.25)" stroke="#4C7DFF" strokeWidth="1.5" />
+      <polygon points={dataPolygon} fill="var(--color-brand)" fillOpacity={0.25} stroke="var(--color-brand)" strokeWidth="1.5" />
       {axes.map((a) => {
         const [lx, ly] = toPoint(a.angle, 1.22);
         return (
@@ -195,7 +197,7 @@ export default function QuoteReport({
           </p>
         </div>
         <div className="h-14 w-px bg-line" aria-hidden="true" />
-        <p className={`flex-1 text-sm text-white/70 ${cellCenter}`}>{performance.summary}</p>
+        <p className={`min-w-0 flex-1 text-sm text-white/70 ${cellCenter}`}>{performance.summary}</p>
         <CompactRadar scores={performance} />
       </section>
 
@@ -213,7 +215,9 @@ export default function QuoteReport({
           <div key={key} className={i % 2 === 0 ? "bg-surface" : "bg-surface/60"}>
             <div className="grid grid-cols-[110px_1fr_92px] text-sm">
               <div className={`px-3 py-3 font-medium text-white/40 ${cellCenter}`}>{label}</div>
-              <div className={`px-3 py-3 font-semibold text-white ${cellCenter}`}>{parts[key]}</div>
+              <div className={`min-w-0 px-3 py-3 font-semibold text-white ${cellCenter}`}>
+                <span className="min-w-0 truncate">{parts[key]}</span>
+              </div>
               <div className={`px-3 py-3 ${cellCenter}`}>
                 <span className="rounded-md bg-brand/10 px-2 py-0.5 text-xs font-medium text-brand-soft">필수</span>
               </div>
@@ -226,7 +230,9 @@ export default function QuoteReport({
         {/* HDD — 선택 항목 (미선택 시에도 에러 없이 표시) */}
         <div className="grid grid-cols-[110px_1fr_92px] bg-surface text-sm">
           <div className={`px-3 py-3 font-medium text-white/40 ${cellCenter}`}>HDD</div>
-          <div className={`px-3 py-3 ${cellCenter} ${hddSelected ? "font-semibold text-white" : "text-white/30"}`}>{hddDisplay}</div>
+          <div className={`min-w-0 px-3 py-3 ${cellCenter} ${hddSelected ? "font-semibold text-white" : "text-white/30"}`}>
+            <span className="min-w-0 truncate">{hddDisplay}</span>
+          </div>
           <div className={`px-3 py-3 ${cellCenter}`}>
             <span className="rounded-md bg-white/[0.06] px-2 py-0.5 text-xs font-medium text-white/40">선택</span>
           </div>
@@ -238,39 +244,31 @@ export default function QuoteReport({
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block">
             <span className="mb-1.5 block text-center text-xs font-medium text-white/40">모니터 (직접 선택)</span>
-            <select
-              value={monitor}
-              onChange={(e) => setMonitor(e.target.value)}
-              className="w-full rounded-lg border border-line bg-white/[0.04] px-3 py-2.5 text-center text-sm text-white focus:border-brand focus:outline-none"
-            >
+            <DarkSelect value={monitor} onChange={(e) => setMonitor(e.target.value)} className="text-center">
               <option value="">선택 안 함</option>
               {monitorOptions.map((opt) => (
                 <option key={opt} value={opt}>
                   {opt}
                 </option>
               ))}
-            </select>
+            </DarkSelect>
           </label>
           <label className="block">
             <span className="mb-1.5 block text-center text-xs font-medium text-white/40">케이스 (직접 선택)</span>
-            <select
-              value={caseName}
-              onChange={(e) => setCaseName(e.target.value)}
-              className="w-full rounded-lg border border-line bg-white/[0.04] px-3 py-2.5 text-center text-sm text-white focus:border-brand focus:outline-none"
-            >
+            <DarkSelect value={caseName} onChange={(e) => setCaseName(e.target.value)} className="text-center">
               <option value="">선택 안 함</option>
               {caseOptions.map((opt) => (
                 <option key={opt} value={opt}>
                   {opt}
                 </option>
               ))}
-            </select>
+            </DarkSelect>
           </label>
         </div>
         {/* 마이크로 카피 */}
-        <p className={`rounded-lg bg-warn/10 px-3 py-2.5 text-xs text-warn ${cellCenter}`}>
-          ⚠️ 모니터와 케이스는 본체 연산 성능(FPS, 병목)에 직접적인 영향을 주지 않습니다.
-        </p>
+        <Callout variant="warning" className="justify-center text-center">
+          모니터와 케이스는 본체 연산 성능(FPS, 병목)에 직접적인 영향을 주지 않습니다.
+        </Callout>
         {/* 파워 용량 미달 시에만 승격 노출되는 경고 배너 */}
         <PsuAlertBanner recommendation={psu.recommendation} adequacy={psu.adequacy} />
       </section>

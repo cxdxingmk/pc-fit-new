@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "../app/context/AuthContext";
 import { getStoredUserProfile, USER_PROFILE_STORAGE_KEY, USER_PROFILE_UPDATED_EVENT } from "../app/lib/userProfileStorage";
 import type { UserProfile } from "../app/types/user";
+import Container from "./layout/Container";
 
 let cachedProfileRaw: string | null = null;
 let cachedProfileSnapshot: UserProfile | null = null;
@@ -97,7 +98,7 @@ export default function Header() {
   return (
     <>
       <header className="sticky top-0 z-50 border-b border-slate-800 bg-slate-950/95 text-slate-100 backdrop-blur">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
+        <Container className="flex h-16 items-center justify-between">
           <Link href="/" className="text-xl font-bold tracking-wide text-cyan-300 transition hover:text-cyan-200">
             PC FIT
           </Link>
@@ -200,7 +201,7 @@ export default function Header() {
               로그인
             </button>
           )}
-        </div>
+        </Container>
       </header>
 
     </>

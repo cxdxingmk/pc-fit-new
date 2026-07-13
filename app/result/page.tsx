@@ -13,6 +13,7 @@ import RecommendationReasons from "../components/quote/RecommendationReasons";
 
 import CompatibilityCard from "./components/CompatibilityCard";
 import PerformanceGateModal from "./components/PerformanceGateModal";
+import Container from "@/components/layout/Container";
 
 type ResultItem = ReturnType<typeof recommend>[number];
 
@@ -236,8 +237,8 @@ export default function ResultPage() {
   };
 
   return (
-    <main className="min-h-screen bg-ink px-8 py-12 text-white">
-      <div className="mx-auto max-w-6xl">
+    <main className="min-h-screen bg-ink py-12 text-white">
+      <Container>
         <div className="mb-10 text-center">
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-brand-soft">AI 기반 견적 추천</p>
           <h1 className="mt-3 text-4xl font-extrabold text-white sm:text-5xl">TOP 3 완성형 PC 견적 세트</h1>
@@ -283,7 +284,7 @@ export default function ResultPage() {
             />
           </>
         )}
-      </div>
+      </Container>
     </main>
   );
 }

@@ -6,6 +6,7 @@ import PurposeStep from "./components/PurposeStep";
 import ExistingPartsStep from "@/app/build/components/ExistingPartsStep";
 import BudgetStep from "./components/BudgetStep";
 import { useBuild } from "../context/BuildContext";
+import Container from "@/components/layout/Container";
 
 export default function BuildPage() {
   const router = useRouter();
@@ -59,14 +60,14 @@ export default function BuildPage() {
   };
 
   return (
-    <main className="min-h-screen bg-slate-950 px-6 py-12 text-slate-100">
+    <main className="min-h-screen bg-slate-950 py-12 text-slate-100">
       {toastMessage ? (
         <div className="fixed right-6 top-6 z-[90] rounded-xl bg-slate-800 px-4 py-3 text-sm font-semibold text-white shadow-2xl ring-1 ring-white/10">
           {toastMessage}
         </div>
       ) : null}
 
-      <div className="mx-auto max-w-6xl space-y-6">
+      <Container className="space-y-6">
         <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-8 shadow-2xl shadow-black/40">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -139,7 +140,7 @@ export default function BuildPage() {
             {current === steps.length - 1 ? "결과 보기" : "다음 단계"}
           </button>
         </div>
-      </div>
+      </Container>
     </main>
   );
 }

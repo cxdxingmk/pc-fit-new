@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { calculateBottleneck, predictGameFps } from "../lib/analyzer";
+import Container from "@/components/layout/Container";
 
 function getChartPoints(values: number[]) {
   const max = Math.max(...values, 1);
@@ -39,8 +40,8 @@ export default function DashboardPage() {
   };
 
   return (
-    <main className="min-h-screen bg-slate-950 px-6 py-10 text-slate-100">
-      <div className="mx-auto flex max-w-7xl flex-col gap-8">
+    <main className="min-h-screen bg-slate-950 py-10 text-slate-100">
+      <Container className="flex flex-col gap-8">
         <section className="rounded-3xl border border-white/10 bg-white/10 p-8 shadow-2xl shadow-black/40 backdrop-blur">
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div>
@@ -140,7 +141,7 @@ export default function DashboardPage() {
             </div>
           </div>
         </section>
-      </div>
+      </Container>
     </main>
   );
 }

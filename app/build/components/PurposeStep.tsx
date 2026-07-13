@@ -53,7 +53,7 @@ export default function PurposeStep({
         <p className="mt-2 text-sm text-slate-300">여러 가지를 동시에 선택할 수 있으며, ‘기타’ 선택 시 추가 입력창이 나타납니다.</p>
       </div>
 
-      <div className={`grid gap-4 sm:grid-cols-2 lg:grid-cols-3 ${shake ? "animate-shake" : ""}`}>
+      <div className={`grid gap-4 sm:grid-cols-2 lg:grid-cols-4 ${shake ? "animate-shake" : ""}`}>
         {purposeOptions.map((option) => {
           const active = selectedPurposes.includes(option.value);
           return (
@@ -61,7 +61,7 @@ export default function PurposeStep({
               key={option.value}
               type="button"
               onClick={() => onTogglePurpose(option.value)}
-              className={`group rounded-3xl border px-5 py-5 text-left transition ${
+              className={`group flex h-full flex-col rounded-3xl border px-5 py-5 text-left transition ${
                 active
                   ? "border-cyan-500 bg-cyan-500/10 text-cyan-300 shadow-sm"
                   : "border-white/10 bg-slate-900/70 text-slate-300 hover:border-cyan-400/50 hover:bg-cyan-500/10"
@@ -70,7 +70,7 @@ export default function PurposeStep({
               <div className="flex items-center justify-between gap-3">
                 <span className="text-lg font-semibold text-slate-100">{option.label}</span>
                 <span
-                  className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+                  className={`inline-flex shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${
                     active ? "bg-cyan-500 text-white" : "bg-slate-800 text-slate-300"
                   }`}
                 >

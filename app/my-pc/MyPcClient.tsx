@@ -23,6 +23,7 @@ import AccordionSection from "../../components/ui/AccordionSection";
 import CascadingPartSelect from "../../components/ui/CascadingPartSelect";
 import { useCascadingPartSelect } from "../../components/ui/useCascadingPartSelect";
 import DarkSelect from "../../components/ui/DarkSelect";
+import GpuAutoDetect from "../../components/GpuAutoDetect";
 import WorkloadExplorer from "../components/WorkloadExplorer";
 import QuoteReport, { type PerformanceScores, type QuoteParts } from "../components/QuoteReport";
 import { useAuth } from "../context/AuthContext";
@@ -211,6 +212,8 @@ export default function MyPcClient() {
 
   return (
     <div className="flex flex-col gap-6">
+      <GpuAutoDetect onGpuSelected={handleGpuSelect} />
+
       <PcSummaryChip
         cpu={cpu.name}
         gpu={gpu.name}
@@ -308,7 +311,7 @@ export default function MyPcClient() {
         <DisplayControls res={monitorRes} hz={monitorHz} onRes={setMonitorRes} onHz={setMonitorHz} />
       </section>
 
-      <section className="grid grid-cols-3 gap-4">
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         {displayMatchRows.map((row) => (
           <GameCard key={row.label} row={row} />
         ))}

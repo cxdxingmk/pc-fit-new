@@ -9,6 +9,7 @@ import { OPTIMIZATION_TIPS } from "../../data/optimizationTips";
 import { simulatePcPerformance } from "../../lib/simulator";
 import type { UserSavedPc } from "../../types/hardware";
 import MyPageTabs from "../components/MyPageTabs";
+import Container from "@/components/layout/Container";
 
 type AnalysisTab = "game" | "creator" | "ai";
 
@@ -124,8 +125,8 @@ export default function MyPageAnalysisPage() {
 
   if (!savedPc) {
     return (
-      <main className="min-h-screen bg-slate-950 px-6 py-12 text-slate-100">
-        <div className="mx-auto flex max-w-6xl flex-col gap-6">
+      <main className="min-h-screen bg-slate-950 py-12 text-slate-100">
+        <Container className="flex flex-col gap-6">
           <MyPageTabs activeTab="analysis" />
 
           <div className="max-w-3xl rounded-3xl border border-slate-700 bg-slate-900/70 p-8 text-center shadow-2xl shadow-black/50">
@@ -135,14 +136,14 @@ export default function MyPageAnalysisPage() {
               내 PC 등록하러 가기
             </Link>
           </div>
-        </div>
+        </Container>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 px-6 py-10 text-slate-100">
-      <div className="mx-auto flex max-w-6xl flex-col gap-6">
+    <main className="min-h-screen bg-slate-950 py-10 text-slate-100">
+      <Container className="flex flex-col gap-6">
         <MyPageTabs activeTab="analysis" />
 
         <section className="rounded-3xl border border-white/10 bg-slate-900/70 p-8 shadow-2xl shadow-black/50">
@@ -255,7 +256,7 @@ export default function MyPageAnalysisPage() {
             </section>
           </section>
         ) : null}
-      </div>
+      </Container>
     </main>
   );
 }

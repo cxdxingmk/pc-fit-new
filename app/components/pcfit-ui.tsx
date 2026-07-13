@@ -116,7 +116,7 @@ function Segmented<T extends string | number>({
               aria-selected={active}
               onClick={() => onChange(opt)}
               className={cnLocal(
-                "flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand",
+                "min-w-0 flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand",
                 active ? "bg-brand text-white shadow-glow" : "text-white/50 hover:text-white/80"
               )}
             >
@@ -145,7 +145,7 @@ export function DisplayControls({
   onHz: (h: RefreshRate) => void;
 }) {
   return (
-    <div className="grid grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
       <Segmented
         label="모니터 해상도"
         labelSlot={<Tooltip term="해상도">모니터 해상도</Tooltip>}
@@ -202,7 +202,7 @@ export function ScoreHero({ categories }: { categories: CategoryScore[] }) {
             <PolarGrid stroke="rgba(255,255,255,0.08)" />
             <PolarAngleAxis dataKey="axis" tick={{ fill: "rgba(255,255,255,0.55)", fontSize: 12, fontWeight: 600 }} />
             <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
-            <Radar dataKey="score" stroke="#4C7DFF" strokeWidth={2} fill="#4C7DFF" fillOpacity={0.22} isAnimationActive animationDuration={700} />
+            <Radar dataKey="score" stroke="var(--color-brand)" strokeWidth={2} fill="var(--color-brand)" fillOpacity={0.22} isAnimationActive animationDuration={700} />
           </RadarChart>
         </ResponsiveContainer>
       </div>
@@ -415,8 +415,9 @@ export function ShareReportCard({ data, innerRef }: { data: ShareReportData; inn
   return (
     <div
       ref={innerRef}
+      aria-hidden="true"
       style={{ width: 720, background: "#0A0B0F", boxShadow: hairline(0.1) }}
-      className="fixed left-[-9999px] top-0 flex flex-col gap-7 rounded-3xl p-10 font-sans"
+      className="pointer-events-none fixed left-[-9999px] top-0 flex flex-col gap-7 rounded-3xl p-10 font-sans"
     >
       <header className="flex items-center justify-between">
         <div className="flex items-center gap-3">

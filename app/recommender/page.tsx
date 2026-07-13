@@ -8,6 +8,7 @@ import {
   type BenchmarkCategoryId,
   videoEditingSoftwareOptions,
 } from "../constants/benchmarkCategories";
+import Container from "@/components/layout/Container";
 
 const directInputValue = "직접 입력";
 
@@ -84,8 +85,8 @@ export default function RecommenderPage() {
   };
 
   return (
-    <main className="min-h-screen bg-slate-950 px-6 py-10 text-slate-100">
-      <div className="mx-auto flex max-w-6xl flex-col gap-8">
+    <main className="min-h-screen bg-slate-950 py-10 text-slate-100">
+      <Container className="flex flex-col gap-8">
         <section className="rounded-3xl border border-white/10 bg-white/10 p-8 shadow-2xl shadow-black/40 backdrop-blur">
           <p className="text-sm uppercase tracking-[0.3em] text-cyan-300">AI Recommender</p>
           <h1 className="mt-2 text-3xl font-semibold">기존 부품 활용 견적 추천</h1>
@@ -232,7 +233,7 @@ export default function RecommenderPage() {
             )}
           </section>
         </form>
-      </div>
+      </Container>
     </main>
   );
 }
