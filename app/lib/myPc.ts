@@ -73,7 +73,7 @@ export function getMyPcScore(parts: MyPcParts): MyPcScore {
   };
 }
 
-// CPU/GPU 조합에 대한 40개 대표 프로그램(게임 20 + 전문/AI 앱 20) 예상 성능 점수.
+// CPU/GPU 조합에 대한 43개 대표 프로그램(게임 23 + 전문/AI 앱 20) 예상 성능 점수.
 // RAM을 넘기면 AI/영상 워크로드에 RAM 용량 감점이 반영된다(scoreAllWorkloads 참고).
 export function getMyPcWorkloadScores(parts: Pick<MyPcParts, "cpu" | "gpu"> & { ram?: RAM }): WorkloadScore[] {
   return scoreAllWorkloads(parts.cpu, parts.gpu, parts.ram?.capacity);

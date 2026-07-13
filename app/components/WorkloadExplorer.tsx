@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * WorkloadExplorer — 40종 워크로드 점수를 "검색창 + 태그 칩"으로 탐색.
+ * WorkloadExplorer — 43종 워크로드 점수를 "검색창 + 태그 칩"으로 탐색.
  * 별칭(alias) 기반 검색으로 "배그"→배틀그라운드, "롤"→리그 오브 레전드처럼
  * 컴맹 유저가 실제로 치는 단어를 흡수한다. 점수는 항상 실시간 계산된
  * workloadScoring.ts의 scoreAllWorkloads() 결과를 그대로 받는다(고정 데이터 아님).
@@ -36,6 +36,8 @@ const ALIASES: Record<string, string[]> = {
   ow2: ["옵치", "오버워치", "overwatch"],
   fconline: ["피파", "fc온라인", "fconline", "피온"],
   sudden: ["서든", "suddenattack", "서든어택"],
+  cs2: ["cs2", "카스", "카운터스트라이크", "counterstrike"],
+  fortnite: ["포나", "포트나이트", "fortnite"],
   pubg: ["배그", "pubg", "펍지", "총겜"],
   lostark: ["로아", "lostark"],
   wow: ["와우", "wow", "월드오브워크래프트"],
@@ -46,6 +48,7 @@ const ALIASES: Record<string, string[]> = {
   bdo: ["검사", "bdo", "검은사막"],
   valhalla: ["발할라", "ac발할라", "assassinscreed"],
   gta5: ["gta", "gta5", "지티에이"],
+  eldenring: ["엘든", "엘든링", "eldenring"],
   cyberpunk: ["사펑", "cyberpunk", "사이버펑크"],
   witcher3: ["위쳐", "witcher", "위쳐3"],
   horizon: ["호라이즌", "horizon"],

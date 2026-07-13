@@ -1,10 +1,10 @@
 /**
- * 40개 대표 워크로드(게임 20 + 전문/AI 앱 20) 예상 성능 점수 산출.
+ * 43개 대표 워크로드(게임 23 + 전문/AI 앱 20) 예상 성능 점수 산출.
  *
  * app/database/cpu.ts, gpu.ts의 gameScore/workScore/aiScore는 이미 curated 앵커 +
  * hardwareScoring.ts 회귀 추정으로 검증된 유일한 "성능 점수" 소스다(하드웨어 마스터 데이터에는
  * RT코어 수, 텐서코어 수, 메모리 대역폭 같은 세부 아키텍처 스펙이 없음 - hardwareMasterDb.ts 상단
- * 주석 참고). 이 파일은 그 3축 점수를 워크로드별 가중치로 재조합해 40개 프로그램 점수를 추정하며,
+ * 주석 참고). 이 파일은 그 3축 점수를 워크로드별 가중치로 재조합해 43개 프로그램 점수를 추정하며,
  * CUDA 전용 여부·VRAM 용량·레이트레이싱 지원 같은 "실제로 DB에 있는" 필드만으로 페널티를 적용한다.
  */
 import { cpus } from "../database/cpu";
@@ -49,27 +49,48 @@ export interface Workload {
    * 전체 곡선을 비례 보정한다.
    */
   anchorFps?: number;
+  /**
+   * 엔진 자체가 강제하는 프레임 상한(예: 엘든 링의 60fps 고정). 하드웨어가 아무리 좋아도
+   * anchorCorrectedFps()의 최종 결과가 이 값을 절대 넘지 않도록 clamp된다. 표시 계층
+   * (gameFpsRange.ts의 formatGameFpsDisplay)도 이 값이 있으면 범위 대신 "N fps 고정
+   * (엔진 제한)"으로 다르게 안내한다.
+   */
+  engineCapFps?: number;
 }
 
 export const WORKLOADS: Workload[] = [
-  // ══════════════ 게임 20 (weights: cpuGame + gpuGame = 1.0) ══════════════
+  // ══════════════ 게임 23 (weights: cpuGame + gpuGame = 1.0) ══════════════
   { id: "lol", label: "리그 오브 레전드", category: "게임/CPU클럭", weights: { cpuGame: 0.7, gpuGame: 0.3 }, anchorFps: 450 },
   { id: "valorant", label: "발로란트", category: "게임/CPU클럭", weights: { cpuGame: 0.75, gpuGame: 0.25 }, anchorFps: 500 },
   { id: "ow2", label: "오버워치 2", category: "게임/CPU클럭", weights: { cpuGame: 0.65, gpuGame: 0.35 }, anchorFps: 400 },
-  { id: "fconline", label: "FC 온라인", category: "게임/CPU클럭", weights: { cpuGame: 0.68, gpuGame: 0.32 } },
-  { id: "sudden", label: "서든어택", category: "게임/CPU클럭", weights: { cpuGame: 0.72, gpuGame: 0.28 } },
+  { id: "fconline", label: "FC 온라인", category: "게임/CPU클럭", weights: { cpuGame: 0.68, gpuGame: 0.32 }, anchorFps: 230 },
+  { id: "sudden", label: "서든어택", category: "게임/CPU클럭", weights: { cpuGame: 0.72, gpuGame: 0.28 }, anchorFps: 350 },
+  { id: "cs2", label: "카운터 스트라이크 2", category: "게임/CPU클럭", weights: { cpuGame: 0.75, gpuGame: 0.25 }, anchorFps: 350 },
+  { id: "fortnite", label: "포트나이트", category: "게임/CPU클럭", weights: { cpuGame: 0.65, gpuGame: 0.35 }, anchorFps: 240 },
 
   { id: "pubg", label: "배틀그라운드", category: "게임/멀티코어", weights: { cpuGame: 0.5, gpuGame: 0.5 }, anchorFps: 180 },
-  { id: "lostark", label: "로스트아크", category: "게임/멀티코어", weights: { cpuGame: 0.55, gpuGame: 0.45 } },
+  { id: "lostark", label: "로스트아크", category: "게임/멀티코어", weights: { cpuGame: 0.55, gpuGame: 0.45 }, anchorFps: 175 },
   { id: "wow", label: "월드 오브 워크래프트", category: "게임/멀티코어", weights: { cpuGame: 0.55, gpuGame: 0.45 } },
-  { id: "maple", label: "메이플스토리", category: "게임/멀티코어", weights: { cpuGame: 0.6, gpuGame: 0.4 } },
+  { id: "maple", label: "메이플스토리", category: "게임/멀티코어", weights: { cpuGame: 0.6, gpuGame: 0.4 }, anchorFps: 240 },
   { id: "dnf", label: "던전앤파이터", category: "게임/멀티코어", weights: { cpuGame: 0.6, gpuGame: 0.4 } },
 
-  { id: "rdr2", label: "레드 데드 리뎀션 2", category: "게임/GPU래스터", weights: { cpuGame: 0.25, gpuGame: 0.75 }, vramFloorGB: 8 },
-  { id: "mhwilds", label: "몬스터 헌터 와일즈", category: "게임/GPU래스터", weights: { cpuGame: 0.22, gpuGame: 0.78 }, vramFloorGB: 10 },
+  { id: "rdr2", label: "레드 데드 리뎀션 2", category: "게임/GPU래스터", weights: { cpuGame: 0.25, gpuGame: 0.75 }, vramFloorGB: 8, anchorFps: 80 },
+  { id: "mhwilds", label: "몬스터 헌터 와일즈", category: "게임/GPU래스터", weights: { cpuGame: 0.22, gpuGame: 0.78 }, vramFloorGB: 10, anchorFps: 65 },
   { id: "bdo", label: "검은사막", category: "게임/GPU래스터", weights: { cpuGame: 0.28, gpuGame: 0.72 }, vramFloorGB: 8 },
   { id: "valhalla", label: "어쌔신 크리드 발할라", category: "게임/GPU래스터", weights: { cpuGame: 0.25, gpuGame: 0.75 }, vramFloorGB: 8 },
-  { id: "gta5", label: "GTA 5", category: "게임/GPU래스터", weights: { cpuGame: 0.35, gpuGame: 0.65 }, vramFloorGB: 6 },
+  { id: "gta5", label: "GTA 5", category: "게임/GPU래스터", weights: { cpuGame: 0.35, gpuGame: 0.65 }, vramFloorGB: 6, anchorFps: 175 },
+  {
+    id: "eldenring",
+    label: "엘든 링",
+    category: "게임/GPU래스터",
+    weights: { cpuGame: 0.3, gpuGame: 0.7 },
+    vramFloorGB: 6,
+    // 엔진(프롬 소프트웨어 자체 엔진)이 물리 연산을 60fps에 고정해 하드웨어와 무관하게
+    // 그 이상으로는 절대 안 올라간다 — anchorFps는 "충분히 좋은 사양이면 상한까지 다다른다"는
+    // 뜻으로 60을, engineCapFps는 그 상한을 물리적으로 강제하는 안전장치로 60을 그대로 둔다.
+    anchorFps: 60,
+    engineCapFps: 60,
+  },
 
   { id: "cyberpunk", label: "사이버펑크 2077", category: "게임/RT", weights: { cpuGame: 0.15, gpuGame: 0.85 }, rtRequired: true, vramFloorGB: 8, anchorFps: 95 },
   { id: "witcher3", label: "위쳐 3 차세대", category: "게임/RT", weights: { cpuGame: 0.15, gpuGame: 0.85 }, rtRequired: true, vramFloorGB: 8 },
@@ -216,7 +237,7 @@ export function scoreWorkload(cpu: CPU, gpu: GPU, wl: Workload, ramGB?: number):
   };
 }
 
-/** CPU/GPU 한 쌍에 대해 40개 워크로드 전부 스코어링. ramGB를 넘기면 AI/영상 워크로드에 RAM 감점이 반영된다. */
+/** CPU/GPU 한 쌍에 대해 43개 워크로드 전부 스코어링. ramGB를 넘기면 AI/영상 워크로드에 RAM 감점이 반영된다. */
 export function scoreAllWorkloads(cpu: CPU, gpu: GPU, ramGB?: number): WorkloadScore[] {
   return WORKLOADS.map((wl) => scoreWorkload(cpu, gpu, wl, ramGB));
 }
@@ -262,18 +283,35 @@ export function anchorCorrectedFps(workloadId: string | undefined, rawEstimatedF
   if (rawEstimatedFps == null || !workloadId) return rawEstimatedFps;
 
   const workload = WORKLOADS.find((w) => w.id === workloadId);
-  if (!workload?.anchorFps) return rawEstimatedFps;
+  if (!workload) return rawEstimatedFps;
 
-  const refCpu = cpus.find((c) => c.id === REFERENCE_CPU_ID);
-  const refGpu = gpus.find((g) => g.id === REFERENCE_GPU_ID);
-  if (!refCpu || !refGpu) return rawEstimatedFps;
+  let corrected = rawEstimatedFps;
 
-  const refScore = scoreWorkload(refCpu, refGpu, workload).score;
-  const refResult = evaluateDisplayMatch(refScore, workload.category, REFERENCE_RESOLUTION, REFERENCE_REFRESH);
-  if (!refResult.estimatedFps) return rawEstimatedFps;
+  if (workload.anchorFps) {
+    const refCpu = cpus.find((c) => c.id === REFERENCE_CPU_ID);
+    const refGpu = gpus.find((g) => g.id === REFERENCE_GPU_ID);
+    if (refCpu && refGpu) {
+      const refScore = scoreWorkload(refCpu, refGpu, workload).score;
+      const refResult = evaluateDisplayMatch(refScore, workload.category, REFERENCE_RESOLUTION, REFERENCE_REFRESH);
+      if (refResult.estimatedFps) {
+        const correctionFactor = workload.anchorFps / refResult.estimatedFps;
+        corrected = Math.max(1, Math.round(rawEstimatedFps * correctionFactor));
+      }
+    }
+  }
 
-  const correctionFactor = workload.anchorFps / refResult.estimatedFps;
-  return Math.max(1, Math.round(rawEstimatedFps * correctionFactor));
+  // 엔진 자체 프레임 상한(예: 엘든 링 60fps) — 하드웨어와 무관하게 절대 넘지 않는다.
+  if (workload.engineCapFps) {
+    corrected = Math.min(corrected, workload.engineCapFps);
+  }
+
+  return corrected;
+}
+
+/** 표시 계층(gameFpsRange.ts)이 "N fps 고정 (엔진 제한)" 문구를 쓸지 판단하기 위한 조회 헬퍼. */
+export function getEngineCapFps(workloadId: string | undefined): number | undefined {
+  if (!workloadId) return undefined;
+  return WORKLOADS.find((w) => w.id === workloadId)?.engineCapFps;
 }
 
 // 해상도/주사율별 프레임 방어 판정 레이어(displayMatch.ts)를 이 모듈 경로로도 재노출.

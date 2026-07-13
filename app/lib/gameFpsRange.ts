@@ -33,3 +33,15 @@ export function formatGameFpsRange(estimatedFps: number | null, seed: string): s
   const high = estimatedFps + halfWidth;
   return `${low}~${high}`;
 }
+
+/**
+ * engineCapFps가 있는 워크로드(예: 엘든 링)는 하드웨어가 그 상한에 실제로 걸렸을 때만
+ * "N fps 고정 (엔진 제한)"으로 다르게 안내한다. 약한 사양이라 자연스럽게 상한 아래인
+ * 경우엔 평소처럼 범위로 보여준다(엔진이 아니라 GPU가 병목이므로).
+ */
+export function formatGameFpsDisplay(estimatedFps: number | null, seed: string, engineCapFps?: number): string {
+  if (engineCapFps != null && estimatedFps != null && estimatedFps >= engineCapFps) {
+    return `${engineCapFps}fps 고정 (엔진 제한)`;
+  }
+  return formatGameFpsRange(estimatedFps, seed);
+}

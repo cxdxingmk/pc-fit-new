@@ -10,8 +10,8 @@ import type { ReactNode, Ref } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from "recharts";
 import type { Resolution, RefreshRate, DisplayTier, DisplayMatchRow } from "@/app/lib/displayMatch";
-import { anchorCorrectedFps } from "@/app/lib/workloadScoring";
-import { formatGameFpsRange } from "@/app/lib/gameFpsRange";
+import { anchorCorrectedFps, getEngineCapFps } from "@/app/lib/workloadScoring";
+import { formatGameFpsDisplay } from "@/app/lib/gameFpsRange";
 import InfoTooltip from "@/components/ui/InfoTooltip";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -242,7 +242,7 @@ export function GameCard({ row }: { row: DisplayMatchRow }) {
 
       <div className="flex items-baseline gap-1.5">
         <span className="text-2xl font-extrabold tabular-nums tracking-tight text-white/90">
-          {formatGameFpsRange(anchorCorrectedFps(row.id, row.estimatedFps), row.label)}
+          {formatGameFpsDisplay(anchorCorrectedFps(row.id, row.estimatedFps), row.label, getEngineCapFps(row.id))}
         </span>
         <span className="flex items-center text-xs font-medium text-white/35">
           fps 예상

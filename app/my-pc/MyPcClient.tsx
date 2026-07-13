@@ -335,8 +335,8 @@ export default function MyPcClient() {
         ))}
       </section>
 
-      {/* 프로그램별 예상 성능 (게임 20 + 전문/AI 앱 20) */}
-      <AccordionSection title="🖥️ 프로그램별 예상 성능 (40종)" isOpen={openWorkloads} onToggle={() => setOpenWorkloads((prev) => !prev)}>
+      {/* 프로그램별 예상 성능 (게임 23 + 전문/AI 앱 20) */}
+      <AccordionSection title="🖥️ 프로그램별 예상 성능 (43종)" isOpen={openWorkloads} onToggle={() => setOpenWorkloads((prev) => !prev)}>
         <WorkloadExplorer scores={workloadScores} />
       </AccordionSection>
 

@@ -13,8 +13,8 @@ const lowVramAmdGpu: GPU =
   gpus.find((g) => g.brand === "AMD" && g.vram <= 6) ?? gpus.reduce((min, g) => (g.vram < min.vram ? g : min), gpus[0]);
 
 describe("WORKLOADS weight integrity", () => {
-  it("has exactly 40 workloads", () => {
-    expect(WORKLOADS.length).toBe(40);
+  it("has exactly 43 workloads", () => {
+    expect(WORKLOADS.length).toBe(43);
   });
 
   it("has unique ids", () => {
@@ -28,9 +28,9 @@ describe("WORKLOADS weight integrity", () => {
 });
 
 describe("scoreAllWorkloads", () => {
-  it("produces 40 scores with no NaN and within 0-100 for a high-end pairing", () => {
+  it("produces 43 scores with no NaN and within 0-100 for a high-end pairing", () => {
     const results = scoreAllWorkloads(highEndCpu, highEndNvidiaGpu);
-    expect(results).toHaveLength(40);
+    expect(results).toHaveLength(43);
     for (const r of results) {
       expect(Number.isNaN(r.score)).toBe(false);
       expect(r.score).toBeGreaterThanOrEqual(0);
