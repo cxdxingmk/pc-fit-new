@@ -7,9 +7,11 @@
 "use client";
 
 import type { ReactNode, Ref } from "react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from "recharts";
 import type { Resolution, RefreshRate, DisplayTier, DisplayMatchRow } from "@/app/lib/displayMatch";
+import { anchorCorrectedFps } from "@/app/lib/workloadScoring";
+import { formatGameFpsRange } from "@/app/lib/gameFpsRange";
 import InfoTooltip from "@/components/ui/InfoTooltip";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -62,18 +64,19 @@ export function PrimaryButton({
 // 1. TIER 배지 — 신호등 컬러 + 미세 애니메이션 (displayMatch.ts 의 TIER_UI 확장판)
 // ─────────────────────────────────────────────────────────────────────────────
 
+// 게이머 은어("방어", "역부족") 대신 컴맹 타겟도 바로 이해할 수 있는 일상어로 표기한다.
 const TIER_STYLE: Record<DisplayTier, { label: string; dot: string; text: string; ring: string; pulse?: boolean }> = {
-  PERFECT: { label: "완벽 방어", dot: "bg-good", text: "text-good", ring: "ring-good/25", pulse: true },
-  GOOD: { label: "방어 가능", dot: "bg-lime-400", text: "text-lime-300", ring: "ring-lime-400/20" },
-  LACK_GPU: { label: "GPU 아쉬움", dot: "bg-warn", text: "text-warn", ring: "ring-warn/25" },
-  LACK_CPU: { label: "CPU 아쉬움", dot: "bg-warn", text: "text-warn", ring: "ring-warn/25" },
-  CRITICAL: { label: "역부족", dot: "bg-bad", text: "text-bad", ring: "ring-bad/25" },
+  PERFECT: { label: "충분히 여유로워요", dot: "bg-good", text: "text-good", ring: "ring-good/25", pulse: true },
+  GOOD: { label: "무난하게 돌아가요", dot: "bg-lime-400", text: "text-lime-300", ring: "ring-lime-400/20" },
+  LACK_GPU: { label: "그래픽카드가 아쉬워요", dot: "bg-warn", text: "text-warn", ring: "ring-warn/25" },
+  LACK_CPU: { label: "CPU가 아쉬워요", dot: "bg-warn", text: "text-warn", ring: "ring-warn/25" },
+  CRITICAL: { label: "성능이 많이 부족해요", dot: "bg-bad", text: "text-bad", ring: "ring-bad/25" },
 };
 
 export function TierBadge({ tier }: { tier: DisplayTier }) {
   const s = TIER_STYLE[tier];
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full bg-white/[0.04] px-2.5 py-1 text-xs font-semibold ring-1 ${s.ring} ${s.text}`}>
+    <span className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-white/[0.04] px-2.5 py-1 text-xs font-semibold ring-1 ${s.ring} ${s.text}`}>
       <span className="relative flex h-1.5 w-1.5">
         {s.pulse && <span className={`absolute inline-flex h-full w-full animate-ping rounded-full ${s.dot} opacity-60 motion-reduce:hidden`} />}
         <span className={`relative inline-flex h-1.5 w-1.5 rounded-full ${s.dot}`} />
@@ -229,13 +232,18 @@ export function GameCard({ row }: { row: DisplayMatchRow }) {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="truncate text-[15px] font-bold text-white">{row.label}</h3>
-          <p className="mt-0.5 text-xs text-white/35">{row.category.replace("게임/", "")}</p>
+          <p className="mt-0.5 flex items-center text-xs text-white/35">
+            {row.category.replace("게임/", "")}
+            <InfoTooltip content={GLOSSARY[row.category.replace("게임/", "")]} preferredPlacement="right" />
+          </p>
         </div>
         <TierBadge tier={row.status} />
       </div>
 
       <div className="flex items-baseline gap-1.5">
-        <span className="text-3xl font-extrabold tabular-nums tracking-tight text-white/90">{row.estimatedFps ?? "—"}</span>
+        <span className="text-2xl font-extrabold tabular-nums tracking-tight text-white/90">
+          {formatGameFpsRange(anchorCorrectedFps(row.id, row.estimatedFps), row.label)}
+        </span>
         <span className="flex items-center text-xs font-medium text-white/35">
           fps 예상
           <InfoTooltip content={GLOSSARY.fps} preferredPlacement="top" />
@@ -319,6 +327,10 @@ export const GLOSSARY: Record<string, string> = {
   CUDA: "NVIDIA 그래픽카드 전용 계산 기술이에요. AI 프로그램 대부분이 이걸 필요로 해요.",
   병목: "한 부품이 느려서 다른 부품이 기다리는 상태예요. 물병 목처럼 좁은 곳이 속도를 정해요.",
   IPC: "CPU가 한 박자에 처리하는 일의 양이에요. 클럭이 같아도 세대가 다르면 성능이 달라요.",
+  CPU클럭: "CPU의 처리 속도가 프레임을 크게 좌우하는 게임이에요. 프레임이 낮다면 CPU 업그레이드가 효과적이에요.",
+  멀티코어: "CPU와 그래픽카드 성능이 고르게 필요한 게임이에요.",
+  GPU래스터: "그래픽카드 성능이 프레임을 크게 좌우하는 게임이에요.",
+  RT: "레이트레이싱(빛 반사·그림자를 실사처럼 표현하는 옵션) 같은 고사양 그래픽이 있는 게임이에요. 그래픽카드 성능이 특히 중요해요.",
 };
 
 export function Tooltip({
@@ -409,7 +421,18 @@ export interface ShareReportData {
  * 색이 들어가는 모든 곳을 Tailwind 유틸 대신 리터럴 rgba() 인라인 스타일로 직접 쓴다.
  */
 export function ShareReportCard({ data, innerRef }: { data: ShareReportData; innerRef: Ref<HTMLDivElement> }) {
-  const { userName, overall, verdict, categories, specs, serviceName = "PC FIT", serviceUrl = "pcfit.kr", qrSlot } = data;
+  const { userName, overall, verdict, categories, specs, serviceName = "PC FIT", serviceUrl, qrSlot } = data;
+  // window.location.host는 마운트 이후에만 읽는다 — 렌더 중에 바로 읽으면 서버 렌더 결과("")와
+  // 클라이언트 결과(실제 host)가 달라져 하이드레이션 불일치 에러가 난다.
+  const [runtimeHost, setRuntimeHost] = useState("");
+  useEffect(() => {
+    setRuntimeHost(window.location.host);
+  }, []);
+  // 우선순위: 호출부가 명시적으로 넘긴 값 → 환경변수(NEXT_PUBLIC_SITE_URL, 배포 도메인) →
+  // 지금 서비스 중인 실제 host — 하드코딩된 임의 도메인은 쓰지 않는다.
+  // .env.local에 값이 비어있으면(NEXT_PUBLIC_SITE_URL=) 빈 문자열로 채워지므로,
+  // 다음 폴백으로 넘어가려면 ??가 아니라 ||로 falsy(빈 문자열 포함)를 걸러야 한다.
+  const resolvedServiceUrl = serviceUrl || process.env.NEXT_PUBLIC_SITE_URL || runtimeHost;
   const hairline = (alpha: number): string => `inset 0 0 0 1px rgba(255,255,255,${alpha})`;
 
   return (
@@ -480,7 +503,7 @@ export function ShareReportCard({ data, innerRef }: { data: ShareReportData; inn
             나에게 딱 맞는 PC 찾기, {serviceName}
           </p>
           <p className="mt-0.5 text-xs" style={{ color: "rgba(255,255,255,0.3)" }}>
-            {serviceUrl} · 로그인 없이 1분 진단
+            {resolvedServiceUrl} · 로그인 없이 1분 진단
           </p>
         </div>
         {qrSlot && (

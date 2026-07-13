@@ -15,7 +15,7 @@ import { cpus } from "../database/cpu";
 import { gpus } from "../database/gpu";
 import { matchGpuToDb } from "../lib/gpuMatch";
 import { createSessionToken } from "../lib/sessionToken";
-import { submitScan, SubmitInFlightError, SubmitThrottledError } from "../lib/api/submitScan";
+import { submitScan, SubmitInFlightError, SubmitThrottledError, MIN_SUBMIT_INTERVAL_MS } from "../lib/api/submitScan";
 
 // CPU가 아직 확인되지 않았을 때 카테고리 점수를 계산하기 위한 중립 기준값.
 // register-pc 페이지의 기본 선택값(cpus[0])과 동일한 관례를 따른다 — 실제 CPU가
@@ -36,6 +36,22 @@ export default function ScanPage() {
   const [cmdRawText, setCmdRawText] = useState("");
   const [showCpuConfirm, setShowCpuConfirm] = useState(false);
   const [submitStatus, setSubmitStatus] = useState("");
+  const [throttledUntil, setThrottledUntil] = useState<number | null>(null);
+  const [remainingSeconds, setRemainingSeconds] = useState(0);
+
+  // 쓰로틀 락이 걸려있는 동안 버튼에 "잠시만요… N초"를 실시간으로 보여준다 —
+  // 조용히 클릭을 무시하면 유저 입장에서는 "고장났나?"로 읽힌다.
+  useEffect(() => {
+    if (throttledUntil === null) return;
+    const tick = () => {
+      const remain = Math.max(0, Math.ceil((throttledUntil - Date.now()) / 1000));
+      setRemainingSeconds(remain);
+      if (remain <= 0) setThrottledUntil(null);
+    };
+    tick();
+    const id = setInterval(tick, 250);
+    return () => clearInterval(id);
+  }, [throttledUntil]);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,8 +79,8 @@ export default function ScanPage() {
   );
 
   const categoryScores = useMemo(
-    () => scoreWorkloadsByCategory(effectiveCpu, effectiveGpu),
-    [effectiveCpu, effectiveGpu]
+    () => scoreWorkloadsByCategory(effectiveCpu, effectiveGpu, merged.ramApproxGB ?? undefined),
+    [effectiveCpu, effectiveGpu, merged.ramApproxGB]
   );
 
   const scanFields: ScanFieldStatus[] = [
@@ -84,7 +100,10 @@ export default function ScanPage() {
   };
 
   const handleSubmit = async () => {
+    if (throttledUntil !== null) return; // 버튼이 disabled라 사실상 도달하지 않지만, 방어적으로 한 번 더 막는다
     setSubmitStatus("전송 중...");
+    // 클릭 즉시 락을 걸어 버튼에 카운트다운을 보여준다(성공/실패 결과를 기다리지 않고 낙관적으로 표시).
+    setThrottledUntil(Date.now() + MIN_SUBMIT_INTERVAL_MS);
     try {
       const result = await submitScan({
         sessionToken,
@@ -97,12 +116,14 @@ export default function ScanPage() {
         setSubmitStatus("전송 완료");
       } else if (result.error === "missing_api_base_url") {
         setSubmitStatus("API 주소가 아직 설정되지 않았습니다 (.env.local의 NEXT_PUBLIC_API_BASE_URL).");
+      } else if (result.error === "timeout") {
+        setSubmitStatus("응답이 늦어지고 있어요. 잠시 후 다시 시도해주세요.");
       } else {
         setSubmitStatus(`전송 실패: ${result.error}`);
       }
     } catch (error) {
       if (error instanceof SubmitThrottledError) {
-        setSubmitStatus(error.message);
+        setSubmitStatus("");
       } else if (error instanceof SubmitInFlightError) {
         setSubmitStatus(error.message);
       } else {
@@ -144,6 +165,8 @@ export default function ScanPage() {
           </div>
         )}
 
+        <p className="text-xs text-white/35">예상치는 통계 모델 기반 추정으로 실제 성능과 다를 수 있어요.</p>
+
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {WORKLOAD_PROFILES.map((profile) => {
             const isGameCategory = profile.name.startsWith("게임/");
@@ -177,10 +200,10 @@ export default function ScanPage() {
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={scanning}
+              disabled={scanning || throttledUntil !== null}
               className="shrink-0 rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-soft disabled:cursor-not-allowed disabled:opacity-40"
             >
-              결과 전송하기
+              {throttledUntil !== null ? `잠시만요… ${remainingSeconds}초` : "결과 전송하기"}
             </button>
           </div>
         </div>

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import IndependenceNotice from "@/components/ui/IndependenceNotice";
 
 const storageKey = "user_pc_spec";
 
@@ -34,10 +35,14 @@ export default function Home() {
     <>
       <main className="flex min-h-[calc(100vh-64px)] items-center justify-center bg-slate-950 px-6">
         <div className="w-full max-w-4xl rounded-3xl border border-white/10 bg-slate-900/70 p-10 text-center text-slate-100 shadow-2xl shadow-black/50">
+          <span className="mb-5 inline-flex items-center gap-1.5 rounded-full bg-cyan-500/10 px-4 py-1.5 text-xs font-bold tracking-wide text-cyan-300 ring-1 ring-cyan-400/30">
+            ⚡ 설치 없이, 3초 진단
+          </span>
+
           <h1 className="mb-4 text-5xl font-bold tracking-tight">PC FIT</h1>
 
           <p className="mb-10 text-slate-300">
-            AI 기반 맞춤형 PC 추천 서비스
+            내 컴퓨터 사양 몰라도 괜찮아요 — 지금 바로 게임·작업 성능부터 확인해보세요.
           </p>
 
           <div className="mb-8">
@@ -65,6 +70,8 @@ export default function Home() {
               내 PC 분석하기
             </button>
           </div>
+
+          <IndependenceNotice className="mt-8" />
         </div>
       </main>
 

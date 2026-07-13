@@ -91,7 +91,8 @@ export function parseScanResponse(raw: unknown): { message: string } | null {
 // 3. 쓰로틀 + 중복 요청 차단
 // ═══════════════════════════════════════════════════════════════════════════
 
-const MIN_SUBMIT_INTERVAL_MS = 5000;
+// 호출부(UI)가 쓰로틀 카운트다운을 미리 그릴 수 있도록 export한다.
+export const MIN_SUBMIT_INTERVAL_MS = 5000;
 
 let lastSubmitAt = 0;
 let inFlightController: AbortController | null = null;
@@ -126,10 +127,13 @@ export function cancelInFlightSubmit(): void {
 //   NEXT_PUBLIC_API_BASE_URL=https://api.example.com
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 
+// 응답이 이보다 오래 걸리면 pending 상태로 영원히 묶여있지 않게 강제로 취소한다.
+const SUBMIT_TIMEOUT_MS = 10000;
+
 export interface SubmitScanResult {
   ok: boolean;
   data?: unknown;
-  error?: "invalid_payload" | "missing_api_base_url" | "aborted" | "network_error" | `http_${number}`;
+  error?: "invalid_payload" | "missing_api_base_url" | "timeout" | "aborted" | "network_error" | `http_${number}`;
 }
 
 export async function submitScan(input: RawScanInput): Promise<SubmitScanResult> {
@@ -158,6 +162,12 @@ export async function submitScan(input: RawScanInput): Promise<SubmitScanResult>
   const controller = new AbortController();
   inFlightController = controller;
 
+  let timedOut = false;
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, SUBMIT_TIMEOUT_MS);
+
   try {
     // TODO(API 연동): 실제 엔드포인트 경로 및 인증 헤더(예: Authorization)를 채워 넣으세요.
     const response = await fetch(`${API_BASE_URL}/scan/submit`, {
@@ -177,11 +187,12 @@ export async function submitScan(input: RawScanInput): Promise<SubmitScanResult>
     return { ok: true, data };
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
-      return { ok: false, error: "aborted" };
+      return { ok: false, error: timedOut ? "timeout" : "aborted" };
     }
     console.error("[submitScan] 요청 실패", error);
     return { ok: false, error: "network_error" };
   } finally {
+    clearTimeout(timeoutId);
     if (inFlightController === controller) inFlightController = null;
   }
 }

@@ -249,6 +249,8 @@ export interface ScoredGame {
 }
 
 export interface DisplayMatchRow extends DisplayMatchResult {
+  /** WORKLOADS의 워크로드 id — 앵커 보정(workloadScoring.ts의 anchorCorrectedFps) 조회 키로 쓰인다. */
+  id?: string;
   label: string;
   category: string;
   baseScore: number;
@@ -267,6 +269,7 @@ export function evaluateAllGames(
   return scores
     .filter((s) => isGameCategory(s.category))
     .map((s) => ({
+      id: s.id,
       label: s.label,
       category: s.category,
       baseScore: s.score,

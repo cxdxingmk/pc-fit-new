@@ -188,7 +188,11 @@ export default function QuoteReport({
       </header>
 
       {/* ══ 종합 성능 — 압축된 단일 컴팩트 밴드 ══ */}
-      <section aria-label="종합 성능" className="flex items-center gap-5 rounded-xl bg-surface px-5 py-4 ring-1 ring-line">
+      {/* <sm: 세로 스택(점수·요약·레이더가 각자 전체 폭을 씀) / sm+: 기존 가로 배치 */}
+      <section
+        aria-label="종합 성능"
+        className="flex flex-col items-center gap-4 rounded-xl bg-surface px-5 py-4 ring-1 ring-line sm:flex-row sm:gap-5"
+      >
         <div className={`min-w-[120px] flex-col gap-0.5 ${cellCenter}`}>
           <p className="text-[11px] font-medium tracking-wide text-white/40">종합 성능</p>
           <p className="leading-none">
@@ -196,8 +200,8 @@ export default function QuoteReport({
             <span className="ml-1 text-sm text-white/40">/100</span>
           </p>
         </div>
-        <div className="h-14 w-px bg-line" aria-hidden="true" />
-        <p className={`min-w-0 flex-1 text-sm text-white/70 ${cellCenter}`}>{performance.summary}</p>
+        <div className="hidden h-14 w-px bg-line sm:block" aria-hidden="true" />
+        <p className="w-full text-center text-sm text-white/70 sm:w-auto sm:min-w-0 sm:flex-1">{performance.summary}</p>
         <CompactRadar scores={performance} />
       </section>
 

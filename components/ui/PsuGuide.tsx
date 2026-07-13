@@ -49,7 +49,14 @@ function buildTooltipCopy(rec: PsuRecommendation): string {
 // ═══════════════════════════════════════════════════════════════════════════
 export function PsuInlineGuide({ recommendation, adequacy }: { recommendation: PsuRecommendation; adequacy: PsuAdequacy }) {
   const approx = recommendation.isEstimated ? "약 " : "";
-  const isWarning = adequacy === "insufficient";
+  const isWarning = adequacy === "insufficient" || adequacy === "low_headroom";
+
+  const message =
+    adequacy === "insufficient"
+      ? `선택한 파워가 권장 용량(${approx}${recommendation.recommendedWatt}W)보다 낮아요.`
+      : adequacy === "low_headroom"
+        ? "여유가 거의 없어요. 한 단계 높은 용량을 권장해요."
+        : `이 시스템의 최소 권장 파워는 ${approx}${recommendation.recommendedWatt}W입니다.`;
 
   return (
     <p
@@ -59,9 +66,7 @@ export function PsuInlineGuide({ recommendation, adequacy }: { recommendation: P
       ].join(" ")}
     >
       {isWarning && <span aria-hidden="true">⚠</span>}
-      {isWarning
-        ? `선택한 파워가 권장 용량(${approx}${recommendation.recommendedWatt}W)보다 낮아요.`
-        : `이 시스템의 최소 권장 파워는 ${approx}${recommendation.recommendedWatt}W입니다.`}
+      {message}
       <InfoTooltip content={buildTooltipCopy(recommendation)} preferredPlacement="top" ariaLabel="권장 파워 계산 기준" />
     </p>
   );

@@ -14,6 +14,7 @@ import RecommendationReasons from "../components/quote/RecommendationReasons";
 import CompatibilityCard from "./components/CompatibilityCard";
 import PerformanceGateModal from "./components/PerformanceGateModal";
 import Container from "@/components/layout/Container";
+import IndependenceNotice from "@/components/ui/IndependenceNotice";
 
 type ResultItem = ReturnType<typeof recommend>[number];
 
@@ -282,6 +283,8 @@ export default function ResultPage() {
               cpuIndex={modalState.cpuIndex}
               gpuIndex={modalState.gpuIndex}
             />
+
+            <IndependenceNotice className="mt-8" />
           </>
         )}
       </Container>

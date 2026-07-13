@@ -73,17 +73,6 @@ const ALIASES: Record<string, string[]> = {
   jupyter: ["주피터", "jupyter", "아나콘다", "코딩"],
 };
 
-const ICONS: Record<string, string> = {
-  lol: "⚔️", valorant: "🎯", ow2: "🛡️", fconline: "⚽", sudden: "🔫",
-  pubg: "🪂", lostark: "🗡️", wow: "🐉", maple: "🍁", dnf: "👊",
-  rdr2: "🤠", mhwilds: "🐲", bdo: "🏜️", valhalla: "🪓", gta5: "🚗",
-  cyberpunk: "🌆", witcher3: "🐺", horizon: "🏹", forza5: "🏎️", avatar: "🌍",
-  premiere: "🎬", davinci: "🎞️", aftereffects: "✨", finalcut: "🍎", vegas: "🎰",
-  autocad: "📐", solidworks: "🔧", catia: "🏗️", revit: "🏢", sketchup: "✏️",
-  blender: "🧊", cinema4d: "🎨", maxmaya: "🗿", octane: "🔥", vray: "💡",
-  pytorch: "🔦", stablediff: "🖼️", ollama: "🦙", tensorflow: "📊", jupyter: "📓",
-};
-
 /** 공백 제거 + 소문자화 — "배 그", "PUBG" 모두 흡수 */
 const normalize = (s: string) => s.replace(/\s+/g, "").toLowerCase();
 
@@ -229,16 +218,11 @@ export default function WorkloadExplorer({ scores }: { scores: WorkloadScore[] }
                 className={`rounded-2xl bg-white/[0.04] p-4 ring-1 ${tier.ring} ring-inset transition-transform duration-150 hover:-translate-y-0.5 hover:bg-white/[0.06]`}
               >
                 <div className="flex items-start justify-between gap-3">
-                  <div className="flex min-w-0 items-center gap-2.5">
-                    <span className="text-2xl" aria-hidden="true">
-                      {ICONS[w.id] ?? GROUP_META[group].emoji}
-                    </span>
-                    <div className="min-w-0">
-                      <h3 className="truncate text-[15px] font-bold text-white">{w.label}</h3>
-                      <p className="text-[12px] text-white/45">
-                        {GROUP_META[group].emoji} {GROUP_META[group].label}
-                      </p>
-                    </div>
+                  <div className="min-w-0">
+                    <h3 className="truncate text-[15px] font-bold text-white">{w.label}</h3>
+                    <p className="text-[12px] text-white/45">
+                      {GROUP_META[group].emoji} {GROUP_META[group].label}
+                    </p>
                   </div>
                   <div className="shrink-0 text-right">
                     <p className={`text-xl font-extrabold tabular-nums ${tier.text}`}>{w.score}</p>

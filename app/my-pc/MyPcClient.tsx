@@ -48,17 +48,30 @@ const CASE_OPTIONS = ["미들타워", "빅타워", "미니 ITX", "슬림형"];
 const MONITOR_BOTTLENECK_LABEL: Record<string, string> = {
   NONE: "병목 없음",
   REFRESH_CAP: "주사율 상한에 묶여 그 이상은 못 보여줘요",
-  RESOLUTION_LIMIT: "해상도 대비 모니터 스펙이 부족해요",
+  // "부족" 프레이밍 대신 "설정이 이렇다"는 사실 안내로 — 목표 해상도를 실제 모니터보다
+  // 높게 잡으면 당연히 뜨는 상태라, 경고처럼 읽히지 않게 한다.
+  RESOLUTION_LIMIT: "설정한 해상도가 지금 모니터보다 높아요",
 };
+
+// 첫 화면 기본 샘플 사양 — "컴알못" 타겟이 실제로 흔히 쓰는 구형 보급형 조합으로 맞춘다.
+// cpus[0]/motherboards[0]/rams[0]을 각각 독립적으로 기본값 삼으면 서로 소켓·DDR 규격이
+// 안 맞는 조합(예: LGA1700 CPU + LGA1851 보드)이 될 수 있어, 소켓/DDR이 실제로 호환되는
+// 조합만 명시적으로 고정한다.
+const DEFAULT_CPU_ID = "r5-5600"; // Ryzen 5 5600 (AM4, 2020, 보급형)
+const DEFAULT_MOTHERBOARD_ID = "b550m-aorus-pro"; // AM4 · DDR4, 위 CPU와 소켓 호환
+const DEFAULT_RAM_ID = "16-ddr4-3200"; // 위 보드가 지원하는 DDR4
+const DEFAULT_GPU_ID = "gtx1660super"; // GTX 1660 SUPER (2019, 보급형)
 
 export default function MyPcClient() {
   const { user, mockLogin } = useAuth();
-  const [cpu, setCpu] = useState<CPU>(cpus[0]);
-  const [gpu, setGpu] = useState<GPU>(gpus[0]);
-  const [ram, setRam] = useState<RAM>(rams[0]);
+  const [cpu, setCpu] = useState<CPU>(() => cpus.find((c) => c.id === DEFAULT_CPU_ID) ?? cpus[0]);
+  const [gpu, setGpu] = useState<GPU>(() => gpus.find((g) => g.id === DEFAULT_GPU_ID) ?? gpus[0]);
+  const [ram, setRam] = useState<RAM>(() => rams.find((r) => r.id === DEFAULT_RAM_ID) ?? rams[0]);
   const [ssd, setSsd] = useState<SSD>(ssds[0]);
-  const [motherboard, setMotherboard] = useState<MotherBoard>(motherboards[0]);
-  const [psu, setPsu] = useState("750W");
+  const [motherboard, setMotherboard] = useState<MotherBoard>(
+    () => motherboards.find((m) => m.id === DEFAULT_MOTHERBOARD_ID) ?? motherboards[0]
+  );
+  const [psu, setPsu] = useState("500W");
 
   // 내 모니터 기준(등록 화면에서 저장한 값이 있으면 그 값을 기본값으로 사용)
   const [monitorRes, setMonitorRes] = useState<DisplayResolution>("QHD");
@@ -75,8 +88,11 @@ export default function MyPcClient() {
   const [isSpecEditOpen, setIsSpecEditOpen] = useState(false);
 
   // 용도별 성능 시뮬레이터 — 렌더 목표 해상도 + (선택) 다른 모니터 기준 오버라이드
+  // 기본값을 monitorRes 기본값("QHD")과 맞춰둔다 — 여기만 "4K"로 따로 두면 사용자가
+  // 아무것도 안 건드린 첫 화면부터 "목표 해상도 > 모니터 해상도" 상태가 되어, 아무 조작도
+  // 하지 않았는데 병목 안내가 뜨는 것처럼 보였다.
   const [gameTitle, setGameTitle] = useState("Cyberpunk 2077");
-  const [resolution, setResolution] = useState<DisplayResolution>("4K");
+  const [resolution, setResolution] = useState<DisplayResolution>("QHD");
   const [useCustomMonitor, setUseCustomMonitor] = useState(false);
   const [customMonitorRes, setCustomMonitorRes] = useState<DisplayResolution>("QHD");
   const [customMonitorHz, setCustomMonitorHz] = useState<RefreshRate>(144);
@@ -141,7 +157,7 @@ export default function MyPcClient() {
 
   const score = useMemo(() => getMyPcScore(parts), [parts]);
   const simulation = useMemo(() => simulatePcPerformance(simulationPc, gameTitle, resolution), [gameTitle, resolution, simulationPc]);
-  const workloadScores = useMemo(() => getMyPcWorkloadScores({ cpu, gpu }), [cpu, gpu]);
+  const workloadScores = useMemo(() => getMyPcWorkloadScores({ cpu, gpu, ram }), [cpu, gpu, ram]);
   const [openWorkloads, setOpenWorkloads] = useState(false);
   const displayMatchRows = useMemo(
     () => evaluateAllGames(workloadScores, monitorRes, monitorHz, gpu.vram),
@@ -310,6 +326,8 @@ export default function MyPcClient() {
         </div>
         <DisplayControls res={monitorRes} hz={monitorHz} onRes={setMonitorRes} onHz={setMonitorHz} />
       </section>
+
+      <p className="text-xs text-white/35">예상치는 통계 모델 기반 추정으로 실제 성능과 다를 수 있어요.</p>
 
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         {displayMatchRows.map((row) => (

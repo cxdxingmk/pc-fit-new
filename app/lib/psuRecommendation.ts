@@ -28,7 +28,8 @@ export interface PsuRecommendation {
   isEstimated: boolean;
 }
 
-export type PsuAdequacy = "sufficient" | "insufficient" | "unknown";
+// "low_headroom": 최소 권장치는 충족하지만 여유가 거의 없는 구간(권장치의 110% 미만).
+export type PsuAdequacy = "sufficient" | "low_headroom" | "insufficient" | "unknown";
 
 // ═══ 상수 ═══
 const SAFETY_MARGIN = 0.3; // 안전 마진 30%
@@ -81,16 +82,51 @@ const GPU_TDP_RULES: ReadonlyArray<[RegExp, number]> = [
   [/RTX\s?3070/i, 220],
   [/RTX\s?3060\s?Ti/i, 200],
   [/RTX\s?3060/i, 170],
+  // RTX 20 / GTX 16·10·9 세대 — 카탈로그(app/database/gpu.ts)에 큐레이션돼 있는데도
+  // 아래 규칙이 없어 전부 GPU_FALLBACK_TDP(220W)로 과대추정되던 구간을 보강.
+  [/RTX\s?2080\s?Ti/i, 260],
+  [/RTX\s?2080/i, 215],
+  [/RTX\s?2070\s?SUPER/i, 215],
+  [/RTX\s?2070/i, 175],
+  [/RTX\s?2060/i, 160],
+  [/GTX\s?1660\s?Ti/i, 130],
+  [/GTX\s?1660\s?SUPER/i, 125],
+  [/GTX\s?1660/i, 120],
+  [/GTX\s?1650/i, 75],
+  [/GTX\s?1080\s?Ti/i, 250],
+  [/GTX\s?1080/i, 180],
+  [/GTX\s?1070/i, 150],
+  [/GTX\s?1060/i, 120],
+  [/GTX\s?1050\s?Ti|GTX\s?1050/i, 75],
+  [/GTX\s?980\s?Ti/i, 250],
+  [/GTX\s?980/i, 165],
+  [/GTX\s?970/i, 145],
+  [/GTX\s?960/i, 120],
   [/RX\s?7900\s?XTX/i, 355],
   [/RX\s?7900\s?XT/i, 315],
   [/RX\s?7800\s?XT/i, 263],
   [/RX\s?7700\s?XT/i, 245],
   [/RX\s?7600/i, 165],
+  // RX 6000 / 5000 / 500 세대 — 위와 같은 이유로 보강.
+  [/RX\s?6900\s?XT/i, 300],
+  [/RX\s?6800\s?XT/i, 300],
+  [/RX\s?6800/i, 250],
+  [/RX\s?6700\s?XT/i, 230],
+  [/RX\s?6600\s?XT/i, 160],
+  [/RX\s?5700\s?XT/i, 225],
+  [/RX\s?5600\s?XT/i, 150],
+  [/RX\s?5500\s?XT/i, 130],
+  [/RX\s?590/i, 225],
+  [/RX\s?580/i, 185],
+  [/RX\s?570/i, 150],
+  [/RX\s?560/i, 80],
   [/RX\s?9070\s?XT/i, 304],
   [/RX\s?9070/i, 220],
   [/Arc\s?B580/i, 190],
   [/Arc\s?A770/i, 225],
   [/Arc\s?A750/i, 225],
+  [/Arc\s?A580/i, 120],
+  [/Arc\s?A380/i, 75],
   [/내장|iGPU|integrated|없음/i, 0],
 ];
 
@@ -149,8 +185,13 @@ export function calculatePsuRecommendation(cpuName: string, gpuName: string): Ps
  * 사용자가 선택한 파워가 권장 용량을 충족하는지 판정합니다.
  * UI 경고 스테이트(주황색) 분기에 사용하세요.
  */
+// 권장치 대비 이 비율 미만이면 "충분하긴 하지만 여유가 거의 없음"으로 본다.
+const LOW_HEADROOM_RATIO = 1.1;
+
 export function evaluatePsuAdequacy(selectedPsuName: string | null | undefined, recommendation: PsuRecommendation): PsuAdequacy {
   const selectedWatt = parsePsuWattage(selectedPsuName);
   if (selectedWatt === null) return "unknown";
-  return selectedWatt >= recommendation.recommendedWatt ? "sufficient" : "insufficient";
+  if (selectedWatt < recommendation.recommendedWatt) return "insufficient";
+  if (selectedWatt < recommendation.recommendedWatt * LOW_HEADROOM_RATIO) return "low_headroom";
+  return "sufficient";
 }
