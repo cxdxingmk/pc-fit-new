@@ -8,7 +8,7 @@
  */
 
 import { useDeferredValue, useMemo, useState } from "react";
-import { friendlyPenaltyMessage, type WorkloadScore } from "../lib/workloadScoring";
+import { friendlyPenaltyMessage, scoreTier, type WorkloadScore } from "../lib/workloadScoring";
 
 type WorkloadGroup = "game" | "video" | "cad" | "render" | "ai";
 
@@ -84,14 +84,6 @@ function matchesQuery(label: string, aliases: string[], q: string): boolean {
   const nq = normalize(q);
   if (normalize(label).includes(nq)) return true;
   return aliases.some((a) => normalize(a).includes(nq));
-}
-
-/** 토스식 "숫자 하나로 상태 전달": 색과 라벨을 점수에서 파생. ScoreHero의 종합 등급 기준(90/75/55)과 통일. */
-function scoreTier(score: number) {
-  if (score >= 90) return { label: "PERFECT", text: "text-good", bar: "bg-good", ring: "ring-good/20" };
-  if (score >= 75) return { label: "GOOD", text: "text-brand-soft", bar: "bg-brand", ring: "ring-brand/20" };
-  if (score >= 55) return { label: "OK", text: "text-warn", bar: "bg-warn", ring: "ring-warn/20" };
-  return { label: "UPGRADE", text: "text-bad", bar: "bg-bad", ring: "ring-bad/20" };
 }
 
 function noteFor(w: WorkloadScore, tierLabel: string): string {

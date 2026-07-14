@@ -11,7 +11,7 @@ import type { GPU } from "../database/gpu";
 import type { RAM } from "../database/ram";
 import type { SSD } from "../database/ssd";
 import type { MotherBoard } from "../database/motherboard";
-import { getMyPcScore, getGrade, getMyPcWorkloadScores } from "../lib/myPc";
+import { getMyPcScore, getGrade, getMyPcWorkloadScores, buildThreeLineSummary } from "../lib/myPc";
 import { evaluateAllGames, type Resolution as DisplayResolution, type RefreshRate } from "../lib/displayMatch";
 import type { UserSavedPc } from "../types/hardware";
 import { simulatePcPerformance } from "../lib/simulator";
@@ -174,6 +174,18 @@ export default function MyPcClient() {
     [score]
   );
 
+  // 진단서 카드 최상단 3줄 요약 — 한줄평(재사용) / 병목 요인(43종 penaltyKinds 집계) /
+  // 추천 용도(4축 점수 비교). 부품을 바꾸면 workloadScores·categories가 갱신되며 자동 재계산된다.
+  const summaryLines = useMemo(
+    () =>
+      buildThreeLineSummary({
+        verdictLine: overallVerdict(score.totalScore).line,
+        workloadScores,
+        categories,
+      }),
+    [score.totalScore, workloadScores, categories]
+  );
+
   const shareReport = useMemo<ShareReportData>(
     () => ({
       userName: user?.name,
@@ -315,6 +327,7 @@ export default function MyPcClient() {
         caseOptions={CASE_OPTIONS}
         saving={isSavingShareImage}
         onSave={handleQuoteSave}
+        summaryLines={summaryLines}
       />
       <ShareReportCard data={shareReport} innerRef={shareCardRef} />
       <LoginNudgeModal open={showNudge} onClose={closeNudge} onLogin={mockLogin} />

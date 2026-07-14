@@ -59,6 +59,8 @@ export interface QuoteReportProps {
   saving?: boolean;
   /** 저장 시 상위 비즈니스 로직으로 전달 — 기존 저장 스크립트 연결 지점 */
   onSave?: (payload: { monitor: string | null; caseName: string | null; images: File[] }) => void;
+  /** 종합 성능 배지 바로 아래 노출할 3줄 요약(한줄평/병목 요인/추천 용도) — 없으면 섹션 자체를 숨긴다 */
+  summaryLines?: [string, string, string];
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -136,6 +138,7 @@ export default function QuoteReport({
   caseOptions,
   saving = false,
   onSave,
+  summaryLines,
 }: QuoteReportProps) {
   // ── 모니터/케이스 직접 선택 상태 ──
   const [monitor, setMonitor] = useState<string>("");
@@ -209,6 +212,22 @@ export default function QuoteReport({
         <p className="w-full text-center text-sm text-white/70 sm:w-auto sm:min-w-0 sm:flex-1">{performance.summary}</p>
         <CompactRadar scores={performance} />
       </section>
+
+      {/* ══ 3줄 요약 — 한줄평 / 병목 요인 / 추천 용도 (43종 워크로드 데이터에서 파생) ══ */}
+      {summaryLines && (
+        <section aria-label="한눈에 보기 요약" className="rounded-xl bg-surface px-5 py-4 ring-1 ring-line">
+          <ul className="space-y-1.5 text-sm leading-relaxed text-white/75">
+            {summaryLines.map((line, i) => (
+              <li key={i} className="flex gap-2">
+                <span aria-hidden="true" className="shrink-0 text-brand-soft">
+                  ·
+                </span>
+                <span className="min-w-0">{line}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {/* ══ 다나와/컴퓨존식 부품 그리드 테이블 ══ */}
       <section aria-label="견적 부품 목록" className="overflow-hidden rounded-xl ring-1 ring-line">

@@ -204,6 +204,20 @@ export function friendlyPenaltyMessage(w: WorkloadScore): string | null {
   return kind ? PENALTY_MESSAGES[kind] : null;
 }
 
+export type ScoreTierLabel = "PERFECT" | "GOOD" | "OK" | "UPGRADE";
+
+/**
+ * 토스식 "숫자 하나로 상태 전달": 색과 라벨을 점수에서 파생 (WorkloadExplorer의 종합 등급
+ * 기준 90/75/55와 통일). 요약 블록(myPc.ts의 buildThreeLineSummary)에서도 같은 기준으로
+ * "UPGRADE" 항목을 집계하므로, 등급 경계는 반드시 이 함수 하나로만 판정한다.
+ */
+export function scoreTier(score: number): { label: ScoreTierLabel; text: string; bar: string; ring: string } {
+  if (score >= 90) return { label: "PERFECT", text: "text-good", bar: "bg-good", ring: "ring-good/20" };
+  if (score >= 75) return { label: "GOOD", text: "text-brand-soft", bar: "bg-brand", ring: "ring-brand/20" };
+  if (score >= 55) return { label: "OK", text: "text-warn", bar: "bg-warn", ring: "ring-warn/20" };
+  return { label: "UPGRADE", text: "text-bad", bar: "bg-bad", ring: "ring-bad/20" };
+}
+
 function weightedScore(cpu: CPU, gpu: GPU, w: WorkloadWeights): number {
   let sum = 0;
   if (w.cpuGame) sum += cpu.gameScore * w.cpuGame;
