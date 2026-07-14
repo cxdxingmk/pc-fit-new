@@ -20,7 +20,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-import { useCallback, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { PsuAlertBanner, PsuInlineGuide, usePsuGuide } from "@/components/ui/PsuGuide";
 import DarkSelect from "@/components/ui/DarkSelect";
 import Callout from "@/components/ui/Callout";
@@ -50,6 +50,7 @@ export interface PerformanceScores {
 
 export interface QuoteReportProps {
   userName?: string;
+  /** 생략하면 컴포넌트가 마운트 후에 오늘 날짜로 채운다(아래 참고) — 호출부가 넘기지 않는 게 기본 */
   reportDate?: string;
   parts: QuoteParts;
   performance: PerformanceScores;
@@ -133,7 +134,7 @@ function CompactRadar({ scores }: { scores: PerformanceScores }) {
 // ═══════════════════════════════════════════════════════════════════════════
 export default function QuoteReport({
   userName = "유저",
-  reportDate = new Date().toLocaleDateString("ko-KR"),
+  reportDate,
   parts,
   performance,
   monitorOptions,
@@ -146,6 +147,15 @@ export default function QuoteReport({
   // ── 모니터/케이스 직접 선택 상태 ──
   const [monitor, setMonitor] = useState<string>("");
   const [caseName, setCaseName] = useState<string>("");
+
+  // 리포트 날짜 — new Date()를 렌더 중에 바로 쓰면(예전엔 reportDate 기본값이 그랬다) /my-pc가
+  // 정적 렌더 페이지라 빌드 시점에 고정된 서버 값과 실제 방문 시점의 클라이언트 값이 달라져
+  // React #418(하이드레이션 실패)이 난다. 첫 렌더는 빈 문자열로 서버와 맞추고 마운트 후에만 채운다.
+  const [clientReportDate, setClientReportDate] = useState("");
+  useEffect(() => {
+    setClientReportDate(new Date().toLocaleDateString("ko-KR"));
+  }, []);
+  const displayedReportDate = reportDate ?? clientReportDate;
 
   // ── "결과 링크 복사" 클릭 피드백 — 실제 클립보드 쓰기는 onCopyLink(상위)가 담당,
   //    여기선 클릭 직후 잠깐 토스트만 띄운다(실패해도 UX상 큰 문제 없는 가벼운 피드백).
@@ -200,7 +210,7 @@ export default function QuoteReport({
           <div>
             <h1 className="text-base font-semibold text-white">{userName}님의 PC 진단서</h1>
             <p className="text-xs text-white/40">
-              {reportDate} · PC FIT
+              {displayedReportDate ? `${displayedReportDate} · ` : ""}PC FIT
             </p>
           </div>
         </div>

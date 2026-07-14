@@ -431,8 +431,13 @@ export function ShareReportCard({ data, innerRef }: { data: ShareReportData; inn
   // window.location.host는 마운트 이후에만 읽는다 — 렌더 중에 바로 읽으면 서버 렌더 결과("")와
   // 클라이언트 결과(실제 host)가 달라져 하이드레이션 불일치 에러가 난다.
   const [runtimeHost, setRuntimeHost] = useState("");
+  // new Date()도 같은 이유로 렌더 중에 바로 쓰지 않는다 — /my-pc는 정적 렌더 페이지라
+  // 서버 값은 빌드 시점에 고정되고, 클라이언트는 실제 방문 시점을 계산해 날짜가 어긋나면
+  // React #418(하이드레이션 실패)이 난다. 첫 렌더는 빈 문자열로 서버와 맞추고 마운트 후 채운다.
+  const [todayLabel, setTodayLabel] = useState("");
   useEffect(() => {
     setRuntimeHost(window.location.host);
+    setTodayLabel(new Date().toLocaleDateString("ko-KR"));
   }, []);
   // 우선순위: 호출부가 명시적으로 넘긴 값 → 환경변수(NEXT_PUBLIC_SITE_URL, 배포 도메인) →
   // 지금 서비스 중인 실제 host — 하드코딩된 임의 도메인은 쓰지 않는다.
@@ -462,7 +467,8 @@ export function ShareReportCard({ data, innerRef }: { data: ShareReportData; inn
           <div>
             <p className="text-lg font-extrabold text-white">{userName ? `${userName}님의 ` : ""}PC 진단서</p>
             <p className="text-xs" style={{ color: "rgba(255,255,255,0.35)" }}>
-              {new Date().toLocaleDateString("ko-KR")} · {serviceName}
+              {todayLabel ? `${todayLabel} · ` : ""}
+              {serviceName}
             </p>
           </div>
         </div>
