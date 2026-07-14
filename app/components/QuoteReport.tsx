@@ -61,6 +61,8 @@ export interface QuoteReportProps {
   onSave?: (payload: { monitor: string | null; caseName: string | null; images: File[] }) => void;
   /** 종합 성능 배지 바로 아래 노출할 3줄 요약(한줄평/병목 요인/추천 용도) — 없으면 섹션 자체를 숨긴다 */
   summaryLines?: [string, string, string];
+  /** "결과 링크 복사" 클릭 시 호출 — 실제 클립보드 쓰기는 상위(퍼머링크를 아는 쪽)에서 담당 */
+  onCopyLink?: () => void;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -139,10 +141,20 @@ export default function QuoteReport({
   saving = false,
   onSave,
   summaryLines,
+  onCopyLink,
 }: QuoteReportProps) {
   // ── 모니터/케이스 직접 선택 상태 ──
   const [monitor, setMonitor] = useState<string>("");
   const [caseName, setCaseName] = useState<string>("");
+
+  // ── "결과 링크 복사" 클릭 피드백 — 실제 클립보드 쓰기는 onCopyLink(상위)가 담당,
+  //    여기선 클릭 직후 잠깐 토스트만 띄운다(실패해도 UX상 큰 문제 없는 가벼운 피드백).
+  const [showCopyToast, setShowCopyToast] = useState(false);
+  const handleCopyLink = useCallback(() => {
+    onCopyLink?.();
+    setShowCopyToast(true);
+    window.setTimeout(() => setShowCopyToast(false), 2500);
+  }, [onCopyLink]);
 
   // ── 이미지 업로드 상태 (인메모리 — localStorage 미사용) ──
   const [images, setImages] = useState<File[]>([]);
@@ -341,15 +353,35 @@ export default function QuoteReport({
         <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleImageChange} className="hidden" />
       </section>
 
-      {/* ══ 저장 버튼 — 기존 저장 로직(onSave)으로 위임 ══ */}
-      <button
-        type="button"
-        onClick={handleSave}
-        disabled={saving}
-        className={`w-full rounded-xl bg-brand py-3.5 text-sm font-semibold text-white transition-colors hover:bg-brand-soft disabled:opacity-60 ${cellCenter}`}
-      >
-        {saving ? "견적서 만드는 중…" : "견적서 저장하기"}
-      </button>
+      {/* ══ 저장 버튼 — 기존 저장 로직(onSave)으로 위임 + 결과 링크 복사(퍼머링크) ══ */}
+      <div className="relative flex gap-2">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving}
+          className={`flex-1 rounded-xl bg-brand py-3.5 text-sm font-semibold text-white transition-colors hover:bg-brand-soft disabled:opacity-60 ${cellCenter}`}
+        >
+          {saving ? "견적서 만드는 중…" : "견적서 저장하기"}
+        </button>
+        {onCopyLink && (
+          <button
+            type="button"
+            onClick={handleCopyLink}
+            className={`shrink-0 rounded-xl bg-white/[0.06] px-4 py-3.5 text-sm font-semibold text-white/80 ring-1 ring-line transition-colors hover:bg-white/[0.1] hover:text-white ${cellCenter}`}
+          >
+            결과 링크 복사
+          </button>
+        )}
+
+        {showCopyToast && (
+          <div
+            role="status"
+            className="absolute -top-11 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-black/80 px-4 py-2 text-xs font-medium text-white shadow-lg"
+          >
+            링크가 복사됐어요, 나중에 다시 확인하세요
+          </div>
+        )}
+      </div>
     </div>
   );
 }

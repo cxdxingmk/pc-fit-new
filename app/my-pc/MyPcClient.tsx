@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { cpus } from "../database/cpu";
 import { gpus } from "../database/gpu";
 import { rams } from "../database/ram";
@@ -17,6 +18,7 @@ import type { UserSavedPc } from "../types/hardware";
 import { simulatePcPerformance } from "../lib/simulator";
 import { derivePartSeries } from "../lib/derivePartSeries";
 import { readJsonFromStorage } from "../lib/localStorageJson";
+import { encodeSpec, decodeSpec } from "../lib/specPermalink";
 import Card from "../../components/ui/Card";
 import Badge, { toneFromScore } from "../../components/ui/Badge";
 import AccordionSection from "../../components/ui/AccordionSection";
@@ -64,6 +66,9 @@ const DEFAULT_GPU_ID = "gtx1660super"; // GTX 1660 SUPER (2019, 보급형)
 
 export default function MyPcClient() {
   const { user, mockLogin } = useAuth();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [cpu, setCpu] = useState<CPU>(() => cpus.find((c) => c.id === DEFAULT_CPU_ID) ?? cpus[0]);
   const [gpu, setGpu] = useState<GPU>(() => gpus.find((g) => g.id === DEFAULT_GPU_ID) ?? gpus[0]);
   const [ram, setRam] = useState<RAM>(() => rams.find((r) => r.id === DEFAULT_RAM_ID) ?? rams[0]);
@@ -122,6 +127,60 @@ export default function MyPcClient() {
     const found = motherboards.find((item) => item.id === id);
     if (found) setMotherboard(found);
   };
+
+  // 퍼머링크 복원이 끝났는지 — 끝나기 전엔 URL 동기화 effect가 기본 샘플 사양으로
+  // URL을 덮어써버리는 걸 막는다.
+  const [hasHydratedSpec, setHasHydratedSpec] = useState(false);
+
+  // ── 퍼머링크 복원: 최초 마운트에만 ?spec= 을 읽어 상태에 반영 ──
+  // 개별 필드 하나만 오염돼도 나머지는 살리고, id가 카탈로그에 없으면 그 필드만 조용히 건너뛴다.
+  useEffect(() => {
+    const raw = searchParams.get("spec");
+    if (raw) {
+      const decoded = decodeSpec(raw);
+      if (decoded) {
+        const foundCpu = cpus.find((c) => c.id === decoded.c);
+        const foundGpu = gpus.find((g) => g.id === decoded.g);
+        const foundRam = rams.find((r) => r.id === decoded.r);
+        const foundSsd = ssds.find((s) => s.id === decoded.s);
+        const foundMb = motherboards.find((m) => m.id === decoded.m);
+        if (foundCpu) handleCpuSelect(foundCpu.id);
+        if (foundGpu) handleGpuSelect(foundGpu.id);
+        if (foundRam) setRam(foundRam);
+        if (foundSsd) setSsd(foundSsd);
+        if (foundMb) handleMbSelect(foundMb.id);
+        if (decoded.p) setPsu(decoded.p);
+        if (decoded.mr === "FHD" || decoded.mr === "QHD" || decoded.mr === "4K") setMonitorRes(decoded.mr);
+        if (decoded.mh === 60 || decoded.mh === 144 || decoded.mh === 240) setMonitorHz(decoded.mh);
+      }
+    }
+    setHasHydratedSpec(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 최초 마운트 1회만 실행
+  }, []);
+
+  // ── 현재 사양 -> URL 동기화: 퍼머링크 복원이 끝난 뒤부터 변경마다 반영(새로고침/공유 시에도 유지) ──
+  useEffect(() => {
+    if (!hasHydratedSpec) return;
+    const encoded = encodeSpec({
+      c: cpu.id,
+      g: gpu.id,
+      r: ram.id,
+      s: ssd.id,
+      m: motherboard.id,
+      p: psu,
+      mr: monitorRes,
+      mh: monitorHz,
+    });
+    router.replace(`${pathname}?spec=${encoded}`, { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- router/pathname은 안정적이라 생략
+  }, [hasHydratedSpec, cpu.id, gpu.id, ram.id, ssd.id, motherboard.id, psu, monitorRes, monitorHz]);
+
+  const handleCopyLink = useCallback(() => {
+    if (typeof window === "undefined") return;
+    navigator.clipboard.writeText(window.location.href).catch(() => {
+      // 클립보드 권한 거부 등 — 조용히 무시(토스트는 낙관적으로 그대로 노출)
+    });
+  }, []);
 
   const ramFieldId = useId();
   const ssdFieldId = useId();
@@ -328,6 +387,7 @@ export default function MyPcClient() {
         saving={isSavingShareImage}
         onSave={handleQuoteSave}
         summaryLines={summaryLines}
+        onCopyLink={handleCopyLink}
       />
       <ShareReportCard data={shareReport} innerRef={shareCardRef} />
       <LoginNudgeModal open={showNudge} onClose={closeNudge} onLogin={mockLogin} />
