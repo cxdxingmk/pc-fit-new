@@ -8,7 +8,7 @@
  */
 
 import { useDeferredValue, useMemo, useState } from "react";
-import type { WorkloadScore } from "../lib/workloadScoring";
+import { friendlyPenaltyMessage, type WorkloadScore } from "../lib/workloadScoring";
 
 type WorkloadGroup = "game" | "video" | "cad" | "render" | "ai";
 
@@ -95,7 +95,8 @@ function scoreTier(score: number) {
 }
 
 function noteFor(w: WorkloadScore, tierLabel: string): string {
-  if (w.penalties.length > 0) return w.penalties[0];
+  const penaltyNote = friendlyPenaltyMessage(w);
+  if (penaltyNote) return penaltyNote;
   switch (tierLabel) {
     case "PERFECT":
       return "여유롭게 구동돼요";

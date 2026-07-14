@@ -176,12 +176,32 @@ export const WORKLOADS: Workload[] = [
   },
 ];
 
+/** 감점 원인 종류 — 유저 화면 번역 테이블(PENALTY_MESSAGES) 조회 키로 쓴다. */
+export type PenaltyKind = "cuda" | "rt" | "vram" | "ram";
+
 export interface WorkloadScore {
   id: string;
   label: string;
   category: string;
   score: number; // 0~100 (반올림)
+  /** 내부/디버그용 원인 로그(계수 "x0.75" 등 포함) — 절대 유저 화면에 직접 렌더링하지 않는다. */
   penalties: string[];
+  /** penalties와 1:1 대응하는 구조화된 원인 종류. 유저 화면엔 이 값을 friendlyPenaltyMessage()로 번역해 보여준다. */
+  penaltyKinds: PenaltyKind[];
+}
+
+/** 감점 사유를 "x0.75" 같은 내부 계수 없이 컴맹도 이해할 수 있는 문장으로 번역한다. */
+const PENALTY_MESSAGES: Record<PenaltyKind, string> = {
+  cuda: "이 프로그램은 NVIDIA 그래픽카드 전용 기술이 필요해요",
+  rt: "이 그래픽카드는 최신 광원 효과(레이트레이싱)를 지원하지 않아요",
+  vram: "그래픽카드 메모리가 부족해요 — 옵션을 낮춰야 해요",
+  ram: "메모리가 조금 아쉬워요 — 32GB면 더 쾌적해요",
+};
+
+/** 워크로드 카드에 표시할 감점 사유 한 줄(없으면 null). 원인이 여러 개면 가장 먼저 걸린 것 하나만 보여준다. */
+export function friendlyPenaltyMessage(w: WorkloadScore): string | null {
+  const kind = w.penaltyKinds[0];
+  return kind ? PENALTY_MESSAGES[kind] : null;
 }
 
 function weightedScore(cpu: CPU, gpu: GPU, w: WorkloadWeights): number {
@@ -203,22 +223,26 @@ const DEFAULT_RAM_PENALTY_FLOOR = 0.7;
 export function scoreWorkload(cpu: CPU, gpu: GPU, wl: Workload, ramGB?: number): WorkloadScore {
   let score = weightedScore(cpu, gpu, wl.weights);
   const penalties: string[] = [];
+  const penaltyKinds: PenaltyKind[] = [];
 
   if (wl.requiresCUDA && gpu.brand !== "NVIDIA") {
     const p = wl.cudaPenalty ?? CUDA_PENALTY;
     score *= p;
     penalties.push(`CUDA 미지원(${gpu.brand}) x${p}`);
+    penaltyKinds.push("cuda");
   }
 
   if (wl.rtRequired && !gpu.rayTracing) {
     score *= RT_UNSUPPORTED_PENALTY;
     penalties.push(`레이트레이싱 미지원 x${RT_UNSUPPORTED_PENALTY}`);
+    penaltyKinds.push("rt");
   }
 
   if (wl.vramFloorGB && gpu.vram < wl.vramFloorGB) {
     const m = clamp(gpu.vram / wl.vramFloorGB, 0.3, 1.0);
     score *= m;
     penalties.push(`VRAM ${gpu.vram}GB < ${wl.vramFloorGB}GB 요구 x${m.toFixed(2)}`);
+    penaltyKinds.push("vram");
   }
 
   if (wl.ramFloorGB && typeof ramGB === "number" && ramGB < wl.ramFloorGB) {
@@ -226,6 +250,7 @@ export function scoreWorkload(cpu: CPU, gpu: GPU, wl: Workload, ramGB?: number):
     const m = clamp(floor + (1 - floor) * (ramGB / wl.ramFloorGB), floor, 1.0);
     score *= m;
     penalties.push(`RAM ${ramGB}GB < ${wl.ramFloorGB}GB 권장 x${m.toFixed(2)}`);
+    penaltyKinds.push("ram");
   }
 
   return {
@@ -234,6 +259,7 @@ export function scoreWorkload(cpu: CPU, gpu: GPU, wl: Workload, ramGB?: number):
     category: wl.category,
     score: Math.round(clamp(score, 0, 100)),
     penalties,
+    penaltyKinds,
   };
 }
 
