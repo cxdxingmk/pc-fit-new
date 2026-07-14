@@ -21,6 +21,7 @@ import { readJsonFromStorage } from "../lib/localStorageJson";
 import { encodeSpec, decodeSpec } from "../lib/specPermalink";
 import Card from "../../components/ui/Card";
 import Badge, { toneFromScore } from "../../components/ui/Badge";
+import Callout from "../../components/ui/Callout";
 import AccordionSection from "../../components/ui/AccordionSection";
 import CascadingPartSelect from "../../components/ui/CascadingPartSelect";
 import { useCascadingPartSelect } from "../../components/ui/useCascadingPartSelect";
@@ -92,6 +93,9 @@ export default function MyPcClient() {
 
   const [isSpecEditOpen, setIsSpecEditOpen] = useState(false);
 
+  // 퍼머링크로 재방문했는지(즉 ?spec= 이 있었는지) — 재방문 배너 노출 여부에만 쓴다.
+  const [isRevisitedFromPermalink, setIsRevisitedFromPermalink] = useState(false);
+
   // 용도별 성능 시뮬레이터 — 렌더 목표 해상도 + (선택) 다른 모니터 기준 오버라이드
   // 기본값을 monitorRes 기본값("QHD")과 맞춰둔다 — 여기만 "4K"로 따로 두면 사용자가
   // 아무것도 안 건드린 첫 화면부터 "목표 해상도 > 모니터 해상도" 상태가 되어, 아무 조작도
@@ -152,6 +156,7 @@ export default function MyPcClient() {
         if (decoded.p) setPsu(decoded.p);
         if (decoded.mr === "FHD" || decoded.mr === "QHD" || decoded.mr === "4K") setMonitorRes(decoded.mr);
         if (decoded.mh === 60 || decoded.mh === 144 || decoded.mh === 240) setMonitorHz(decoded.mh);
+        setIsRevisitedFromPermalink(true);
       }
     }
     setHasHydratedSpec(true);
@@ -180,6 +185,18 @@ export default function MyPcClient() {
     navigator.clipboard.writeText(window.location.href).catch(() => {
       // 클립보드 권한 거부 등 — 조용히 무시(토스트는 낙관적으로 그대로 노출)
     });
+  }, []);
+
+  const handleResetToDefault = useCallback(() => {
+    handleCpuSelect(DEFAULT_CPU_ID);
+    handleGpuSelect(DEFAULT_GPU_ID);
+    const defaultRam = rams.find((r) => r.id === DEFAULT_RAM_ID) ?? rams[0];
+    setRam(defaultRam);
+    setSsd(ssds[0]);
+    handleMbSelect(DEFAULT_MOTHERBOARD_ID);
+    setPsu("500W");
+    setIsRevisitedFromPermalink(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handle*Select는 매 렌더 재생성되는 안정적 클로저
   }, []);
 
   const ramFieldId = useId();
@@ -299,6 +316,15 @@ export default function MyPcClient() {
 
   return (
     <div className="flex flex-col gap-6">
+      {isRevisitedFromPermalink && (
+        <Callout variant="info" role="status">
+          저장해둔 진단 결과예요 — 부품을 바꿔서 다시 비교해볼까요?{" "}
+          <button type="button" onClick={handleResetToDefault} className="font-semibold text-brand-soft underline hover:text-brand">
+            새로 진단하기
+          </button>
+        </Callout>
+      )}
+
       <GpuAutoDetect onGpuSelected={handleGpuSelect} />
 
       <PcSummaryChip
