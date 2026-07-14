@@ -10,7 +10,7 @@ import type { ReactNode, Ref } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from "recharts";
 import type { Resolution, RefreshRate, DisplayTier, DisplayMatchRow } from "@/app/lib/displayMatch";
-import { anchorCorrectedFps, getEngineCapFps } from "@/app/lib/workloadScoring";
+import { anchorCorrectedFps, anchorCorrectedMessage, getEngineCapFps } from "@/app/lib/workloadScoring";
 import { formatGameFpsDisplay } from "@/app/lib/gameFpsRange";
 import InfoTooltip from "@/components/ui/InfoTooltip";
 
@@ -227,6 +227,12 @@ function MiniGauge({ value }: { value: number }) {
 
 export function GameCard({ row }: { row: DisplayMatchRow }) {
   const [open, setOpen] = useState(false);
+  // 헤드라인(범위 표기)과 하단 설명 문구가 서로 다른 fps를 말하지 않도록, 앵커/엔진 캡
+  // 보정된 값을 한 번만 계산해 두 곳 모두에 동일하게 먹인다 — 절대 따로 계산하지 않는다.
+  const correctedFps = anchorCorrectedFps(row.id, row.estimatedFps);
+  const engineCap = getEngineCapFps(row.id);
+  const message = anchorCorrectedMessage(row.id, row, correctedFps);
+
   return (
     <article className={`group flex flex-col gap-3 rounded-2xl bg-surface p-5 ring-1 ring-line ${FX.card}`}>
       <div className="flex items-start justify-between gap-3">
@@ -242,7 +248,7 @@ export function GameCard({ row }: { row: DisplayMatchRow }) {
 
       <div className="flex items-baseline gap-1.5">
         <span className="text-2xl font-extrabold tabular-nums tracking-tight text-white/90">
-          {formatGameFpsDisplay(anchorCorrectedFps(row.id, row.estimatedFps), row.label, getEngineCapFps(row.id))}
+          {formatGameFpsDisplay(correctedFps, row.label, engineCap)}
         </span>
         <span className="flex items-center text-xs font-medium text-white/35">
           fps 예상
@@ -252,7 +258,7 @@ export function GameCard({ row }: { row: DisplayMatchRow }) {
 
       <MiniGauge value={row.effectiveScore} />
 
-      <p className="text-[13px] leading-relaxed text-white/55">{row.message}</p>
+      <p className="text-[13px] leading-relaxed text-white/55">{message}</p>
 
       <button
         type="button"

@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { WORKLOADS, scoreAllWorkloads, scoreWorkloadsByCategory, validateWorkloadWeights } from "./workloadScoring";
+import {
+  WORKLOADS,
+  scoreAllWorkloads,
+  scoreWorkloadsByCategory,
+  validateWorkloadWeights,
+  evaluateAllGames,
+  anchorCorrectedFps,
+  anchorCorrectedMessage,
+  getEngineCapFps,
+} from "./workloadScoring";
 import { cpus } from "../database/cpu";
 import { gpus } from "../database/gpu";
 import type { CPU } from "../database/cpu";
@@ -92,4 +101,62 @@ describe("real catalog regression check", () => {
       }
     }
   });
+});
+
+// 회귀 가드: 카드 헤드라인(anchorCorrectedFps)과 하단 설명 문구(anchorCorrectedMessage)가
+// 서로 다른 fps를 말하던 버그(예: 헤드라인 233~249fps인데 설명은 "예상 137fps") 재발 방지.
+describe("game card headline/description fps consistency", () => {
+  // displayMatch.ts의 FPS_TIERS를 그대로 미러링 — buildMessage()가 LACK_*/CRITICAL 상태일 때
+  // "실제로는 N fps 정도예요"에 쓰는 값이 정확히 이 배열에서 가장 가까운 항목이어야 한다.
+  const FPS_TIERS_MIRROR = [30, 45, 60, 90, 120, 144, 165, 240, 300, 360];
+  function nearestFpsTierMirror(fps: number): number {
+    return FPS_TIERS_MIRROR.reduce((best, t) => (Math.abs(t - fps) < Math.abs(best - fps) ? t : best), FPS_TIERS_MIRROR[0]);
+  }
+
+  function extractFpsNumbers(message: string): number[] {
+    return [...message.matchAll(/(\d+)\s*fps/g)].map((m) => Number(m[1]));
+  }
+
+  const budgetGameCpu: CPU = cpus.find((c) => c.id === "r5-5600") ?? budgetCpu;
+  const budgetGameGpu: GPU = gpus.find((g) => g.id === "gtx1660super") ?? lowVramAmdGpu;
+  const referenceCpu: CPU = cpus.find((c) => c.id === "i9-14900k") ?? highEndCpu;
+  const referenceGpu: GPU = gpus.find((g) => g.id === "rtx4070-super") ?? highEndNvidiaGpu;
+
+  const samples: [string, CPU, GPU][] = [
+    ["budget (Ryzen 5 5600 + GTX 1660 SUPER)", budgetGameCpu, budgetGameGpu],
+    ["reference (i9-14900K + RTX 4070 SUPER)", referenceCpu, referenceGpu],
+  ];
+
+  for (const [label, cpu, gpu] of samples) {
+    it(`headline and description never state contradictory fps numbers — ${label}`, () => {
+      const scores = scoreAllWorkloads(cpu, gpu, 16);
+      const rows = evaluateAllGames(scores, "QHD", 144, gpu.vram);
+      expect(rows.length).toBeGreaterThan(0);
+
+      for (const row of rows) {
+        const corrected = anchorCorrectedFps(row.id, row.estimatedFps);
+        if (corrected == null) continue;
+
+        const message = anchorCorrectedMessage(row.id, row, corrected);
+        const cap = getEngineCapFps(row.id);
+        const numbersInMessage = extractFpsNumbers(message);
+
+        if (cap != null && corrected >= cap) {
+          // 엔진 캡이 걸린 경우 — 설명 문구가 캡 값을 그대로 말해야 한다(예: 엘든 링 60fps).
+          expect(numbersInMessage, `"${row.label}": "${message}"`).toContain(cap);
+          continue;
+        }
+
+        expect(numbersInMessage.length, `"${row.label}" 설명 문구에 fps 숫자가 없음: "${message}"`).toBeGreaterThan(0);
+
+        // PERFECT/GOOD은 보정된 fps를 그대로 문장에 넣고, 나머지 상태는 가장 가까운 표준 fps
+        // 티어로 반올림해 넣는다(buildMessage 참고) — 둘 중 어느 쪽이든 정확히 일치해야 한다.
+        const expected = row.status === "PERFECT" || row.status === "GOOD" ? corrected : nearestFpsTierMirror(corrected);
+        expect(
+          numbersInMessage,
+          `"${row.label}" 헤드라인 보정치=${corrected}fps(기대값=${expected})인데 설명 문구는 "${message}"`
+        ).toContain(expected);
+      }
+    });
+  }
 });

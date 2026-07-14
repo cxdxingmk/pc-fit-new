@@ -11,7 +11,7 @@ import { cpus } from "../database/cpu";
 import { gpus } from "../database/gpu";
 import type { CPU } from "../database/cpu";
 import type { GPU } from "../database/gpu";
-import { evaluateDisplayMatch, type Resolution, type RefreshRate } from "./displayMatch";
+import { evaluateDisplayMatch, regenerateDisplayMessage, type DisplayMatchResult, type Resolution, type RefreshRate } from "./displayMatch";
 
 const CUDA_PENALTY = 0.5;
 const RT_UNSUPPORTED_PENALTY = 0.85;
@@ -312,6 +312,27 @@ export function anchorCorrectedFps(workloadId: string | undefined, rawEstimatedF
 export function getEngineCapFps(workloadId: string | undefined): number | undefined {
   if (!workloadId) return undefined;
   return WORKLOADS.find((w) => w.id === workloadId)?.engineCapFps;
+}
+
+/**
+ * 카드 하단 설명 문구를 헤드라인(anchorCorrectedFps 결과)과 같은 숫자로 다시 만든다.
+ * 두 문구가 서로 다른 fps를 말하는 모순을 막기 위한 단일 진입점 — GameCard는 반드시
+ * 이 함수와 anchorCorrectedFps()에 "같은" correctedFps를 넘겨써야 한다.
+ * 엔진 캡이 실제로 걸린 경우(예: 엘든 링이 60에 도달)는 일반 문구 대신 캡 전용 설명을 보여준다.
+ */
+export function anchorCorrectedMessage(
+  workloadId: string | undefined,
+  row: DisplayMatchResult,
+  correctedFps: number | null
+): string {
+  if (correctedFps == null) return row.message;
+
+  const cap = getEngineCapFps(workloadId);
+  if (cap != null && correctedFps >= cap) {
+    return `이 게임은 엔진이 ${cap}fps로 고정돼 있어요 — 이 사양이면 그 성능을 그대로 낼 수 있어요.`;
+  }
+
+  return regenerateDisplayMessage(row, correctedFps);
 }
 
 // 해상도/주사율별 프레임 방어 판정 레이어(displayMatch.ts)를 이 모듈 경로로도 재노출.

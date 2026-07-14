@@ -44,6 +44,10 @@ export interface DisplayMatchResult {
   defendedFpsTier: number | null; // 가장 근접한 표준 fps 티어
   effectiveScore: number;     // 해상도 배율 반영 유효점수
   defenseRatio: number;       // estFps / targetHz
+  /** 4K + 저용량 VRAM 하드패널티 적용 여부 — 앵커 보정 후 메시지를 다시 만들 때 동일 노트를 재현하기 위해 노출한다. */
+  vramHit: boolean;
+  /** 이 결과를 계산한 해상도 — 메시지 재생성(regenerateDisplayMessage) 시 필요하다. */
+  resolution: Resolution;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -145,6 +149,8 @@ export function evaluateDisplayMatch(
       defendedFpsTier: null,
       effectiveScore: Math.round(baseScore),
       defenseRatio: 0,
+      vramHit: false,
+      resolution: res,
     };
   }
 
@@ -204,7 +210,20 @@ export function evaluateDisplayMatch(
     defendedFpsTier,
     effectiveScore: Math.round(effective * 10) / 10,
     defenseRatio: Math.round(ratio * 100) / 100,
+    vramHit,
+    resolution: res,
   };
+}
+
+/**
+ * 앵커/엔진 캡 보정으로 헤드라인 fps가 바뀐 뒤, 설명 문구도 같은 숫자로 다시 만든다.
+ * 카드 상단(헤드라인)과 하단(설명)이 서로 다른 fps를 말하는 모순을 막기 위한 함수다 —
+ * status/vramHit/resolution/targetHz 등 다른 판정은 원래 evaluateDisplayMatch()의 결과를
+ * 그대로 신뢰하고, 문구에 들어가는 fps 숫자만 보정된 값으로 교체해 재조합한다.
+ */
+export function regenerateDisplayMessage(row: DisplayMatchResult, correctedFps: number): string {
+  const defFps = nearestFpsTier(correctedFps);
+  return buildMessage(row.status, row.resolution, row.targetHz, correctedFps, defFps, row.vramHit);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
