@@ -244,15 +244,15 @@ function buildMessage(
 
   switch (status) {
     case "PERFECT":
-      return `${R} ${H} 완벽 방어 가능 — 예상 ${estFps}fps, 옵션 여유까지 확보.`;
+      return `${R} ${H}에서 충분히 여유로워요 — 예상 ${estFps}fps, 그래픽 옵션을 더 올릴 여유도 있어요.`;
     case "GOOD":
-      return `${R} ${H} 방어 가능 — 예상 ${estFps}fps, 옵션 여유는 크지 않음.`;
+      return `${R} ${H}에서 무난하게 돌아가요 — 예상 ${estFps}fps, 옵션 여유는 크지 않아요.`;
     case "LACK_GPU":
-      return `해상도(${R}) 대비 GPU 성능 부족 — ${H} 주사율 활용 불가, 실질 ${defFps}fps 방어 수준.${vramNote} (그래픽 옵션 하향 / DLSS·FSR 업스케일 권장)`;
+      return `해상도(${R}) 대비 그래픽카드 성능이 아쉬워요 — ${H} 주사율까지는 어렵고 실제로는 ${defFps}fps 정도예요.${vramNote} (그래픽 옵션을 낮추거나 DLSS·FSR 업스케일을 권장해요)`;
     case "LACK_CPU":
-      return `${H} 목표 대비 CPU 성능 부족 — 프레임 상한이 CPU에서 묶임, 실질 ${defFps}fps 수준. (CPU·RAM 클럭 오버클럭 / 고IPC CPU 권장)`;
+      return `${H} 목표 대비 CPU 성능이 아쉬워요 — 프레임이 CPU에서 한계에 묶여 실제로는 ${defFps}fps 정도예요. (더 빠른 CPU로 바꾸면 좋아져요)`;
     case "CRITICAL":
-      return `${R} ${H} 구동 불가 수준 — 실질 ${defFps}fps.${vramNote} (해상도 하향 또는 옵션 대폭 타협 필요)`;
+      return `${R} ${H}으로는 구동이 어려워요 — 실제로는 ${defFps}fps 정도예요.${vramNote} (해상도를 낮추거나 옵션을 많이 낮춰야 해요)`;
   }
 }
 
@@ -296,11 +296,11 @@ export function evaluateAllGames(
     }));
 }
 
-/** 상태 티어 → UI 색상/뱃지 매핑 (프론트 편의) */
+/** 상태 티어 → UI 색상/뱃지 매핑 (프론트 편의). pcfit-ui.tsx의 TIER_STYLE과 동일한 일상어 표기를 쓴다. */
 export const TIER_UI: Record<DisplayTier, { color: string; badge: string }> = {
-  PERFECT: { color: "#22c55e", badge: "완벽 방어" },
-  GOOD: { color: "#84cc16", badge: "방어 가능" },
-  LACK_GPU: { color: "#f59e0b", badge: "GPU 부족" },
-  LACK_CPU: { color: "#f59e0b", badge: "CPU 부족" },
-  CRITICAL: { color: "#ef4444", badge: "구동 불가" },
+  PERFECT: { color: "#22c55e", badge: "충분히 여유로워요" },
+  GOOD: { color: "#84cc16", badge: "무난하게 돌아가요" },
+  LACK_GPU: { color: "#f59e0b", badge: "그래픽카드가 아쉬워요" },
+  LACK_CPU: { color: "#f59e0b", badge: "CPU가 아쉬워요" },
+  CRITICAL: { color: "#ef4444", badge: "성능이 많이 부족해요" },
 };

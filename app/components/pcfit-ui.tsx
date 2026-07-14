@@ -509,7 +509,7 @@ export function ShareReportCard({ data, innerRef }: { data: ShareReportData; inn
             나에게 딱 맞는 PC 찾기, {serviceName}
           </p>
           <p className="mt-0.5 text-xs" style={{ color: "rgba(255,255,255,0.3)" }}>
-            {resolvedServiceUrl} · 로그인 없이 1분 진단
+            {resolvedServiceUrl ? `${resolvedServiceUrl} · ` : ""}로그인 없이 3초 만에 진단 시작
           </p>
         </div>
         {qrSlot && (
