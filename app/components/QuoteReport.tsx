@@ -176,7 +176,12 @@ export default function QuoteReport({
       {/* ══ 헤더 ══ */}
       <header className="flex items-center justify-between rounded-xl bg-surface px-5 py-4 ring-1 ring-line">
         <div className="flex items-center gap-3">
-          <span className={`h-10 w-10 rounded-lg bg-brand text-sm font-bold text-white ${cellCenter}`}>PF</span>
+          <span className={`h-10 w-10 rounded-lg bg-gradient-to-br from-brand to-brand-soft ${cellCenter}`}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="12" rx="2" />
+              <path d="M8 21h8M12 16v5" />
+            </svg>
+          </span>
           <div>
             <h1 className="text-base font-semibold text-white">{userName}님의 PC 진단서</h1>
             <p className="text-xs text-white/40">

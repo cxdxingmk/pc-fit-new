@@ -450,8 +450,14 @@ export function ShareReportCard({ data, innerRef }: { data: ShareReportData; inn
     >
       <header className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl text-sm font-extrabold text-white" style={{ background: "#4C7DFF" }}>
-            PF
+          <span
+            className="flex h-9 w-9 items-center justify-center rounded-xl"
+            style={{ background: "linear-gradient(135deg, #4C7DFF, #6E96FF)" }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="12" rx="2" />
+              <path d="M8 21h8M12 16v5" />
+            </svg>
           </span>
           <div>
             <p className="text-lg font-extrabold text-white">{userName ? `${userName}님의 ` : ""}PC 진단서</p>
