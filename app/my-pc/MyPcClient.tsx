@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
-import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { cpus } from "../database/cpu";
 import { gpus } from "../database/gpu";
 import { rams } from "../database/ram";
@@ -69,7 +69,6 @@ export default function MyPcClient() {
   const { user, mockLogin } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const [cpu, setCpu] = useState<CPU>(() => cpus.find((c) => c.id === DEFAULT_CPU_ID) ?? cpus[0]);
   const [gpu, setGpu] = useState<GPU>(() => gpus.find((g) => g.id === DEFAULT_GPU_ID) ?? gpus[0]);
   const [ram, setRam] = useState<RAM>(() => rams.find((r) => r.id === DEFAULT_RAM_ID) ?? rams[0]);
@@ -138,8 +137,12 @@ export default function MyPcClient() {
 
   // ── 퍼머링크 복원: 최초 마운트에만 ?spec= 을 읽어 상태에 반영 ──
   // 개별 필드 하나만 오염돼도 나머지는 살리고, id가 카탈로그에 없으면 그 필드만 조용히 건너뛴다.
+  // next/navigation의 useSearchParams()는 절대 쓰지 않는다 — 이 훅을 쓰는 즉시 Next가 이
+  // 서브트리 전체를 "BAILOUT_TO_CLIENT_SIDE_RENDERING"으로 표시해 정적/서버 렌더 HTML에서
+  // 진단서 콘텐츠 전체가 통째로 비어버린다(실제로 겪은 회귀). window.location은 정적 분석
+  // 대상이 아니라 이 문제가 없고, 어차피 마운트 시 1회만 읽으면 되니 굳이 반응형 훅이 필요 없다.
   useEffect(() => {
-    const raw = searchParams.get("spec");
+    const raw = new URLSearchParams(window.location.search).get("spec");
     if (raw) {
       const decoded = decodeSpec(raw);
       if (decoded) {
