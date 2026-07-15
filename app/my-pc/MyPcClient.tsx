@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { cpus } from "../database/cpu";
 import { gpus } from "../database/gpu";
@@ -91,6 +91,10 @@ export default function MyPcClient() {
   }, []);
 
   const [isSpecEditOpen, setIsSpecEditOpen] = useState(false);
+  // 패널을 열 때의 사양 스냅샷 — "취소"를 누르면 여기로 되돌리고, 패널을 닫으려 할 때
+  // 스냅샷과 달라져 있으면(= 미저장 변경) 확인을 한 번 더 받는다. 선택 자체는 기존처럼
+  // 즉시 실시간 반영(라이브 프리뷰)되고, 이 스냅샷은 오직 "되돌리기/이탈 확인" 용도다.
+  const specSnapshotRef = useRef<{ cpuId: string; gpuId: string; ramId: string; ssdId: string; mbId: string; psu: string } | null>(null);
 
   // 퍼머링크로 재방문했는지(즉 ?spec= 이 있었는지) — 재방문 배너 노출 여부에만 쓴다.
   const [isRevisitedFromPermalink, setIsRevisitedFromPermalink] = useState(false);
@@ -201,6 +205,49 @@ export default function MyPcClient() {
     setIsRevisitedFromPermalink(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- handle*Select는 매 렌더 재생성되는 안정적 클로저
   }, []);
+
+  const isSpecPanelDirty = useCallback(() => {
+    const snap = specSnapshotRef.current;
+    if (!snap) return false;
+    return snap.cpuId !== cpu.id || snap.gpuId !== gpu.id || snap.ramId !== ram.id || snap.ssdId !== ssd.id || snap.mbId !== motherboard.id || snap.psu !== psu;
+  }, [cpu.id, gpu.id, ram.id, ssd.id, motherboard.id, psu]);
+
+  const handleOpenSpecEdit = () => {
+    specSnapshotRef.current = { cpuId: cpu.id, gpuId: gpu.id, ramId: ram.id, ssdId: ssd.id, mbId: motherboard.id, psu };
+    setIsSpecEditOpen(true);
+  };
+
+  // PcSummaryChip의 편집 토글 버튼 — 패널이 열려 있고 미저장 변경이 있으면 확인 없이 조용히
+  // 닫아버리지 않는다(이게 "미저장 이탈 시 확인" 요구사항).
+  const handleToggleSpecEdit = () => {
+    if (isSpecEditOpen) {
+      if (isSpecPanelDirty() && !window.confirm("적용하지 않은 변경사항이 있어요. 취소하고 닫을까요?")) return;
+      setIsSpecEditOpen(false);
+      return;
+    }
+    handleOpenSpecEdit();
+  };
+
+  const handleApplySpecEdit = () => {
+    specSnapshotRef.current = null;
+    setIsSpecEditOpen(false);
+  };
+
+  const handleCancelSpecEdit = () => {
+    const snap = specSnapshotRef.current;
+    if (snap) {
+      handleCpuSelect(snap.cpuId);
+      handleGpuSelect(snap.gpuId);
+      const snapRam = rams.find((r) => r.id === snap.ramId);
+      if (snapRam) setRam(snapRam);
+      const snapSsd = ssds.find((s) => s.id === snap.ssdId);
+      if (snapSsd) setSsd(snapSsd);
+      handleMbSelect(snap.mbId);
+      setPsu(snap.psu);
+    }
+    specSnapshotRef.current = null;
+    setIsSpecEditOpen(false);
+  };
 
   const ramFieldId = useId();
   const ssdFieldId = useId();
@@ -334,7 +381,7 @@ export default function MyPcClient() {
         cpu={cpu.name}
         gpu={gpu.name}
         ram={savedPc.ramCapacity}
-        onEdit={() => setIsSpecEditOpen((prev) => !prev)}
+        onEdit={handleToggleSpecEdit}
       />
 
       {isSpecEditOpen && (
@@ -403,6 +450,23 @@ export default function MyPcClient() {
                 className="mt-1 block w-full rounded-xl bg-white/[0.04] px-4 py-3 text-sm text-white ring-1 ring-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
               />
             </div>
+          </div>
+
+          <div className="mt-5 flex justify-end gap-2 border-t border-line pt-4">
+            <button
+              type="button"
+              onClick={handleCancelSpecEdit}
+              className="rounded-xl px-4 py-2.5 text-sm font-semibold text-white/60 transition hover:bg-white/[0.06] hover:text-white"
+            >
+              취소
+            </button>
+            <button
+              type="button"
+              onClick={handleApplySpecEdit}
+              className="rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-soft"
+            >
+              적용
+            </button>
           </div>
         </Card>
       )}

@@ -83,6 +83,21 @@ export function useCascadingPartSelect<T extends CascadeItem>(
     setModelId("");
   };
 
+  // brand/group은 브랜드→시리즈→모델 드롭다운을 직접 조작할 때만 갱신되고, modelId가
+  // 외부에서(자동감지 매칭, 퍼머링크 복원, 사양 리셋 등) 바뀌면 그대로 안 따라와서 새 모델의
+  // 브랜드/시리즈가 아닌 옛 값으로 modelOptions가 필터링돼 셀렉트가 빈 값처럼 보이는 버그가
+  // 있었다. selectModel은 항상 이 함수로 호출되므로(직접 setModelId를 쓰지 않음), 여기서
+  // brand/group도 함께 재동기화하면 원인을 근본적으로 없앤다 — 일반적인 계층 선택 흐름에서는
+  // 이미 같은 brand/group의 모델을 고르는 것이라 사실상 no-op이라 기존 동작에 영향이 없다.
+  const selectModel = (nextModelId: string) => {
+    const item = items.find((i) => i.id === nextModelId);
+    if (item) {
+      setBrand(item.brand);
+      setGroup(getGroupLabel(item));
+    }
+    setModelId(nextModelId);
+  };
+
   const selectedItem = useMemo(() => items.find((item) => item.id === modelId), [items, modelId]);
 
   return {
@@ -94,7 +109,7 @@ export function useCascadingPartSelect<T extends CascadeItem>(
     modelOptions,
     selectBrand,
     selectGroup,
-    selectModel: setModelId,
+    selectModel,
     selectedItem,
   };
 }
