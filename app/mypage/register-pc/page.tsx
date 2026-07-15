@@ -9,7 +9,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useBuild } from "../../context/BuildContext";
 import type { UserSavedPc } from "../../types/hardware";
 import { HARDWARE_MASTER } from "../../data/hardwareMaster";
-import { parseCommandOutput, wmiScanCommand, type ParseCommandOutputResult } from "../../lib/scanParser";
+import { parseSpecOutput, powerShellScanCommand, legacyWmicScanCommand, type ParseCommandOutputResult } from "../../lib/scanParser";
 import { readJsonFromStorage, writeJsonToStorage } from "../../lib/localStorageJson";
 import { derivePartSeries } from "../../lib/derivePartSeries";
 import MyPageTabs from "../components/MyPageTabs";
@@ -101,7 +101,7 @@ type ScanDerivedState = {
 function resolveScanUpdates(
   result: ParseCommandOutputResult,
   current: ScanDerivedState
-): { next: ScanDerivedState; message: string } {
+): { next: ScanDerivedState; message: string; hasAnyMatch: boolean } {
   const next: ScanDerivedState = { ...current };
   const messages: string[] = [];
 
@@ -157,14 +157,25 @@ function resolveScanUpdates(
     next.monitorRefreshRate = result.monitorRefreshRate;
   }
 
-  const message =
-    messages.length > 0
-      ? messages.join(" / ")
-      : !result.cpuId && !result.gpuId && !result.motherboardChipset && !result.ramCapacity && !result.ssdCapacity
-        ? "핵심 키워드를 찾지 못했어요. CMD 결과 전체를 다시 붙여넣어 주세요."
-        : "";
+  const hasAnyMatch = messages.length > 0;
+  const message = hasAnyMatch
+    ? messages.join(" / ")
+    : buildUnrecognizedLinesMessage(result);
 
-  return { next, message };
+  return { next, message, hasAnyMatch };
+}
+
+/** 어떤 항목을 못 읽었는지 구체적으로 알려준다(원문 일부도 함께 보여줘 사용자가 스스로 판단할 수 있게). */
+function buildUnrecognizedLinesMessage(result: ParseCommandOutputResult): string {
+  const unrecognized: string[] = [];
+  if (!result.cpuId) unrecognized.push(result.cpuRaw ? `CPU("${result.cpuRaw}")` : "CPU");
+  if (!result.gpuId) unrecognized.push(result.gpuRaw ? `GPU("${result.gpuRaw}")` : "GPU");
+  if (!result.motherboardChipset) unrecognized.push("메인보드");
+  if (!result.ramCapacity) unrecognized.push("RAM");
+  if (!result.ssdCapacity) unrecognized.push("SSD");
+
+  if (unrecognized.length === 0) return "";
+  return `다음 항목을 인식하지 못했어요: ${unrecognized.join(", ")}. PowerShell 결과 전체를 다시 붙여넣어 주세요.`;
 }
 
 export default function RegisterPcPage() {
@@ -193,9 +204,11 @@ export default function RegisterPcPage() {
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
 
   const [isCommandCopied, setIsCommandCopied] = useState(false);
+  const [isLegacyCommandOpen, setIsLegacyCommandOpen] = useState(false);
   const [isExampleOpen, setIsExampleOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const [scanStatusMessage, setScanStatusMessage] = useState("");
+  const [scanErrorMessage, setScanErrorMessage] = useState("");
   const [savedMessage, setSavedMessage] = useState("");
 
   // 계층형 선택(브랜드 -> 시리즈/칩셋 -> 모델). 최종 선택 시 아래 cpu/gpu/mbBrand/mbSeries/mbDetail
@@ -335,8 +348,8 @@ export default function RegisterPcPage() {
     window.setTimeout(() => setToastMessage(""), 2000);
   };
 
-  const handleParsedResult = (result: ParseCommandOutputResult) => {
-    const { next, message } = resolveScanUpdates(result, {
+  const handleParsedResult = (result: ParseCommandOutputResult): boolean => {
+    const { next, message, hasAnyMatch } = resolveScanUpdates(result, {
       cpu,
       gpu,
       ramCapacity,
@@ -350,6 +363,15 @@ export default function RegisterPcPage() {
       monitorResolution,
       monitorRefreshRate,
     });
+
+    // 아무것도 인식 못 했으면 붙여넣은 내용은 그대로 두고(절대 지우지 않음) 인라인 에러만 보여준다 —
+    // "일단 저장은 됐다고 뜨는데 사실 아무것도 안 바뀜" 같은 거짓 성공 표시를 막기 위함.
+    if (!hasAnyMatch) {
+      setScanErrorMessage(message);
+      setScanStatusMessage("");
+      return false;
+    }
+    setScanErrorMessage("");
 
     if (next.cpu !== cpu) setCpu(next.cpu);
     if (next.gpu !== gpu) setGpu(next.gpu);
@@ -398,11 +420,20 @@ export default function RegisterPcPage() {
       setSavedSnapshot(autoPayload);
       setSavedMessage("스캔 결과가 자동으로 등록 및 저장되었습니다.");
       showToast("자동 등록 및 저장이 완료되었습니다.");
+      return true;
     }
+
+    // 이 페이지 자체가 최상단에서 !user일 때 로그인 안내로 대체되므로 평소엔 도달하지 않지만,
+    // 세션이 중간에 끊기는 등의 경우를 위해 조용히 무시하지 않고 명확히 안내한다.
+    setScanErrorMessage("로그인이 필요해요 — 새로고침 후 다시 시도해 주세요.");
+    return false;
   };
 
   const handleSave = () => {
-    if (!user) return;
+    if (!user) {
+      showToast("로그인이 필요해요 — 새로고침 후 다시 시도해 주세요.");
+      return;
+    }
 
     const payload: LocalSavedPc = {
       id: `pc_${Date.now()}`,
@@ -439,7 +470,7 @@ export default function RegisterPcPage() {
 
   const handleCopyCommand = async () => {
     try {
-      await navigator.clipboard.writeText(wmiScanCommand);
+      await navigator.clipboard.writeText(powerShellScanCommand);
       setIsCommandCopied(true);
       showToast("명령어가 복사되었습니다.");
       window.setTimeout(() => setIsCommandCopied(false), 1500);
@@ -449,8 +480,21 @@ export default function RegisterPcPage() {
     }
   };
 
+  const handleCopyLegacyCommand = async () => {
+    try {
+      await navigator.clipboard.writeText(legacyWmicScanCommand);
+      showToast("구버전 명령어가 복사되었습니다.");
+    } catch {
+      showToast("복사에 실패했습니다. 다시 시도해 주세요.");
+    }
+  };
+
   const handleAutoRegisterFromCommand = () => {
-    const parsed = parseCommandOutput(commandScanRawText);
+    if (!commandScanRawText.trim()) {
+      setScanErrorMessage("붙여넣은 내용이 없어요 — PowerShell 결과를 먼저 붙여넣어 주세요.");
+      return;
+    }
+    const parsed = parseSpecOutput(commandScanRawText);
     handleParsedResult(parsed);
   };
 
@@ -461,10 +505,12 @@ export default function RegisterPcPage() {
     event.preventDefault();
     setCommandScanRawText(pastedText);
 
-    const parsed = parseCommandOutput(pastedText);
-    handleParsedResult(parsed);
-    setSavedMessage("붙여넣기 결과를 자동 분석하여 저장했습니다.");
-    showToast("붙여넣기와 동시에 자동 등록되었습니다.");
+    const parsed = parseSpecOutput(pastedText);
+    const succeeded = handleParsedResult(parsed);
+    if (succeeded) {
+      setSavedMessage("붙여넣기 결과를 자동 분석하여 저장했습니다.");
+      showToast("붙여넣기와 동시에 자동 등록되었습니다.");
+    }
   };
 
   const handleVideoGuideClick = () => {
@@ -536,29 +582,52 @@ export default function RegisterPcPage() {
 
               <div className="mt-3 space-y-3 text-sm text-white/60">
                 <Card className="p-3">
-                  <p className="font-semibold text-white/90">1단계: 검은창(CMD) 열기</p>
-                  <p className="mt-1 leading-6">키보드의 윈도우 키를 누른 채로 R을 누른 뒤, 나오는 작은 창에 cmd라고 적고 엔터를 치세요. (검은색 창이 켜집니다)</p>
+                  <p className="font-semibold text-white/90">1단계: PowerShell 열기</p>
+                  <p className="mt-1 leading-6">키보드의 윈도우 키를 누른 채로 X를 누른 뒤, 나오는 목록에서 "Windows PowerShell" 또는 "터미널"을 클릭하세요. (파란색 또는 검은색 창이 켜집니다)</p>
                 </Card>
 
                 <Card className="p-3">
                   <p className="font-semibold text-white/90">2단계: 마법 주문 복사하기</p>
                   <p className="mt-1 leading-6">아래 버튼을 누르면 컴퓨터 사양을 찾아내는 명령어가 자동으로 복사됩니다.</p>
                   <div className="mt-2 overflow-x-auto rounded-xl bg-white/[0.03] px-3 py-2 text-xs text-brand-soft ring-1 ring-line">
-                    <code className="whitespace-nowrap">{wmiScanCommand}</code>
+                    <code className="whitespace-nowrap">{powerShellScanCommand}</code>
                   </div>
                   <button
                     type="button"
                     onClick={handleCopyCommand}
                     className="mt-3 inline-flex h-10 items-center rounded-xl bg-brand px-4 text-sm font-semibold text-white transition hover:bg-brand-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                   >
-                    명령어 복사하기 📋
+                    {isCommandCopied ? "복사됨 ✓" : "명령어 복사하기 📋"}
                   </button>
-                  {isCommandCopied ? <p className="mt-2 text-xs font-semibold text-good">복사 완료! 👍</p> : null}
+
+                  <button
+                    type="button"
+                    onClick={() => setIsLegacyCommandOpen((prev) => !prev)}
+                    aria-expanded={isLegacyCommandOpen}
+                    className="mt-3 block text-xs font-semibold text-white/45 underline decoration-dotted transition hover:text-white/70"
+                  >
+                    구버전 Windows(10 이하)는 이 명령을 쓰세요 {isLegacyCommandOpen ? "▲" : "▼"}
+                  </button>
+                  {isLegacyCommandOpen ? (
+                    <div className="mt-2 space-y-2">
+                      <div className="overflow-x-auto rounded-xl bg-white/[0.03] px-3 py-2 text-xs text-white/60 ring-1 ring-line">
+                        <code className="whitespace-nowrap">{legacyWmicScanCommand}</code>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleCopyLegacyCommand}
+                        className="inline-flex h-9 items-center rounded-xl bg-white/[0.04] px-3 text-xs font-semibold text-white/75 ring-1 ring-line transition hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                      >
+                        구버전 명령어 복사하기 📋
+                      </button>
+                      <p className="text-xs leading-5 text-white/40">이 명령은 "cmd"라고 검색해 나오는 검은 창에 붙여넣어야 해요(PowerShell 아님).</p>
+                    </div>
+                  ) : null}
                 </Card>
 
                 <Card className="p-3">
-                  <p className="font-semibold text-white/90">3단계: 검은창에 붙여넣고 엔터</p>
-                  <p className="mt-1 leading-6">켜진 검은색 창에 마우스 우클릭을 하거나 Ctrl + V를 눌러 붙여넣은 뒤, 엔터(Enter) 키를 탁 치세요.</p>
+                  <p className="font-semibold text-white/90">3단계: PowerShell 창에 붙여넣고 엔터</p>
+                  <p className="mt-1 leading-6">켜진 창에 마우스 우클릭을 하거나 Ctrl + V를 눌러 붙여넣은 뒤, 엔터(Enter) 키를 탁 치세요.</p>
                 </Card>
 
                 <Card className="p-3">
@@ -573,7 +642,7 @@ export default function RegisterPcPage() {
                   </button>
                   {isExampleOpen ? (
                     <pre className="mt-3 overflow-x-auto rounded-xl bg-white/[0.03] p-3 text-xs text-white/70 ring-1 ring-line">
-{`Name\nAMD Ryzen 7 9700X\n\nName\nNVIDIA GeForce RTX 5070\n\nCapacity      Speed\n17179869184   5600\n17179869184   5600\n\nModel                         Size\nSamsung SSD 990 PRO 1TB       1000202273280`}
+{`Name\n----\nAMD Ryzen 7 9700X\n\nName\n----\nNVIDIA GeForce RTX 5070\n\nManufacturer          Product\n------------          -------\nASUSTeK COMPUTER INC. TUF GAMING B650-PLUS\n\nCapacity      Speed\n--------      -----\n17179869184   5600\n17179869184   5600\n\nModel                          Size\n-----                          ----\nSamsung SSD 990 PRO 1TB        1000202273280`}
                     </pre>
                   ) : null}
                 </Card>
@@ -591,9 +660,13 @@ export default function RegisterPcPage() {
                 <textarea
                   id="scan-raw-text"
                   value={commandScanRawText}
-                  onChange={(event) => setCommandScanRawText(event.target.value)}
+                  onChange={(event) => {
+                    setCommandScanRawText(event.target.value);
+                    setScanErrorMessage("");
+                  }}
                   onPaste={handleScanTextPaste}
-                  placeholder="CMD 실행 결과를 여기에 붙여넣어 주세요."
+                  placeholder="PowerShell 실행 결과를 여기에 붙여넣어 주세요."
+                  aria-invalid={scanErrorMessage ? true : undefined}
                   className="mt-2 h-40 w-full rounded-xl bg-white/[0.04] px-4 py-3 text-sm text-white placeholder:text-white/30 ring-1 ring-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
                 />
                 <button
@@ -605,7 +678,11 @@ export default function RegisterPcPage() {
                 </button>
               </div>
 
-              {scanStatusMessage ? (
+              {scanErrorMessage ? (
+                <p role="alert" className="mt-4 rounded-xl bg-bad/10 px-4 py-3 text-sm text-bad ring-1 ring-bad/25">
+                  {scanErrorMessage}
+                </p>
+              ) : scanStatusMessage ? (
                 <p className="mt-4 rounded-xl bg-good/10 px-4 py-3 text-sm text-good ring-1 ring-good/25">{scanStatusMessage}</p>
               ) : null}
             </Card>
