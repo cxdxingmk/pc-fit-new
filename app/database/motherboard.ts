@@ -67,6 +67,7 @@ export const motherboards: MotherBoard[] = [
     gameScore: 99,
     workScore: 99,
     aiScore: 99,
+    price: 620_000,
     priceTier: "high",
   },
   {
@@ -87,6 +88,7 @@ export const motherboards: MotherBoard[] = [
     gameScore: 95,
     workScore: 95,
     aiScore: 94,
+    price: 320_000,
     priceTier: "high",
   },
   {
@@ -107,6 +109,7 @@ export const motherboards: MotherBoard[] = [
     gameScore: 95,
     workScore: 95,
     aiScore: 95,
+    price: 270_000,
     priceTier: "mid",
   },
   {
@@ -127,6 +130,7 @@ export const motherboards: MotherBoard[] = [
     gameScore: 90,
     workScore: 90,
     aiScore: 89,
+    price: 250_000,
     priceTier: "mid",
   },
   {
@@ -147,6 +151,7 @@ export const motherboards: MotherBoard[] = [
     gameScore: 72,
     workScore: 72,
     aiScore: 70,
+    price: 90_000,
     priceTier: "budget",
   },
   {
@@ -167,6 +172,7 @@ export const motherboards: MotherBoard[] = [
     gameScore: 98,
     workScore: 98,
     aiScore: 98,
+    price: 720_000,
     priceTier: "high",
   },
   {
@@ -187,6 +193,7 @@ export const motherboards: MotherBoard[] = [
     gameScore: 95,
     workScore: 94,
     aiScore: 94,
+    price: 380_000,
     priceTier: "high",
   },
   {
@@ -207,6 +214,7 @@ export const motherboards: MotherBoard[] = [
     gameScore: 93,
     workScore: 92,
     aiScore: 92,
+    price: 230_000,
     priceTier: "mid",
   },
   {
@@ -227,6 +235,7 @@ export const motherboards: MotherBoard[] = [
     gameScore: 80,
     workScore: 79,
     aiScore: 78,
+    price: 130_000,
     priceTier: "budget",
   },
   {
@@ -247,6 +256,7 @@ export const motherboards: MotherBoard[] = [
     gameScore: 78,
     workScore: 78,
     aiScore: 74,
+    price: 140_000,
     priceTier: "budget",
   },
 

@@ -68,6 +68,7 @@ function makeRam(overrides: Partial<RAM> = {}): RAM {
     gameScore: 85,
     workScore: 85,
     aiScore: 85,
+    price: 135_000,
     priceTier: "mid",
     ...overrides,
   };

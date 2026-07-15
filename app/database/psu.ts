@@ -26,6 +26,18 @@ export interface PSU {
 
 export const psus: PSU[] = [
   {
+    id: "generic-550w-bronze",
+    name: "보급형 550W 80 PLUS Bronze",
+    brand: "FSP",
+    wattage: 550,
+    efficiency: "80 PLUS Bronze",
+    modularity: "non-modular",
+    formFactor: "ATX",
+    releaseYear: 2023,
+    price: 60_000,
+    priceTier: "budget",
+  },
+  {
     id: "seasonic-focus-gx-650",
     name: "Seasonic Focus GX-650",
     brand: "Seasonic",
@@ -34,6 +46,7 @@ export const psus: PSU[] = [
     modularity: "full",
     formFactor: "ATX",
     releaseYear: 2023,
+    price: 135_000,
     priceTier: "mid",
   },
   {
@@ -45,6 +58,7 @@ export const psus: PSU[] = [
     modularity: "full",
     formFactor: "ATX",
     releaseYear: 2022,
+    price: 155_000,
     priceTier: "high",
   },
   {
@@ -56,6 +70,7 @@ export const psus: PSU[] = [
     modularity: "full",
     formFactor: "ATX",
     releaseYear: 2021,
+    price: 175_000,
     priceTier: "high",
   },
   {
@@ -67,6 +82,7 @@ export const psus: PSU[] = [
     modularity: "semi",
     formFactor: "ATX",
     releaseYear: 2022,
+    price: 150_000,
     priceTier: "mid",
   },
   {
@@ -78,6 +94,7 @@ export const psus: PSU[] = [
     modularity: "full",
     formFactor: "SFX",
     releaseYear: 2023,
+    price: 190_000,
     priceTier: "high",
   },
   {
@@ -89,6 +106,7 @@ export const psus: PSU[] = [
     modularity: "full",
     formFactor: "ATX",
     releaseYear: 2022,
+    price: 130_000,
     priceTier: "mid",
   },
   {
@@ -100,6 +118,7 @@ export const psus: PSU[] = [
     modularity: "full",
     formFactor: "ATX",
     releaseYear: 2023,
+    price: 280_000,
     priceTier: "high",
   },
   {
@@ -111,6 +130,7 @@ export const psus: PSU[] = [
     modularity: "full",
     formFactor: "ATX",
     releaseYear: 2024,
+    price: 195_000,
     priceTier: "high",
   },
 

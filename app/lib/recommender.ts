@@ -148,9 +148,22 @@ function rateMotherboard(mb: MotherBoard) {
   return typeof mb.qualityScore === "number" ? perf * 0.5 + mb.qualityScore * 0.5 : perf;
 }
 
-function ratePsu(psu: PSU, cpu: CPU, gpu: GPU) {
+// 용량 하한(315행, wattage < required 제외)만 있고 상한이 없으면, 용량 초과분과 무관하게
+// 모든 통과 PSU가 base=80으로 동점 처리되어 효율등급/qualityScore만으로 승자가 갈린다 —
+// 그 결과 "RTX 4060(요구 330W대)에 1000W 티타늄 PSU" 같은 과도한 오버스펙이 단지 등급이
+// 높다는 이유로 이겨버렸다. 적정 헤드룸(요구치의 1.15~1.6배)을 넘는 초과분엔 감점을 준다.
+const PSU_HEADROOM_SWEET_SPOT = 1.6;
+const PSU_OVERSIZE_PENALTY_PER_RATIO = 20;
+const MAX_PSU_OVERSIZE_PENALTY = 25;
+
+export function ratePsu(psu: PSU, cpu: CPU, gpu: GPU) {
   const required = cpu.tdp + gpu.tgp + 150;
-  const base = psu.wattage >= required ? 80 : 55;
+  const headroomRatio = psu.wattage / required;
+  const oversizePenalty =
+    headroomRatio > PSU_HEADROOM_SWEET_SPOT
+      ? Math.min(MAX_PSU_OVERSIZE_PENALTY, (headroomRatio - PSU_HEADROOM_SWEET_SPOT) * PSU_OVERSIZE_PENALTY_PER_RATIO)
+      : 0;
+  const base = (psu.wattage >= required ? 80 : 55) - oversizePenalty;
   const efficiencyBonus = psu.efficiency === "80 PLUS Platinum" ? 10 : psu.efficiency === "80 PLUS Titanium" ? 12 : 8;
   const baseline = Math.min(100, base + efficiencyBonus);
   return typeof psu.qualityScore === "number" ? baseline * 0.5 + psu.qualityScore * 0.5 : baseline;
@@ -492,11 +505,17 @@ function buildCandidate(
     motherboardScore * weight.motherboard +
     psuScore * weight.psu;
 
-  const normalizedBaseScore = baseScore * 0.88 + recency * 0.12;
+  // compatibilityScoreVal은 여태 <70 하드컷에만 쓰이고 랭킹에는 전혀 반영되지 않았다 — 그 결과
+  // "CPU와 GPU 성능 밸런스가 약간 맞지 않습니다" 같은 경고(-10점, 90점으로 컷은 통과)가 붙은
+  // 조합도 경고 없는 조합과 순위상 완전히 동점으로 취급돼 TOP3에 그대로 섞여 나왔다. 비율로
+  // 곱해 넣어 경고가 있으면 그만큼 감점되게 하고, 더 깔끔한 대안이 있으면 자연히 밀려나게 한다.
+  const normalizedBaseScore = (baseScore * 0.88 + recency * 0.12) * (compatibilityScoreVal / 100);
 
   const cpuPrice = priceTierToPrice[cpu.priceTier] ?? 0;
   const gpuPrice = priceTierToPrice[gpu.priceTier] ?? 0;
-  const ramPrice = priceTierToPrice[ram.priceTier] ?? 0;
+  // RAM은 모든 카탈로그 항목에 실거래가(price)가 있으므로 그걸 그대로 쓴다 — priceTier 폴백을
+  // 쓰면 8GB든 64GB든 같은 티어면 같은 가격이 나오는 문제가 있었다(예: 32GB DDR5가 50만원).
+  const ramPrice = ram.price;
   const ssdPrice = priceTierToPrice[ssd.priceTier] ?? 0;
   // hardwareSeed.ts 병합분은 priceTier 대신 실거래가(price)를 들고 있다 — 있으면 우선 사용.
   const motherboardPrice = mb.price ?? (mb.priceTier ? priceTierToPrice[mb.priceTier] : 0) ?? 0;
@@ -523,7 +542,7 @@ function buildCandidate(
     id: candidateId(cpu, gpu, ram, ssd, mb, psu),
     cpu: cpu.name,
     gpu: gpu.name,
-    ram: `${ram.capacity}GB ${ram.ddr}`,
+    ram: ram.name,
     ssd: `${ssd.capacity}GB ${ssd.interface}`,
     motherboard: mb.name,
     power: `${psu.wattage}W 추천 파워`,
@@ -533,7 +552,7 @@ function buildCandidate(
     parts: [
       { label: "CPU", name: cpu.name, price: cpuPrice },
       { label: "GPU", name: gpu.name, price: gpuPrice },
-      { label: "RAM", name: `${ram.capacity}GB ${ram.ddr}`, price: ramPrice },
+      { label: "RAM", name: ram.name, price: ramPrice },
       { label: "SSD", name: `${ssd.capacity}GB ${ssd.interface}`, price: ssdPrice },
       { label: "메인보드", name: mb.name, price: motherboardPrice },
       { label: "파워", name: `${psu.wattage}W ${psu.name}`, price: psuPrice },
