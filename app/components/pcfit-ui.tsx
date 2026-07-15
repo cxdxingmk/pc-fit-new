@@ -10,7 +10,7 @@ import type { ReactNode, Ref } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from "recharts";
 import type { Resolution, RefreshRate, DisplayTier, DisplayMatchRow } from "@/app/lib/displayMatch";
-import { anchorCorrectedFps, anchorCorrectedMessage, getEngineCapFps } from "@/app/lib/workloadScoring";
+import { anchorCorrectedFps, anchorCorrectedMessage, getEngineCapFps, regenerateDisplayStatus } from "@/app/lib/workloadScoring";
 import { formatGameFpsDisplay } from "@/app/lib/gameFpsRange";
 import InfoTooltip from "@/components/ui/InfoTooltip";
 
@@ -232,6 +232,9 @@ export function GameCard({ row }: { row: DisplayMatchRow }) {
   const correctedFps = anchorCorrectedFps(row.id, row.estimatedFps);
   const engineCap = getEngineCapFps(row.id);
   const message = anchorCorrectedMessage(row.id, row, correctedFps);
+  // 배지도 row.status(보정 전 raw fps 기준)가 아니라 보정된 fps로 다시 판정한다 — 안 그러면
+  // 앵커 보정폭이 큰 게임(예: 엘든 링)에서 "49~53fps인데 PERFECT 배지" 같은 모순이 난다.
+  const status = correctedFps != null ? regenerateDisplayStatus(row, correctedFps) : row.status;
 
   return (
     <article className={`group flex flex-col gap-3 rounded-2xl bg-surface p-5 ring-1 ring-line ${FX.card}`}>
@@ -243,7 +246,7 @@ export function GameCard({ row }: { row: DisplayMatchRow }) {
             <InfoTooltip content={GLOSSARY[row.category.replace("게임/", "")]} preferredPlacement="right" />
           </p>
         </div>
-        <TierBadge tier={row.status} />
+        <TierBadge tier={status} />
       </div>
 
       <div className="flex items-baseline gap-1.5">

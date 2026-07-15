@@ -94,6 +94,19 @@ const FPS_TIERS = [30, 45, 60, 90, 120, 144, 165, 240, 300, 360];
 
 const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x));
 
+/**
+ * fps/목표Hz 비율 + 병목 방향으로 티어를 정한다. evaluateDisplayMatch()의 최초 판정과
+ * regenerateDisplayStatus()의 보정 후 재판정이 반드시 같은 기준을 쓰도록 여기 하나로 모은다.
+ *   CRITICAL 은 "플레이 자체가 불가(≈45fps 미만)" 일 때만.
+ *   60fps 는 나오지만 목표 주사율에 못 미치는 경우는 LACK_* 로 분기.
+ */
+function deriveStatus(estFps: number, ratio: number, bottleneck: Bottleneck): DisplayTier {
+  if (estFps < 45) return "CRITICAL";
+  if (ratio >= 1.15) return "PERFECT";
+  if (ratio >= 0.9) return "GOOD";
+  return bottleneck === "CPU" ? "LACK_CPU" : "LACK_GPU";
+}
+
 /** 유효점수 → fps (FPS_CURVE 선형보간) */
 function interpFps(effective: number): number {
   const e = clamp(effective, 0, 100);
@@ -187,19 +200,7 @@ export function evaluateDisplayMatch(
       : "CPU";
 
   // ── 티어 결정 ──
-  //   CRITICAL 은 "플레이 자체가 불가(≈45fps 미만)" 일 때만.
-  //   60fps 는 나오지만 목표 주사율에 못 미치는 경우는 LACK_* 로 분기.
-  let status: DisplayTier;
-  if (estFps < 45) {
-    status = "CRITICAL";
-  } else if (ratio >= 1.15) {
-    status = "PERFECT";
-  } else if (ratio >= 0.9) {
-    status = "GOOD";
-  } else {
-    // 목표 미달이지만 플레이 가능 → 병목 방향으로 LACK 분기
-    status = bottleneck === "CPU" ? "LACK_CPU" : "LACK_GPU";
-  }
+  const status = deriveStatus(estFps, ratio, bottleneck);
 
   return {
     status,
@@ -221,9 +222,23 @@ export function evaluateDisplayMatch(
  * status/vramHit/resolution/targetHz 등 다른 판정은 원래 evaluateDisplayMatch()의 결과를
  * 그대로 신뢰하고, 문구에 들어가는 fps 숫자만 보정된 값으로 교체해 재조합한다.
  */
+/**
+ * 앵커/엔진 캡 보정된 fps로 티어(PERFECT/GOOD/LACK_GPU/LACK_CPU/CRITICAL)를 다시 판정한다.
+ * evaluateDisplayMatch()가 만든 최초 status는 보정 전 raw fps 기준이라, 앵커 보정폭이 큰
+ * 게임(예: 엘든 링 엔진 캡)에서 "49~53fps인데 PERFECT 배지" 같은 모순이 났다 — 배지는
+ * 반드시 이 함수로 다시 계산한 값을 써야 한다. bottleneck은 fps와 무관(해상도·주사율·카테고리
+ * 압력으로만 결정)하므로 원래 판정을 그대로 신뢰해도 안전하다.
+ */
+export function regenerateDisplayStatus(row: DisplayMatchResult, correctedFps: number): DisplayTier {
+  const targetFps = HZ_META[row.targetHz].targetFps;
+  const ratio = correctedFps / targetFps;
+  return deriveStatus(correctedFps, ratio, row.bottleneck);
+}
+
 export function regenerateDisplayMessage(row: DisplayMatchResult, correctedFps: number): string {
+  const status = regenerateDisplayStatus(row, correctedFps);
   const defFps = nearestFpsTier(correctedFps);
-  return buildMessage(row.status, row.resolution, row.targetHz, correctedFps, defFps, row.vramHit);
+  return buildMessage(status, row.resolution, row.targetHz, correctedFps, defFps, row.vramHit);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

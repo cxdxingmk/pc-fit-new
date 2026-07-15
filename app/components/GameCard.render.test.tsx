@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
 import { GameCard } from "./pcfit-ui";
-import { scoreAllWorkloads, anchorCorrectedFps, anchorCorrectedMessage, getEngineCapFps } from "../lib/workloadScoring";
+import { scoreAllWorkloads, anchorCorrectedFps, anchorCorrectedMessage, getEngineCapFps, regenerateDisplayStatus } from "../lib/workloadScoring";
 import { evaluateAllGames } from "../lib/displayMatch";
 import { cpus } from "../database/cpu";
 import { gpus } from "../database/gpu";
@@ -19,6 +19,16 @@ const FPS_TIERS_MIRROR = [30, 45, 60, 90, 120, 144, 165, 240, 300, 360];
 function nearestFpsTierMirror(fps: number): number {
   return FPS_TIERS_MIRROR.reduce((best, t) => (Math.abs(t - fps) < Math.abs(best - fps) ? t : best), FPS_TIERS_MIRROR[0]);
 }
+
+// pcfit-ui.tsx의 TIER_STYLE 라벨을 그대로 미러링 — TierBadge가 실제로 "보정된" 상태를 렌더하는지
+// (row.status 그대로가 아니라) DOM 텍스트로 증명하기 위함.
+const TIER_LABEL_MIRROR: Record<string, string> = {
+  PERFECT: "충분히 여유로워요",
+  GOOD: "무난하게 돌아가요",
+  LACK_GPU: "그래픽카드가 아쉬워요",
+  LACK_CPU: "CPU가 아쉬워요",
+  CRITICAL: "성능이 많이 부족해요",
+};
 
 const referenceCpu: CPU = cpus.find((c) => c.id === "i9-14900k")!;
 const referenceGpu: GPU = gpus.find((g) => g.id === "rtx4070-super")!;
@@ -59,6 +69,14 @@ describe("GameCard render — headline vs description fps consistency (실제 DO
           expectedMessage
         );
 
+        // 배지가 row.status(보정 전 raw fps)가 아니라 보정된 fps로 다시 판정한 상태를 쓰는지 확인.
+        const correctedStatus = regenerateDisplayStatus(row, corrected!);
+        const badgeText = container.querySelector(".ring-good\\/25, .ring-lime-400\\/20, .ring-warn\\/25, .ring-bad\\/25")?.textContent ?? "";
+        expect(
+          badgeText,
+          `${gameId} 배지 텍스트("${badgeText}")가 보정된 상태(${correctedStatus} → "${TIER_LABEL_MIRROR[correctedStatus]}")와 다름 — row.status(보정 전)를 쓰고 있을 가능성`
+        ).toContain(TIER_LABEL_MIRROR[correctedStatus]);
+
         if (cap != null && corrected! >= cap) {
           expect(headlineText, `${gameId} 헤드라인이 엔진 캡 문구를 쓰지 않음: "${headlineText}"`).toContain(`${cap}fps`);
           expect(descriptionText, `${gameId} 설명이 엔진 캡(${cap}fps)을 언급하지 않음: "${descriptionText}"`).toContain(`${cap}fps`);
@@ -74,8 +92,9 @@ describe("GameCard render — headline vs description fps consistency (실제 DO
         );
 
         // 설명 문구의 fps 숫자 — PERFECT/GOOD은 correctedFps 그대로, 나머지는 표준 티어로 반올림.
+        // (row.status가 아니라 위에서 계산한 correctedStatus 기준 — 이유는 위 배지 검증 주석 참고)
         const descNumbers = [...descriptionText.matchAll(/(\d+)\s*fps/g)].map((m) => Number(m[1]));
-        const expectedDescFps = row.status === "PERFECT" || row.status === "GOOD" ? corrected! : nearestFpsTierMirror(corrected!);
+        const expectedDescFps = correctedStatus === "PERFECT" || correctedStatus === "GOOD" ? corrected! : nearestFpsTierMirror(corrected!);
         expect(
           descNumbers,
           `${gameId} 설명 문구("${descriptionText}")의 fps 숫자가 헤드라인 범위(${low}~${high}, corrected=${corrected})와 모순됨`

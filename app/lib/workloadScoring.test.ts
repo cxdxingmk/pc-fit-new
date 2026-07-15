@@ -8,6 +8,7 @@ import {
   anchorCorrectedFps,
   anchorCorrectedMessage,
   getEngineCapFps,
+  regenerateDisplayStatus,
 } from "./workloadScoring";
 import { cpus } from "../database/cpu";
 import { gpus } from "../database/gpu";
@@ -151,7 +152,10 @@ describe("game card headline/description fps consistency", () => {
 
         // PERFECT/GOOD은 보정된 fps를 그대로 문장에 넣고, 나머지 상태는 가장 가까운 표준 fps
         // 티어로 반올림해 넣는다(buildMessage 참고) — 둘 중 어느 쪽이든 정확히 일치해야 한다.
-        const expected = row.status === "PERFECT" || row.status === "GOOD" ? corrected : nearestFpsTierMirror(corrected);
+        // 반드시 "보정된 fps로 다시 판정한 상태"를 기준으로 삼아야 한다 — row.status(보정 전
+        // raw fps 기준)를 쓰면 앵커 보정폭이 큰 게임에서 이 테스트 자체가 잘못된 기대값을 검증하게 된다.
+        const correctedStatus = regenerateDisplayStatus(row, corrected);
+        const expected = correctedStatus === "PERFECT" || correctedStatus === "GOOD" ? corrected : nearestFpsTierMirror(corrected);
         expect(
           numbersInMessage,
           `"${row.label}" 헤드라인 보정치=${corrected}fps(기대값=${expected})인데 설명 문구는 "${message}"`
