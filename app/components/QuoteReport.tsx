@@ -163,7 +163,7 @@ export default function QuoteReport({
   const handleCopyLink = useCallback(() => {
     onCopyLink?.();
     setShowCopyToast(true);
-    window.setTimeout(() => setShowCopyToast(false), 2500);
+    window.setTimeout(() => setShowCopyToast(false), 2000);
   }, [onCopyLink]);
 
   // ── 이미지 업로드 상태 (인메모리 — localStorage 미사용) ──
@@ -379,7 +379,7 @@ export default function QuoteReport({
             onClick={handleCopyLink}
             className={`shrink-0 rounded-xl bg-white/[0.06] px-4 py-3.5 text-sm font-semibold text-white/80 ring-1 ring-line transition-colors hover:bg-white/[0.1] hover:text-white ${cellCenter}`}
           >
-            결과 링크 복사
+            {showCopyToast ? "복사됨 ✓" : "결과 링크 복사"}
           </button>
         )}
 
@@ -388,7 +388,7 @@ export default function QuoteReport({
             role="status"
             className="absolute -top-11 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-black/80 px-4 py-2 text-xs font-medium text-white shadow-lg"
           >
-            링크가 복사됐어요, 나중에 다시 확인하세요
+            결과 링크를 복사했어요
           </div>
         )}
       </div>

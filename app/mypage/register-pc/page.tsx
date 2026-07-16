@@ -205,6 +205,7 @@ export default function RegisterPcPage() {
 
   const [isCommandCopied, setIsCommandCopied] = useState(false);
   const [isLegacyCommandOpen, setIsLegacyCommandOpen] = useState(false);
+  const [isLegacyCommandCopied, setIsLegacyCommandCopied] = useState(false);
   const [isExampleOpen, setIsExampleOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const [scanStatusMessage, setScanStatusMessage] = useState("");
@@ -248,6 +249,15 @@ export default function RegisterPcPage() {
     setMbSeries(`${vendor} ${alpha}`);
     setMbDetail(detail);
   };
+
+  useEffect(() => {
+    if (!isExampleOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsExampleOpen(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isExampleOpen]);
 
   useEffect(() => {
     const parsed = readJsonFromStorage<Partial<LocalSavedPc>>(storageKey);
@@ -473,7 +483,7 @@ export default function RegisterPcPage() {
       await navigator.clipboard.writeText(powerShellScanCommand);
       setIsCommandCopied(true);
       showToast("명령어가 복사되었습니다.");
-      window.setTimeout(() => setIsCommandCopied(false), 1500);
+      window.setTimeout(() => setIsCommandCopied(false), 2000);
     } catch {
       setIsCommandCopied(false);
       showToast("복사에 실패했습니다. 다시 시도해 주세요.");
@@ -483,8 +493,11 @@ export default function RegisterPcPage() {
   const handleCopyLegacyCommand = async () => {
     try {
       await navigator.clipboard.writeText(legacyWmicScanCommand);
+      setIsLegacyCommandCopied(true);
       showToast("구버전 명령어가 복사되었습니다.");
+      window.setTimeout(() => setIsLegacyCommandCopied(false), 2000);
     } catch {
+      setIsLegacyCommandCopied(false);
       showToast("복사에 실패했습니다. 다시 시도해 주세요.");
     }
   };
@@ -618,7 +631,7 @@ export default function RegisterPcPage() {
                         onClick={handleCopyLegacyCommand}
                         className="inline-flex h-9 items-center rounded-xl bg-white/[0.04] px-3 text-xs font-semibold text-white/75 ring-1 ring-line transition hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
                       >
-                        구버전 명령어 복사하기 📋
+                        {isLegacyCommandCopied ? "복사됨 ✓" : "구버전 명령어 복사하기 📋"}
                       </button>
                       <p className="text-xs leading-5 text-white/40">이 명령은 "cmd"라고 검색해 나오는 검은 창에 붙여넣어야 해요(PowerShell 아님).</p>
                     </div>
@@ -635,15 +648,42 @@ export default function RegisterPcPage() {
                   <p className="mt-1 leading-6">창에 글자들이 주르륵 나타나면, 마우스로 글자 전체를 드래그해서 복사(Ctrl + C)하세요.</p>
                   <button
                     type="button"
-                    onClick={() => setIsExampleOpen((prev) => !prev)}
+                    onClick={() => setIsExampleOpen(true)}
                     className="mt-3 inline-flex h-9 items-center rounded-xl bg-white/[0.04] px-3 text-xs font-semibold text-white/75 ring-1 ring-line transition hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
                   >
                     💡 예시 화면 보기
                   </button>
                   {isExampleOpen ? (
-                    <pre className="mt-3 overflow-x-auto rounded-xl bg-white/[0.03] p-3 text-xs text-white/70 ring-1 ring-line">
+                    <div
+                      role="presentation"
+                      onClick={() => setIsExampleOpen(false)}
+                      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4"
+                    >
+                      <div
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="scan-example-modal-title"
+                        onClick={(event) => event.stopPropagation()}
+                        className="w-full max-w-lg rounded-2xl bg-surface p-4 ring-1 ring-line"
+                      >
+                        <div className="flex items-center justify-between">
+                          <p id="scan-example-modal-title" className="text-sm font-semibold text-white/90">
+                            결과 화면 예시
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => setIsExampleOpen(false)}
+                            aria-label="닫기"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-white/60 transition hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                        <pre className="mt-3 overflow-x-auto rounded-xl bg-white/[0.03] p-3 text-xs text-white/70 ring-1 ring-line">
 {`Name\n----\nAMD Ryzen 7 9700X\n\nName\n----\nNVIDIA GeForce RTX 5070\n\nManufacturer          Product\n------------          -------\nASUSTeK COMPUTER INC. TUF GAMING B650-PLUS\n\nCapacity      Speed\n--------      -----\n17179869184   5600\n17179869184   5600\n\nModel                          Size\n-----                          ----\nSamsung SSD 990 PRO 1TB        1000202273280`}
-                    </pre>
+                        </pre>
+                      </div>
+                    </div>
                   ) : null}
                 </Card>
 
