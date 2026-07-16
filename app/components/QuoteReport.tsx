@@ -12,7 +12,8 @@
  *      HDD는 선택 항목 — 미선택 시 '선택 안 함'으로 안전 처리 (에러 없음)
  *  [5] 모니터/케이스는 사용자가 직접 선택하는 셀렉트 UX + 마이크로 카피 안내
  *  [6] 부품/조립 사진 업로드 + 미리보기 (인메모리 처리, 최대 4장)
- *  [7] '파워' 행 하단에 PsuInlineGuide, 모니터/케이스 안내 문구 아래 PsuAlertBanner
+ *  [7] '파워' 행 하단에 PsuInlineGuide 한 곳에서만 권장 파워 안내(과거엔 모니터/케이스
+ *      문구 아래에도 같은 경고를 배너로 중복 노출했으나 제거하고 통합)
  *      (app/lib/psuRecommendation.ts 계산 결과를 표시만 담당)
  *
  * 비즈니스 로직 보존: 성능 계산/저장 스크립트는 건드리지 않고,
@@ -21,7 +22,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
-import { PsuAlertBanner, PsuInlineGuide, usePsuGuide } from "@/components/ui/PsuGuide";
+import { PsuInlineGuide, usePsuGuide } from "@/components/ui/PsuGuide";
 import DarkSelect from "@/components/ui/DarkSelect";
 import Callout from "@/components/ui/Callout";
 
@@ -319,8 +320,6 @@ export default function QuoteReport({
         <Callout variant="warning" className="justify-center text-center">
           모니터와 케이스는 본체 연산 성능(FPS, 병목)에 직접적인 영향을 주지 않습니다.
         </Callout>
-        {/* 파워 용량 미달 시에만 승격 노출되는 경고 배너 */}
-        <PsuAlertBanner recommendation={psu.recommendation} adequacy={psu.adequacy} />
       </section>
 
       {/* ══ 사진 첨부 (업로드 + 미리보기) ══ */}

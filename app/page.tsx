@@ -33,8 +33,8 @@ export default function Home() {
 
   return (
     <>
-      <main className="flex min-h-[calc(100vh-64px)] items-center justify-center bg-slate-950 px-6">
-        <div className="w-full max-w-4xl rounded-3xl border border-white/10 bg-slate-900/70 p-10 text-center text-slate-100 shadow-2xl shadow-black/50">
+      <main className="bg-slate-950 px-6 py-16 text-slate-100">
+        <div className="mx-auto w-full max-w-4xl rounded-3xl border border-white/10 bg-slate-900/70 p-10 text-center shadow-2xl shadow-black/50">
           <span className="mb-5 inline-flex items-center gap-1.5 rounded-full bg-cyan-500/10 px-4 py-1.5 text-xs font-bold tracking-wide text-cyan-300 ring-1 ring-cyan-400/30">
             ⚡ 설치 없이, 3초 만에 시작
           </span>
@@ -73,6 +73,45 @@ export default function Home() {
 
           <IndependenceNotice className="mt-8" />
         </div>
+
+        <section aria-label="이용 방법 3단계" className="mx-auto mt-14 w-full max-w-5xl">
+          <h2 className="text-center text-2xl font-bold">이렇게 3단계로 끝나요</h2>
+          <div className="mt-10 grid gap-6 sm:grid-cols-3">
+            <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-6 text-center">
+              <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-cyan-500/10 text-2xl ring-1 ring-cyan-400/30">🔍</span>
+              <p className="mt-4 text-xs font-bold uppercase tracking-wide text-cyan-300">1단계</p>
+              <h3 className="mt-1 text-lg font-semibold">내 PC 스캔</h3>
+              <p className="mt-2 text-sm leading-relaxed text-slate-300">설치 없이 3초 만에 자동으로 사양을 찾아내요. 직접 입력해도 괜찮아요.</p>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-6 text-center">
+              <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-cyan-500/10 text-2xl ring-1 ring-cyan-400/30">📋</span>
+              <p className="mt-4 text-xs font-bold uppercase tracking-wide text-cyan-300">2단계</p>
+              <h3 className="mt-1 text-lg font-semibold">진단서 확인</h3>
+              <p className="mt-2 text-sm leading-relaxed text-slate-300">게임·작업별 예상 성능과 병목 구간을 한눈에 확인해요.</p>
+
+              <div aria-hidden="true" className="mt-4 rounded-xl border border-white/10 bg-slate-950 p-3 text-left">
+                <div className="flex items-center justify-between text-[10px] text-slate-500">
+                  <span>종합 점수</span>
+                  <span>82 / 100</span>
+                </div>
+                <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-800">
+                  <div className="h-full w-4/5 rounded-full bg-gradient-to-r from-cyan-400 to-emerald-400" />
+                </div>
+                <div className="mt-2 h-1.5 w-3/5 overflow-hidden rounded-full bg-slate-800">
+                  <div className="h-full w-full rounded-full bg-slate-700" />
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-6 text-center">
+              <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-cyan-500/10 text-2xl ring-1 ring-cyan-400/30">🔗</span>
+              <p className="mt-4 text-xs font-bold uppercase tracking-wide text-cyan-300">3단계</p>
+              <h3 className="mt-1 text-lg font-semibold">결과 공유</h3>
+              <p className="mt-2 text-sm leading-relaxed text-slate-300">링크 하나로 친구에게 진단 결과를 바로 보여줄 수 있어요.</p>
+            </div>
+          </div>
+        </section>
       </main>
 
       {isGuardModalOpen ? (

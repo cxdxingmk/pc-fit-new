@@ -2,15 +2,14 @@
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- * PsuGuide.tsx — 최소 권장 파워 안내 UI (후보 A+B 조합 설계)
+ * PsuGuide.tsx — 최소 권장 파워 안내 UI
  * ─────────────────────────────────────────────────────────────────────────────
  * ▶ UX 배치 결정:
- *   [기본 노출]  후보 A — 견적 테이블의 '파워' 행 하단 마이크로 카피.
- *                파워를 보는 바로 그 맥락에서 안내하는 것이 인지 비용이 가장 낮고,
- *                항상 노출되어도 시각적 소음이 없음 (저채도/저가중치 스타일).
- *   [조건부 승격] 후보 B — 선택한 파워가 권장 용량 "미달"일 때만 대시보드 하단에
- *                얼럿 박스로 승격 노출. 문제가 없을 땐 얼럿을 띄우지 않아
- *                토스식 '필요한 순간에만 말 거는' UX를 유지.
+ *   견적 테이블의 '파워' 행 하단 마이크로 카피 한 곳에서만 안내한다.
+ *   파워를 보는 바로 그 맥락에서 안내하는 것이 인지 비용이 가장 낮고,
+ *   항상 노출되어도 시각적 소음이 없다(저채도/저가중치 스타일).
+ *   과거엔 미달 시 대시보드 하단에 별도 얼럿 배너도 함께 띄웠으나, 같은 경고를
+ *   두 곳에서 반복 노출하는 것이라 제거하고 이 인라인 안내로 통합했다.
  *
  * ▶ 시각 가중치:
  *   - 정상: text-xs + text-white/40 (FPS/병목 등 주요 지표보다 확실히 낮은 위계)
@@ -22,7 +21,6 @@
 
 import { useMemo } from "react";
 import InfoTooltip from "./InfoTooltip";
-import Callout from "./Callout";
 import {
   calculatePsuRecommendation,
   evaluatePsuAdequacy,
@@ -45,7 +43,7 @@ function buildTooltipCopy(rec: PsuRecommendation): string {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// [후보 A] PsuInlineGuide — 견적 테이블 '파워' 행 하단 마이크로 카피 (상시 노출)
+// PsuInlineGuide — 견적 테이블 '파워' 행 하단 마이크로 카피 (상시 노출, 유일한 안내 위치)
 // ═══════════════════════════════════════════════════════════════════════════
 export function PsuInlineGuide({ recommendation, adequacy }: { recommendation: PsuRecommendation; adequacy: PsuAdequacy }) {
   const approx = recommendation.isEstimated ? "약 " : "";
@@ -69,20 +67,5 @@ export function PsuInlineGuide({ recommendation, adequacy }: { recommendation: P
       {message}
       <InfoTooltip content={buildTooltipCopy(recommendation)} preferredPlacement="top" ariaLabel="권장 파워 계산 기준" />
     </p>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// [후보 B] PsuAlertBanner — 권장 용량 미달 시에만 대시보드 하단에 승격 노출
-//          (모니터/케이스 안내 문구 바로 아래 배치 권장)
-// ═══════════════════════════════════════════════════════════════════════════
-export function PsuAlertBanner({ recommendation, adequacy }: { recommendation: PsuRecommendation; adequacy: PsuAdequacy }) {
-  // 정상/판정불가 상태에서는 얼럿을 띄우지 않음 — 후보 A가 이미 커버
-  if (adequacy !== "insufficient") return null;
-
-  return (
-    <Callout variant="warning" role="alert">
-      안정적인 시스템 구동을 위해 <strong className="font-semibold">{recommendation.recommendedWatt}W 이상</strong>의 파워를 권장합니다.
-    </Callout>
   );
 }
