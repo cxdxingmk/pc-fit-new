@@ -49,6 +49,8 @@ export async function login(_prevState: AuthFormState, formData: FormData): Prom
 }
 
 const DEV_EMAIL = "dev@pcfit.local";
+// scripts/seedDevUser.cts의 DEV_DEFAULT_PASSWORD와 같은 값이어야 한다(시드가 만든 비번으로 로그인하므로).
+const DEV_DEFAULT_PASSWORD = "dev1234";
 
 export async function devLogin(_prevState: AuthFormState, _formData: FormData): Promise<AuthFormState> {
   if (process.env.NODE_ENV !== "development") {
@@ -58,7 +60,7 @@ export async function devLogin(_prevState: AuthFormState, _formData: FormData): 
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword({
     email: DEV_EMAIL,
-    password: process.env.DEV_SEED_PASSWORD || "devpassword123!",
+    password: process.env.DEV_SEED_PASSWORD || DEV_DEFAULT_PASSWORD,
   });
 
   if (error) {

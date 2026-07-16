@@ -50,7 +50,8 @@ describe("parseSpecOutput — 정상 출력", () => {
     expect(result.gpuId).toBe("rtx4070-super");
     expect(result.gpuLabel).toMatch(/4070 SUPER/i);
     expect(result.motherboardChipset).toBe("B650");
-    expect(result.ramCapacity).toBe("32GB"); // 16GB × 2
+    // ramCapacity는 "개당" 용량이다 — 총합(32GB)을 넣으면 UI가 개수를 또 곱해 64GB로 부풀린다.
+    expect(result.ramCapacity).toBe("16GB"); // 16GB짜리 모듈 × 2 = 총 32GB
     expect(result.ramModuleCount).toBe(2);
     expect(result.ramDetail).toContain("x2");
     expect(result.ssdCapacity).toBe("1TB");
@@ -169,7 +170,7 @@ describe("parseSpecOutput — 새 포맷(CPU:/SSD:/RAM: 헤더, GPU 미포함)",
     expect(result.gpuId).toBeNull(); // 새 명령은 GPU를 조회하지 않는다 — 브라우저 자동감지가 대신 처리
     expect(result.ssdCapacity).toBe("512GB");
     expect(result.ssdDetail).toBe("Samsung SSD 970 EVO Plus 500GB");
-    expect(result.ramCapacity).toBe("32GB");
+    expect(result.ramCapacity).toBe("16GB"); // 개당 용량(총 32GB = 16GB × 2)
     expect(result.ramModuleCount).toBe(2);
     expect(result.ramDetail).toContain("DDR4");
     expect(result.ramMismatch).toBe(false);
@@ -183,7 +184,7 @@ describe("parseSpecOutput — 새 포맷(CPU:/SSD:/RAM: 헤더, GPU 미포함)",
 
     expect(result.cpuId).toBe("i9-14900k");
     expect(result.ssdCapacity).toBe("1TB");
-    expect(result.ramCapacity).toBe("64GB");
+    expect(result.ramCapacity).toBe("32GB"); // 개당 용량(총 64GB = 32GB × 2)
     expect(result.ramModuleCount).toBe(2);
     expect(result.ramDetail).toContain("DDR5");
   });
@@ -213,7 +214,7 @@ describe("parseSpecOutput — 새 포맷(CPU:/SSD:/RAM: 헤더, GPU 미포함)",
     const sample = "CPU:\nIntel(R) Core(TM) i7-4770K\n\nSSD:\nSamsung SSD 850 EVO 250GB\n\nRAM:\nTotal 16 GB (8GB x 2ea / DDR3 or Older 1600MHz / Kingston)";
     const result = parseSpecOutput(sample);
 
-    expect(result.ramCapacity).toBe("16GB");
+    expect(result.ramCapacity).toBe("8GB"); // 개당 용량(총 16GB = 8GB × 2)
     expect(result.ramModuleCount).toBe(2);
     expect(result.ramDetail).toContain("DDR3 or Older");
     expect(result.ramMismatch).toBe(false);
@@ -260,6 +261,46 @@ describe("parseSpecOutput — 새 포맷(CPU:/SSD:/RAM: 헤더, GPU 미포함)",
     expect(result.ssdDetail).toBe("Samsung SSD 970 EVO Plus 500GB");
     expect(result.ssdDetail).not.toMatch(/990/);
     expect(result.ssdCapacity).toBe("512GB");
+  });
+});
+
+describe("parseSpecOutput — RAM 개당/총합 정합성 회귀", () => {
+  // 신고된 버그: "16GB x2 (총 32GB)"를 등록했는데 요약이 "32GB x 2 (총 64GB)"로 떴다.
+  // ramCapacity에 총합을 넣는 바람에 UI가 개수를 한 번 더 곱해 2배가 된 것.
+  const cases: Array<{ label: string; ramLine: string; eachGb: string; count: number; totalGb: number }> = [
+    { label: "16GB x2 → 총 32GB", ramLine: "Total 32 GB (16GB x 2ea / DDR4 3200MHz / Samsung)", eachGb: "16GB", count: 2, totalGb: 32 },
+    { label: "32GB x2 → 총 64GB", ramLine: "Total 64 GB (32GB x 2ea / DDR5 6000MHz / SK Hynix)", eachGb: "32GB", count: 2, totalGb: 64 },
+    { label: "8GB x4 → 총 32GB", ramLine: "Total 32 GB (8GB x 4ea / DDR4 3200MHz / Samsung)", eachGb: "8GB", count: 4, totalGb: 32 },
+    { label: "8GB x1 → 총 8GB", ramLine: "Total 8 GB (8GB x 1ea / DDR5 5600MHz / Micron)", eachGb: "8GB", count: 1, totalGb: 8 },
+  ];
+
+  for (const { label, ramLine, eachGb, count, totalGb } of cases) {
+    it(`${label}: ramCapacity는 개당 용량이고, 개당×개수가 원문 총합과 정확히 일치한다`, () => {
+      const result = parseSpecOutput(`CPU:\nAMD Ryzen 5 5600\n\nSSD:\nSamsung SSD 990 PRO 1TB\n\nRAM:\n${ramLine}`);
+
+      expect(result.ramCapacity).toBe(eachGb);
+      expect(result.ramModuleCount).toBe(count);
+      // UI(요약/총 RAM 용량)가 하는 계산을 그대로 재현 — 원문 총합과 어긋나면 안 된다.
+      expect(Number(result.ramCapacity!.replace(/[^0-9]/g, "")) * result.ramModuleCount!).toBe(totalGb);
+    });
+  }
+
+  it("레거시 wmic 포맷도 Capacity 줄(모듈 1개당 바이트)을 개당 용량으로 읽는다 — 합산해서 넣지 않는다", () => {
+    // 17179869184바이트(16GB) 모듈 2개 → 개당 16GB / 2개 / 총 32GB
+    const legacy = `Capacity    Speed\n17179869184  3200\n17179869184  3200`;
+    const result = parseSpecOutput(legacy);
+
+    expect(result.ramCapacity).toBe("16GB");
+    expect(result.ramModuleCount).toBe(2);
+  });
+
+  it("레거시 포맷에서 슬롯 용량이 서로 다르면 개당 용량을 특정할 수 없으므로 자동 확정하지 않는다", () => {
+    // 8GB + 16GB 혼합 → 개당 용량이 하나로 정해지지 않음
+    const mixed = `Capacity    Speed\n8589934592   3200\n17179869184  3200`;
+    const result = parseSpecOutput(mixed);
+
+    expect(result.ramMismatch).toBe(true);
+    expect(result.ramCapacity).toBeNull();
   });
 });
 

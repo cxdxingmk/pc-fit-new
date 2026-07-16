@@ -14,6 +14,7 @@ import { parseSpecOutput, powerShellScanCommand, legacyWmicScanCommand, type Par
 import { getSavedPcSpec, upsertSavedPcSpec, type SavedPcSpec, type UpsertSavedPcSpecInput } from "../../lib/pcSpecs";
 import { savePendingScanSpec, readPendingScanSpec, clearPendingScanSpec } from "../../lib/pendingScanSpec";
 import { REFRESH_RATE_STEPS, snapToNearestRefreshRate } from "../../lib/refreshRateSteps";
+import { parseRamCapacityToGb, totalRamGb } from "../../lib/ramCapacity";
 import { derivePartSeries } from "../../lib/derivePartSeries";
 import MyPageTabs from "../components/MyPageTabs";
 import Card from "../../../components/ui/Card";
@@ -51,10 +52,6 @@ const initialSelection = {
   commandScanRawText: "",
 };
 
-function parseRamCapacityToGb(value: string): number {
-  const matched = value.match(/(\d+)/);
-  return matched ? Number(matched[1]) : 0;
-}
 
 /** mbSeries("Intel B")+mbDetail("760") 조합에서 실제 motherboards 카탈로그의 chipset("B760")을 복원해
  *  이전 세션에 골랐던 모델을 계층형 셀렉트에 다시 선반영한다. 못 찾으면 그냥 비워둔다(안전한 폴백). */
@@ -67,7 +64,9 @@ function findMotherboardIdFromLegacyFields(mbBrand: string, mbSeries: string, mb
 type ScanDerivedState = {
   cpu: string;
   gpu: string;
+  /** 모듈 1개당 용량("16GB") — 총 용량은 ramCount를 곱해야 한다 */
   ramCapacity: string;
+  ramCount: number;
   ramProductName: string;
   ramDetailedInputEnabled: boolean;
   ssdCapacityOption: string;
@@ -116,7 +115,14 @@ function resolveScanUpdates(
 
   if (result.ramCapacity) {
     next.ramCapacity = result.ramCapacity;
-    messages.push(`RAM 자동 감지: ${result.ramCapacity}`);
+    // 개수도 함께 반영해야 총 용량이 맞는다 — 예전엔 개수가 폼 기본값(2)에 그대로 남아
+    // "16GB짜리 1개"를 스캔해도 "x 2 (총 32GB)"로 표시되는 식의 불일치가 났다.
+    // RAM 개수 셀렉트는 1~4만 지원하므로 그 범위로 클램프한다(원문 그대로는 ramDetail에 남는다).
+    if (result.ramModuleCount && result.ramModuleCount > 0) {
+      next.ramCount = Math.min(4, result.ramModuleCount);
+    }
+    const totalGb = totalRamGb(result.ramCapacity, next.ramCount);
+    messages.push(`RAM 자동 감지: ${result.ramCapacity} x ${next.ramCount} (총 ${totalGb}GB)`);
   }
 
   if (result.ramDetail) {
@@ -385,7 +391,7 @@ export default function RegisterPcPage() {
   const snapshotRam = useMemo(() => {
     if (!savedSnapshot) return "미등록";
     const count = savedSnapshot.ramCount && savedSnapshot.ramCount > 0 ? savedSnapshot.ramCount : 1;
-    const totalGb = parseRamCapacityToGb(savedSnapshot.ramCapacity) * count;
+    const totalGb = totalRamGb(savedSnapshot.ramCapacity, count);
     const base = `${savedSnapshot.ramCapacity} x ${count} (총 ${totalGb}GB)`;
     return savedSnapshot.ramDetail ? `${base} (${savedSnapshot.ramDetail})` : base;
   }, [savedSnapshot]);
@@ -404,7 +410,7 @@ export default function RegisterPcPage() {
     cpuId: next.cpu,
     gpuId: next.gpu,
     ramCapacity: next.ramCapacity,
-    ramCount,
+    ramCount: next.ramCount,
     ramDetailedInputEnabled: next.ramDetailedInputEnabled,
     ramProductName: next.ramProductName,
     ssdCapacity: next.ssdCapacityOption,
@@ -426,6 +432,7 @@ export default function RegisterPcPage() {
       cpu,
       gpu,
       ramCapacity,
+      ramCount,
       ramProductName,
       ramDetailedInputEnabled,
       ssdCapacityOption,
@@ -903,7 +910,7 @@ export default function RegisterPcPage() {
                   </DarkSelect>
                 </div>
                 <p className="mt-2 text-xs text-brand-soft">
-                  총 RAM 용량: {parseRamCapacityToGb(ramCapacity) * ramCount}GB ({ramCapacity} x {ramCount})
+                  총 RAM 용량: {totalRamGb(ramCapacity, ramCount)}GB ({ramCapacity} x {ramCount})
                 </p>
 
                 <label className="mt-3 flex min-h-11 items-center gap-3 rounded-xl bg-white/[0.03] px-3 py-2 text-xs text-white/70 ring-1 ring-line">

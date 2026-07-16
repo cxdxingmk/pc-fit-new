@@ -10,6 +10,9 @@ import { createClient } from "@supabase/supabase-js";
 
 const DEV_EMAIL = "dev@pcfit.local";
 const DEV_NICKNAME = "개발용유저";
+// app/login/actions.ts의 devLogin()과 반드시 같은 값이어야 한다 — 여기서 만든 비밀번호로 그 버튼이 로그인한다.
+// .env.local은 배포/다른 머신에 안 따라가므로, 환경변수가 없어도 동작하도록 기본값 자체를 맞춰둔다.
+const DEV_DEFAULT_PASSWORD = "dev1234";
 
 async function main() {
   if (process.env.NODE_ENV === "production") {
@@ -34,7 +37,7 @@ async function main() {
     process.exit(1);
   }
 
-  const password = process.env.DEV_SEED_PASSWORD || "devpassword123!";
+  const password = process.env.DEV_SEED_PASSWORD || DEV_DEFAULT_PASSWORD;
   const existingUser = existing.users.find((u) => u.email === DEV_EMAIL);
 
   if (existingUser) {

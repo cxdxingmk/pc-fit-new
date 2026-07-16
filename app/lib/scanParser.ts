@@ -144,11 +144,16 @@ function parseRamTotalLine(ramLine: string): ParsedRamSummary | null {
   };
 }
 
-function roundToRamBucket(totalGb: number): "8GB" | "16GB" | "32GB" | "64GB" | null {
-  if (totalGb >= 64) return "64GB";
-  if (totalGb >= 32) return "32GB";
-  if (totalGb >= 16) return "16GB";
-  if (totalGb > 0) return "8GB";
+/**
+ * GB 값을 등록 폼의 RAM 용량 선택지(8/16/32/64GB)로 버킷팅한다.
+ * ⚠ 여기 들어오는 값은 "개당(모듈 1개) 용량"이다 — ramCapacity 필드의 의미가 개당이기 때문.
+ * (총 용량을 넣으면 UI가 다시 개수를 곱해 2배로 부풀려진다.)
+ */
+function roundToRamBucket(gb: number): "8GB" | "16GB" | "32GB" | "64GB" | null {
+  if (gb >= 64) return "64GB";
+  if (gb >= 32) return "32GB";
+  if (gb >= 16) return "16GB";
+  if (gb > 0) return "8GB";
   return null;
 }
 
@@ -206,13 +211,17 @@ export function parseSpecOutput(rawText: string): ParseCommandOutputResult {
   // RAM 용량 바이트 스캔(레거시 wmic/PowerShell "Name" 포맷용) — 상한을 128GB(단일 DIMM 상한급)로
   // 좁혀 SSD/HDD 용량(보통 150GB+)과의 오검출 충돌을 줄인다(예: 256GB SSD ≈ 274,877,906,944바이트가
   // 예전 상한 300GB 안에 들어와 RAM으로 잘못 집계되던 문제).
+  // wmic/PowerShell "Capacity" 열은 모듈 1개당 바이트를 한 줄씩 출력한다 — 즉 이 배열의 각 원소가
+  // "개당 용량"이고, 배열 길이가 "개수"다. 예전엔 이걸 전부 합산해 총 용량을 ramCapacity에 넣었는데,
+  // ramCapacity는 개당 용량 필드라 UI가 다시 개수를 곱해 총량이 2배로 부풀려졌다.
   const memoryCapacities = [...rawText.matchAll(/\b(\d{9,13})\b/g)]
     .map((match) => Number(match[1]))
     .filter((value) => Number.isFinite(value) && value > 1_000_000_000 && value <= 137_438_953_472);
-  const totalMemoryBytes = memoryCapacities.reduce((sum, value) => sum + value, 0);
-  const totalMemoryGb = totalMemoryBytes > 0 ? Math.max(4, Math.round(totalMemoryBytes / 1024 / 1024 / 1024)) : 0;
-  const legacyRamCapacity = roundToRamBucket(totalMemoryGb);
-  const legacyRamModuleCount = memoryCapacities.length > 0 ? memoryCapacities.length : null;
+  const legacyModuleGbs = memoryCapacities.map((bytes) => Math.max(1, Math.round(bytes / 1024 / 1024 / 1024)));
+  const legacyModulesDiffer = legacyModuleGbs.length > 0 && legacyModuleGbs.some((gb) => gb !== legacyModuleGbs[0]);
+  const legacyEachGb = legacyModuleGbs.length > 0 ? legacyModuleGbs[0] : 0;
+  const legacyRamCapacity = legacyModulesDiffer ? null : roundToRamBucket(legacyEachGb);
+  const legacyRamModuleCount = legacyModuleGbs.length > 0 ? legacyModuleGbs.length : null;
 
   const speedMatch = rawText.match(/\b(3200|3600|4800|5200|5600|6000|6400|7200)\b/);
   const speedValue = speedMatch ? Number(speedMatch[1]) : null;
@@ -223,9 +232,14 @@ export function parseSpecOutput(rawText: string): ParseCommandOutputResult {
 
   // 새 포맷("RAM:" 헤더 + "Total N GB (MGB x Kea / 규격 속도MHz / 제조사)" 한 줄)을 우선 사용한다.
   const parsedRamSummary = newFormatSections?.ramLine ? parseRamTotalLine(newFormatSections.ramLine) : null;
-  const ramMismatch = parsedRamSummary ? parsedRamSummary.eachGb * parsedRamSummary.count !== parsedRamSummary.totalGb : false;
+  // 슬롯 용량이 서로 다르면(신포맷은 개당×개수≠총합, 레거시는 모듈 값이 제각각) 개당 용량을 특정할 수
+  // 없으므로 자동 확정하지 않고 "직접 입력" 안내로 넘긴다.
+  const ramMismatch = parsedRamSummary
+    ? parsedRamSummary.eachGb * parsedRamSummary.count !== parsedRamSummary.totalGb
+    : legacyModulesDiffer;
 
-  const parsedRamCapacity = parsedRamSummary ? (ramMismatch ? null : roundToRamBucket(parsedRamSummary.totalGb)) : legacyRamCapacity;
+  // ramCapacity는 "개당" 용량이다 — totalGb가 아니라 eachGb를 넣어야 UI의 (용량 × 개수) 계산이 맞는다.
+  const parsedRamCapacity = parsedRamSummary ? (ramMismatch ? null : roundToRamBucket(parsedRamSummary.eachGb)) : legacyRamCapacity;
   const ramModuleCount = parsedRamSummary ? (ramMismatch ? null : parsedRamSummary.count) : legacyRamModuleCount;
   const ramDetail = parsedRamSummary
     ? ramMismatch

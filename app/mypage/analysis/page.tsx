@@ -8,6 +8,7 @@ import { HARDWARE_MASTER } from "../../data/hardwareMaster";
 import { OPTIMIZATION_TIPS } from "../../data/optimizationTips";
 import { simulatePcPerformance } from "../../lib/simulator";
 import { getSavedPcSpec, type SavedPcSpec } from "../../lib/pcSpecs";
+import { totalRamGb } from "../../lib/ramCapacity";
 import MyPageTabs from "../components/MyPageTabs";
 import Container from "@/components/layout/Container";
 
@@ -38,11 +39,13 @@ export default function MyPageAnalysisPage() {
   const cpuName = useMemo(() => cpus.find((item) => item.id === savedPc?.cpuId)?.name ?? "미확인 CPU", [savedPc?.cpuId]);
   const gpuName = useMemo(() => gpus.find((item) => item.id === savedPc?.gpuId)?.name ?? "미확인 GPU", [savedPc?.gpuId]);
   const gpuBrand = useMemo(() => gpus.find((item) => item.id === savedPc?.gpuId)?.brand ?? "NVIDIA", [savedPc?.gpuId]);
+  // ramCapacity는 "개당" 용량이라 개수를 곱해야 실제 총 용량이 된다 — 예전엔 개당 값을 그대로 총량으로
+  // 써서 16GB x 2(=32GB) 사용자에게 "저용량 RAM 집중" 팁이 나가던 문제가 있었다.
   const ramGb = useMemo(() => {
     if (!savedPc?.ramCapacity) return 16;
-    const parsed = Number(savedPc.ramCapacity.replace(/[^0-9]/g, ""));
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 16;
-  }, [savedPc?.ramCapacity]);
+    const total = totalRamGb(savedPc.ramCapacity, savedPc.ramCount);
+    return total > 0 ? total : 16;
+  }, [savedPc?.ramCapacity, savedPc?.ramCount]);
 
   const cpuMasterScore = useMemo(() => {
     if (!savedPc) return 70;
