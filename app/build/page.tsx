@@ -7,6 +7,7 @@ import ExistingPartsStep from "@/app/build/components/ExistingPartsStep";
 import BudgetStep from "./components/BudgetStep";
 import { useBuild } from "../context/BuildContext";
 import Container from "@/components/layout/Container";
+import StageTransition from "@/components/ui/StageTransition";
 
 export default function BuildPage() {
   const router = useRouter();
@@ -25,6 +26,7 @@ export default function BuildPage() {
   } = useBuild();
 
   const [current, setCurrent] = useState(0);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [shakePurpose, setShakePurpose] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const steps = ["purpose", "ownedParts", "budget"] as const;
@@ -49,7 +51,7 @@ export default function BuildPage() {
     if (current < steps.length - 1) {
       setCurrent(current + 1);
     } else {
-      router.push("/result");
+      setIsSubmitting(true);
     }
   };
 
@@ -58,6 +60,19 @@ export default function BuildPage() {
       setCurrent(current - 1);
     }
   };
+
+  if (isSubmitting) {
+    return (
+      <main className="min-h-screen bg-slate-950 py-12 text-slate-100">
+        <StageTransition
+          stages={["최적의 조합을 계산하는 중"]}
+          totalDurationMs={900}
+          title="맞춤 견적을 준비하고 있어요"
+          onComplete={() => router.push("/result")}
+        />
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-slate-950 py-12 text-slate-100">
