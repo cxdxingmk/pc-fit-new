@@ -14,6 +14,7 @@ interface CascadingPartSelectProps<T extends CascadeItem> {
   modelLabel?: string;
   state: UseCascadingPartSelectResult<T>;
   renderModelLabel?: (item: T) => string;
+  error?: string;
 }
 
 export default function CascadingPartSelect<T extends CascadeItem>({
@@ -23,6 +24,7 @@ export default function CascadingPartSelect<T extends CascadeItem>({
   modelLabel = "모델",
   state,
   renderModelLabel,
+  error,
 }: CascadingPartSelectProps<T>) {
   const brandFieldId = useId();
   const groupFieldId = useId();
@@ -86,6 +88,11 @@ export default function CascadingPartSelect<T extends CascadeItem>({
           </select>
         </div>
       </div>
+      {error ? (
+        <p role="alert" className="text-xs font-medium text-rose-500 dark:text-rose-400">
+          {error}
+        </p>
+      ) : null}
     </fieldset>
   );
 }

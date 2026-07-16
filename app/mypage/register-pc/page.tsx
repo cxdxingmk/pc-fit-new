@@ -1,7 +1,7 @@
 "use client";
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import { type ClipboardEvent, useEffect, useMemo, useState } from "react";
+import { type ClipboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { cpus } from "../../database/cpu";
 import { gpus } from "../../database/gpu";
 import { motherboards } from "../../database/motherboard";
@@ -45,20 +45,23 @@ type LocalSavedPc = UserSavedPc & {
   monitorCount: number;
 };
 
+// CPU/GPU/메인보드/파워는 사용자가 실제로 확인 없이 저장할 경우 잘못된 사양이 조용히 등록될
+// 수 있어(예: 실제론 안 쓰는 i9-14900K가 기본값으로 저장) 일부러 빈 값으로 시작한다 — CPU/GPU는
+// handleSave에서 필수 검증하고, 메인보드/파워는 "선택" 항목이라 빈 값 그대로 저장을 허용한다.
 const initialSelection = {
-  cpuId: cpus[0]?.id ?? "",
-  gpuId: gpus[0]?.id ?? "",
+  cpuId: "",
+  gpuId: "",
   ramCapacity: "16GB",
   ramCount: 2,
   ramDetailedInputEnabled: false,
   ramProductName: "",
-  mbSeries: "Intel B",
-  mbDetail: "760",
-  mbBrand: "ASUS",
+  mbSeries: "",
+  mbDetail: "",
+  mbBrand: "",
   ssdCapacityOption: "1TB",
   ssdDetailedInputEnabled: false,
   ssdProductName: "",
-  psuWatt: "850W",
+  psuWatt: "",
   hasCase: true,
   monitorResolution: "QHD" as const,
   monitorRefreshRate: 144,
@@ -220,17 +223,27 @@ export default function RegisterPcPage() {
 
   const cpuCascade = useCascadingPartSelect(cpus, cpuSeriesOf, cpu);
   const gpuCascade = useCascadingPartSelect(gpus, gpuSeriesOf, gpu);
+  const cpuFieldRef = useRef<HTMLDivElement>(null);
+  const gpuFieldRef = useRef<HTMLDivElement>(null);
+  const [cpuMissingError, setCpuMissingError] = useState("");
+  const [gpuMissingError, setGpuMissingError] = useState("");
   const [motherboardInitialId] = useState(() => findMotherboardIdFromLegacyFields(mbBrand, mbSeries, mbDetail));
   const motherboardCascade = useCascadingPartSelect(motherboards, mbChipsetOf, motherboardInitialId);
 
   const handleCpuModelSelect = (modelId: string) => {
     cpuCascade.selectModel(modelId);
-    if (modelId) setCpu(modelId);
+    if (modelId) {
+      setCpu(modelId);
+      setCpuMissingError("");
+    }
   };
 
   const handleGpuModelSelect = (modelId: string) => {
     gpuCascade.selectModel(modelId);
-    if (modelId) setGpu(modelId);
+    if (modelId) {
+      setGpu(modelId);
+      setGpuMissingError("");
+    }
   };
 
   const handleMotherboardModelSelect = (modelId: string) => {
@@ -442,6 +455,18 @@ export default function RegisterPcPage() {
   const handleSave = () => {
     if (!user) {
       showToast("로그인이 필요해요 — 새로고침 후 다시 시도해 주세요.");
+      return;
+    }
+
+    const nextCpuMissingError = cpu ? "" : "CPU를 선택해 주세요.";
+    const nextGpuMissingError = gpu ? "" : "GPU를 선택해 주세요.";
+    setCpuMissingError(nextCpuMissingError);
+    setGpuMissingError(nextGpuMissingError);
+
+    if (nextCpuMissingError || nextGpuMissingError) {
+      const firstInvalidField = nextCpuMissingError ? cpuFieldRef.current : gpuFieldRef.current;
+      firstInvalidField?.scrollIntoView({ behavior: "smooth", block: "center" });
+      showToast("필수 항목을 선택해 주세요.");
       return;
     }
 
@@ -730,9 +755,13 @@ export default function RegisterPcPage() {
 
           <AccordionSection title="내 PC 직접 입력" isOpen={openSection === "manual"} onToggle={() => setOpenSection((prev) => (prev === "manual" ? null : "manual"))}>
             <div className="space-y-4">
-              <CascadingPartSelect title="CPU" state={{ ...cpuCascade, selectModel: handleCpuModelSelect }} />
+              <div ref={cpuFieldRef}>
+                <CascadingPartSelect title="CPU" state={{ ...cpuCascade, selectModel: handleCpuModelSelect }} error={cpuMissingError} />
+              </div>
 
-              <CascadingPartSelect title="GPU" state={{ ...gpuCascade, selectModel: handleGpuModelSelect }} />
+              <div ref={gpuFieldRef}>
+                <CascadingPartSelect title="GPU" state={{ ...gpuCascade, selectModel: handleGpuModelSelect }} error={gpuMissingError} />
+              </div>
 
               <div>
                 <span className="block text-sm font-medium text-white/70">RAM</span>
