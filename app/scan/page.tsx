@@ -4,9 +4,9 @@ import { useEffect, useMemo, useState, type ClipboardEvent } from "react";
 import Container from "@/components/layout/Container";
 import WorkloadCategoryCard from "@/components/scan/WorkloadCategoryCard";
 import PartialSuccessCard, { type ScanFieldStatus } from "@/components/scan/PartialSuccessCard";
-import { runFullScan, type BrowserScanResult } from "../lib/browserScan";
+import { runFullScan, formatRamApproxDisplay, type BrowserScanResult } from "../lib/browserScan";
 import { mergeScanResults } from "../lib/mergeScanResults";
-import { parseCommandOutput, type ParseCommandOutputResult } from "../lib/scanParser";
+import { parseSpecOutput, type ParseCommandOutputResult } from "../lib/scanParser";
 import { WORKLOAD_PROFILES } from "../lib/workloadProfiles";
 import { formatFpsDisplay, formatScoreDisplay } from "../lib/fpsDisplay";
 import { evaluateDisplayMatch } from "../lib/displayMatch";
@@ -87,7 +87,7 @@ export default function ScanPage() {
     { label: "GPU", detected: merged.gpuModel != null, value: merged.gpuModel ?? undefined },
     { label: "CPU", detected: merged.cpuConfirmed, value: merged.cpuLabel ?? undefined },
     { label: "스레드 수", detected: merged.threads != null, value: merged.threads ? `${merged.threads}개` : undefined },
-    { label: "메모리 용량(근사)", detected: merged.ramApproxGB != null, value: merged.ramApproxGB ? `약 ${merged.ramApproxGB}GB` : undefined },
+    { label: "메모리 용량(근사)", detected: merged.ramApproxGB != null, value: merged.ramApproxGB ? formatRamApproxDisplay(merged.ramApproxGB) : undefined },
     { label: "모니터", detected: merged.screen != null, value: merged.screen ? `${merged.screen.w}×${merged.screen.h}` : undefined },
   ];
 
@@ -96,7 +96,7 @@ export default function ScanPage() {
     if (!pastedText.trim()) return;
     event.preventDefault();
     setCmdRawText(pastedText);
-    setCmdResult(parseCommandOutput(pastedText));
+    setCmdResult(parseSpecOutput(pastedText));
   };
 
   const handleSubmit = async () => {

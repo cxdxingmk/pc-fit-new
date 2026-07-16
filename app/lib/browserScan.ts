@@ -50,9 +50,15 @@ export function detectGpu(): string | null {
 
   try {
     const canvas = document.createElement("canvas");
-    const gl = (canvas.getContext("webgl2") ??
-      canvas.getContext("webgl") ??
-      canvas.getContext("experimental-webgl")) as WebGLRenderingContext | null;
+    // powerPreference 힌트 없이 컨텍스트를 만들면, 하이브리드 그래픽(NVIDIA Optimus/AMD
+    // Switchable) 노트북에서 OS/드라이버가 매번 내장·외장 GPU 중 아무거나 배정할 수 있어
+    // 같은 기기에서 재진단할 때마다 UNMASKED_RENDERER_WEBGL 원문 자체가 달라지는 경우가
+    // 있었다(예: RTX 5070 → GTX 1660 SUPER). "고성능" 힌트로 외장 GPU를 우선 배정받도록
+    // 유도한다 — OS/드라이버 정책에 달려 있어 100% 보장은 아니므로 표시는 여전히 추정으로 둔다.
+    const contextAttributes: WebGLContextAttributes = { powerPreference: "high-performance", failIfMajorPerformanceCaveat: false };
+    const gl = (canvas.getContext("webgl2", contextAttributes) ??
+      canvas.getContext("webgl", contextAttributes) ??
+      canvas.getContext("experimental-webgl", contextAttributes)) as WebGLRenderingContext | null;
     if (!gl) return null;
 
     // Safari/프라이버시 강화 브라우저 등에서는 확장 자체가 없을 수 있다.
@@ -90,6 +96,22 @@ export function detectRamApprox(): number | null {
   } catch {
     return null;
   }
+}
+
+/** navigator.deviceMemory 스펙상 실제로 보고 가능한 값(0.25/0.5/1/2/4/8, 8 이상은 전부 8로 캡). */
+const DEVICE_MEMORY_REPORTING_CAP_GB = 8;
+
+/**
+ * deviceMemory 값을 그대로 "약 8GB"처럼 표시하면, 실제로는 16/32/64GB인 기기도 브라우저가
+ * fingerprinting 방지를 위해 8에서 캡을 씌워 보고하기 때문에 8GB '미만'이라는 잘못된 인상을
+ * 준다. 8(캡에 걸린 값)일 때는 "그 이상일 수 있다"를 명시하고, 캡 아래 값은 신뢰할 수 있는
+ * 실측치이므로 그대로 보여준다.
+ */
+export function formatRamApproxDisplay(deviceMemoryGB: number): string {
+  if (deviceMemoryGB >= DEVICE_MEMORY_REPORTING_CAP_GB) {
+    return `${DEVICE_MEMORY_REPORTING_CAP_GB}GB 이상 (브라우저 제한상 정확한 값은 확인할 수 없어요)`;
+  }
+  return `약 ${deviceMemoryGB}GB`;
 }
 
 const REFRESH_MEASURE_FRAMES = 20;
