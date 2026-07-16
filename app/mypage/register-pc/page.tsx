@@ -2,6 +2,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import { type ClipboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { cpus } from "../../database/cpu";
 import { gpus } from "../../database/gpu";
 import { motherboards } from "../../database/motherboard";
@@ -182,7 +183,7 @@ function buildUnrecognizedLinesMessage(result: ParseCommandOutputResult): string
 }
 
 export default function RegisterPcPage() {
-  const { user, mockLogin } = useAuth();
+  const { user } = useAuth();
   const { buildData } = useBuild();
   const [savedSnapshot, setSavedSnapshot] = useState<LocalSavedPc | null>(null);
   const [cpu, setCpu] = useState(initialSelection.cpuId);
@@ -559,16 +560,14 @@ export default function RegisterPcPage() {
     return (
       <main className="min-h-screen bg-ink px-6 py-12 text-white">
         <div className="mx-auto max-w-2xl rounded-3xl bg-surface p-8 shadow-card ring-1 ring-line">
-          <p className="text-sm uppercase tracking-[0.3em] text-brand-soft">Mock Auth</p>
           <h1 className="mt-2 text-3xl font-semibold">마이페이지는 로그인 후 이용 가능합니다.</h1>
-          <p className="mt-3 text-sm text-white/60">임의 로그인으로 테스트 유저 계정에 바로 진입해 내 PC를 저장해 보세요.</p>
-          <button
-            type="button"
-            onClick={mockLogin}
-            className="mt-6 rounded-2xl bg-brand px-5 py-3 font-semibold text-white transition hover:bg-brand-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-ink"
+          <p className="mt-3 text-sm text-white/60">로그인 후 내 PC를 저장해 보세요.</p>
+          <Link
+            href="/login"
+            className="mt-6 inline-flex rounded-2xl bg-brand px-5 py-3 font-semibold text-white transition hover:bg-brand-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-ink"
           >
-            임의 로그인하기
-          </button>
+            로그인하러 가기
+          </Link>
         </div>
       </main>
     );

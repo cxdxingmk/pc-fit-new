@@ -5,6 +5,7 @@ import "./globals.css";
 import Header from "../components/Header";
 import { BuildProvider } from "./context/BuildContext";
 import { AuthProvider } from "./context/AuthContext";
+import { getServerAuthUser } from "./lib/supabase/getServerAuthUser";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -39,11 +40,13 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const initialUser = await getServerAuthUser();
+
   return (
     <html
       lang="ko"
@@ -62,7 +65,7 @@ export default function RootLayout({
           aria-hidden="true"
           className="pointer-events-none fixed inset-x-0 top-[-200px] mx-auto h-[480px] w-[720px] rounded-full bg-brand/10 blur-[120px]"
         />
-        <AuthProvider>
+        <AuthProvider initialUser={initialUser}>
           <BuildProvider>
             <Header />
             {children}

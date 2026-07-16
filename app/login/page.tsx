@@ -1,0 +1,77 @@
+"use client";
+
+import { useActionState } from "react";
+import Link from "next/link";
+import { login, devLogin } from "./actions";
+
+export default function LoginPage() {
+  const [state, formAction, pending] = useActionState(login, undefined);
+  const [devState, devFormAction, devPending] = useActionState(devLogin, undefined);
+
+  return (
+    <main className="min-h-screen bg-slate-950 px-6 py-12 text-slate-100">
+      <div className="mx-auto w-full max-w-md rounded-3xl border border-white/10 bg-slate-900 p-8 shadow-2xl shadow-black/40">
+        <h1 className="text-3xl font-bold tracking-tight">로그인</h1>
+        <p className="mt-2 text-sm text-slate-400">이메일과 비밀번호로 로그인하세요.</p>
+
+        <form action={formAction} className="mt-6 space-y-4">
+          <label className="block text-sm font-medium text-slate-300">
+            이메일
+            <input
+              type="email"
+              name="email"
+              required
+              placeholder="이메일을 입력하세요"
+              className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950 px-4 py-3 text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-cyan-400/60"
+            />
+          </label>
+
+          <label className="block text-sm font-medium text-slate-300">
+            비밀번호
+            <input
+              type="password"
+              name="password"
+              required
+              placeholder="비밀번호를 입력하세요"
+              className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950 px-4 py-3 text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-cyan-400/60"
+            />
+          </label>
+
+          {state?.error ? (
+            <p role="alert" className="rounded-xl bg-rose-500/10 px-4 py-3 text-sm text-rose-300 ring-1 ring-rose-500/25">
+              {state.error}
+            </p>
+          ) : null}
+
+          <button
+            type="submit"
+            disabled={pending}
+            className="mt-2 w-full rounded-2xl bg-cyan-500 px-4 py-3 text-sm font-bold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {pending ? "로그인 중..." : "로그인"}
+          </button>
+        </form>
+
+        <p className="mt-6 text-center text-sm text-slate-400">
+          아직 계정이 없으신가요?{" "}
+          <Link href="/signup" className="font-semibold text-cyan-300 hover:text-cyan-200">
+            회원가입
+          </Link>
+        </p>
+
+        {process.env.NODE_ENV === "development" ? (
+          <form action={devFormAction} className="mt-6 border-t border-white/10 pt-6">
+            {devState?.error ? <p className="mb-3 text-xs text-rose-300">{devState.error}</p> : null}
+            <button
+              type="submit"
+              disabled={devPending}
+              className="w-full rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {devPending ? "로그인 중..." : "개발용 자동 로그인"}
+            </button>
+          </form>
+        ) : null}
+      </div>
+    </main>
+  );
+}

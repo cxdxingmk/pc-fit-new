@@ -10,6 +10,7 @@
     "check:hardware-data": "ts-node scripts/check-hardware-data.ts",
     "export-catalog-snapshot": "ts-node -P scripts/tsconfig.cjs.json scripts/export-catalog.cts",
     "apply-proposals": "node scripts/applyProposals.ts",
+    "seed:dev-user": "ts-node -P scripts/tsconfig.cjs.json scripts/seedDevUser.cts",
     "bot:hardware-intel": "node bot/hardware-intel/index.ts",
     "bot:start": "pm2 start ecosystem.config.js",
     "bot:stop": "pm2 stop hardware-intel-bot",

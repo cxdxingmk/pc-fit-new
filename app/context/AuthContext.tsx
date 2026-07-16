@@ -1,63 +1,70 @@
 "use client";
 
-import { createContext, useCallback, useContext, useMemo } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useLocalStorageState } from "../lib/useLocalStorageState";
+import { createClient } from "../lib/supabase/client";
 
 export interface AuthUser {
   id: string;
-  name: string;
   email: string;
+  name: string;
 }
 
 interface AuthContextValue {
   user: AuthUser | null;
-  mockLogin: () => void;
-  logout: () => void;
+  isLoading: boolean;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-const mockUser: AuthUser = {
-  id: "user_01",
-  name: "테스트 기업 유저",
-  email: "ceo@test.com",
-};
+async function fetchAuthUser(supabase: ReturnType<typeof createClient>): Promise<AuthUser | null> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return null;
 
-const authStorageKey = "pc_fit_auth_user";
+  const { data: profile } = await supabase.from("profiles").select("nickname").eq("id", user.id).single();
 
-function isAuthUser(value: unknown): value is AuthUser {
-  return Boolean(
-    value &&
-      typeof value === "object" &&
-      "id" in value &&
-      "name" in value &&
-      "email" in value
-  );
+  return {
+    id: user.id,
+    email: user.email ?? "",
+    name: profile?.nickname ?? user.email?.split("@")[0] ?? "",
+  };
 }
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
+export function AuthProvider({ children, initialUser }: { children: React.ReactNode; initialUser: AuthUser | null }) {
   const router = useRouter();
-  const [user, setUser, clearUser] = useLocalStorageState<AuthUser | null>(authStorageKey, null, isAuthUser);
+  const [user, setUser] = useState<AuthUser | null>(initialUser);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const mockLogin = useCallback(() => {
-    setUser(mockUser);
-    router.push("/mypage/register-pc");
-  }, [router, setUser]);
+  useEffect(() => {
+    const supabase = createClient();
 
-  const logout = useCallback(() => {
-    clearUser();
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session?.user) {
+        setUser(null);
+        return;
+      }
+      setIsLoading(true);
+      fetchAuthUser(supabase)
+        .then(setUser)
+        .finally(() => setIsLoading(false));
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const logout = useCallback(async () => {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    setUser(null);
     router.push("/");
-  }, [router, clearUser]);
+  }, [router]);
 
-  const value = useMemo<AuthContextValue>(
-    () => ({
-      user,
-      mockLogin,
-      logout,
-    }),
-    [user, mockLogin, logout]
-  );
+  const value = useMemo<AuthContextValue>(() => ({ user, isLoading, logout }), [user, isLoading, logout]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

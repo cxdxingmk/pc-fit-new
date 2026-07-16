@@ -36,7 +36,7 @@ function getAvatarInitial(profile: UserProfile | null, fallbackName: string): st
 }
 
 export default function Header() {
-  const { user, mockLogin, logout } = useAuth();
+  const { user, logout } = useAuth();
   const router = useRouter();
   const isMounted = useSyncExternalStore(
     () => () => {},
@@ -135,10 +135,7 @@ export default function Header() {
               {isDropdownOpen ? (
                 <div className="absolute right-0 mt-3 w-60 overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl shadow-black/50">
                   <div className="border-b border-slate-800 px-4 py-4">
-                    <p className="inline-flex rounded-full border border-cyan-300/30 bg-cyan-400/10 px-2 py-0.5 text-[11px] font-semibold text-cyan-200">
-                      테스트 기업 유저
-                    </p>
-                    <div className="mt-3 flex items-center gap-3">
+                    <div className="flex items-center gap-3">
                       <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border border-slate-700 bg-slate-800 text-sm font-bold text-slate-100">
                         {profileImage ? (
                           <Image src={profileImage} alt="프로필 이미지" width={44} height={44} className="h-full w-full object-cover" unoptimized />
@@ -195,7 +192,7 @@ export default function Header() {
           ) : (
             <button
               type="button"
-              onClick={mockLogin}
+              onClick={() => router.push("/login")}
               className="rounded-xl bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400"
             >
               로그인

@@ -105,7 +105,7 @@ function SettingsList({ title, rows }: { title: string; rows: SettingRow[] }) {
 }
 
 export default function MyPageProfilePage() {
-  const { user, mockLogin, logout } = useAuth();
+  const { user, logout } = useAuth();
   const router = useRouter();
   const [profile, setProfile] = useState<UserProfile>(buildDefaultUserProfile(user));
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
@@ -223,15 +223,14 @@ export default function MyPageProfilePage() {
     return (
       <main className="min-h-screen bg-ink px-6 py-12 text-white">
         <div className="mx-auto max-w-2xl rounded-3xl bg-surface p-8 shadow-card ring-1 ring-line">
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-brand-soft">Mock Auth</p>
           <h1 className="mt-2 text-3xl font-semibold">마이페이지는 로그인 후 이용 가능합니다.</h1>
-          <p className="mt-3 text-sm text-white/60">임의 로그인 후 개인정보 관리 탭에서 연락처를 등록해 주세요.</p>
+          <p className="mt-3 text-sm text-white/60">로그인 후 개인정보 관리 탭에서 연락처를 등록해 주세요.</p>
           <button
             type="button"
-            onClick={mockLogin}
+            onClick={() => router.push("/login")}
             className="mt-6 rounded-2xl bg-brand px-5 py-3 font-semibold text-white transition hover:bg-brand-soft"
           >
-            임의 로그인하기
+            로그인하러 가기
           </button>
         </div>
       </main>

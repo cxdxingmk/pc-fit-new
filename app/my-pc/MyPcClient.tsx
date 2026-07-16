@@ -66,7 +66,7 @@ const DEFAULT_RAM_ID = "16-ddr4-3200"; // 위 보드가 지원하는 DDR4
 const DEFAULT_GPU_ID = "gtx1660super"; // GTX 1660 SUPER (2019, 보급형)
 
 export default function MyPcClient() {
-  const { user, mockLogin } = useAuth();
+  const { user } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const [cpu, setCpu] = useState<CPU>(() => cpus.find((c) => c.id === DEFAULT_CPU_ID) ?? cpus[0]);
@@ -483,7 +483,7 @@ export default function MyPcClient() {
         onCopyLink={handleCopyLink}
       />
       <ShareReportCard data={shareReport} innerRef={shareCardRef} />
-      <LoginNudgeModal open={showNudge} onClose={closeNudge} onLogin={mockLogin} />
+      <LoginNudgeModal open={showNudge} onClose={closeNudge} onLogin={() => router.push("/login")} />
 
       <section className="rounded-3xl bg-surface p-8 shadow-card ring-1 ring-line">
         <div className="mb-5 flex items-center justify-between">
