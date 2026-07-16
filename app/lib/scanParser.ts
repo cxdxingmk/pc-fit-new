@@ -12,9 +12,16 @@ import { matchCpuToDb } from "./cpuMatch";
 import { matchGpuToDb } from "./gpuMatch";
 import { getAllSsds } from "../../src/utils/hardwareLookup";
 
-/** 최신 Windows(11 24H2+, wmic 제거) 대응 1차 안내 명령 — "명령어 복사하기" 버튼이 복사하는 값. */
+/**
+ * 최신 Windows(11 24H2+, wmic 제거) 대응 1차 안내 명령 — "명령어 복사하기" 버튼이 복사하는 값.
+ * GPU는 이 명령으로 조회하지 않는다 — 브라우저 WebGL 자동감지(GpuAutoDetect)가 이미 처리하므로
+ * CPU/SSD/RAM만 읽는다. RAM은 PowerShell 쪽에서 총용량·개당용량·개수·규격·속도·제조사까지 미리
+ * 계산해 "Total {N} GB ({M}GB x {K}ea / {규격} {속도}MHz / {제조사})" 한 줄로 출력한다 —
+ * parseSpecOutput()이 이 한 줄만 정규식으로 읽으면 되므로 원문 전체를 바이트 단위로 스캔하던
+ * 예전 방식보다 훨씬 정확하다.
+ */
 export const powerShellScanCommand =
-  'powershell -NoProfile -Command "Get-CimInstance Win32_Processor | Select-Object Name; Get-CimInstance Win32_VideoController | Select-Object Name; Get-CimInstance Win32_BaseBoard | Select-Object Manufacturer,Product; Get-CimInstance Win32_PhysicalMemory | Select-Object Capacity,Speed; Get-CimInstance Win32_DiskDrive | Select-Object Model,Size"';
+  "Write-Host 'CPU:'; Get-CimInstance Win32_Processor | % Name; Write-Host '`nSSD:'; Get-CimInstance Win32_DiskDrive | % Model; Write-Host '`nRAM:'; $m = Get-CimInstance Win32_PhysicalMemory; $count = $m.Count; $cap = [Math]::Round(($m | Measure-Object Capacity -Sum).Sum / 1GB); $each = [Math]::Round($m[0].Capacity / 1GB); $speed = $m[0].ConfiguredClockSpeed; $mfg = $m[0].Manufacturer; $v = $m[0].SMBIOSMemoryType; $ddr = switch($v){26{'DDR4'} 34{'DDR5'} default{'DDR3 or Older'}}; Write-Host ('Total ' + $cap + ' GB (' + $each + 'GB x ' + $count + 'ea / ' + $ddr + ' ' + $speed + 'MHz / ' + $mfg + ')' )";
 
 /** 구버전 Windows(wmic 제거 전)용 — "구버전 Windows는 이 명령" 접기 섹션에서만 노출. */
 export const legacyWmicScanCommand =
@@ -40,6 +47,11 @@ export interface ParseCommandOutputResult {
   /** 카탈로그 매칭에 실패했을 때도 원문을 잃지 않도록 보존(인라인 에러 표시용) */
   cpuRaw: string | null;
   gpuRaw: string | null;
+  /** RAM 슬롯 용량이 서로 달라(예: 8GB+16GB 혼합) 총용량=개당×개수가 안 맞는 경우 — 이때는
+   *  ramCapacity/ramDetail을 자동 확정하지 않고 이 플래그로 "직접 입력해 주세요" 안내를 띄운다. */
+  ramMismatch: boolean;
+  /** CPU 원문에 "Laptop"/"Mobile" 키워드가 포함되어 있으면(노트북 사양) true — 등록은 막지 않고 안내만 한다. */
+  cpuIsLaptop: boolean;
 }
 
 function normalizeText(text: string) {
@@ -73,12 +85,90 @@ function extractNameSections(rawText: string): string[] {
   return values;
 }
 
+interface NewFormatSections {
+  cpuLine: string | null;
+  ssdLines: string[];
+  ramLine: string | null;
+}
+
+/** RAM 요약 한 줄 "Total {N} GB ({M}GB x {K}ea / {규격} {속도}MHz / {제조사})" 파싱 결과. */
+interface ParsedRamSummary {
+  totalGb: number;
+  eachGb: number;
+  count: number;
+  ddrLabel: string;
+  speed: number;
+  manufacturer: string;
+}
+
+const RAM_TOTAL_LINE_PATTERN = /^Total\s+(\d+)\s*GB\s*\(\s*(\d+)\s*GB\s*x\s*(\d+)\s*ea\s*\/\s*(.+?)\s+(\d+)\s*MHz\s*\/\s*(.+?)\s*\)$/i;
+
+/**
+ * "CPU:"/"SSD:"/"RAM:" 헤더 기반 새 포맷(powerShellScanCommand)을 감지해 섹션별 원문을 뽑는다.
+ * "CPU:" 헤더 자체가 없으면 새 포맷이 아니라고 보고 null을 반환해 레거시 파싱 경로로 넘긴다.
+ */
+function extractNewFormatSections(rawText: string): NewFormatSections | null {
+  const lines = rawText.split(/\r?\n/).map((line) => line.trim());
+  const headerIndex = (label: string) => lines.findIndex((line) => line.toLowerCase() === label.toLowerCase());
+
+  const cpuIdx = headerIndex("CPU:");
+  if (cpuIdx === -1) return null;
+
+  const ssdIdx = headerIndex("SSD:");
+  const ramIdx = headerIndex("RAM:");
+
+  const cpuLine = lines.slice(cpuIdx + 1).find((line) => line !== "") ?? null;
+
+  let ssdLines: string[] = [];
+  if (ssdIdx !== -1) {
+    const end = ramIdx !== -1 && ramIdx > ssdIdx ? ramIdx : lines.length;
+    ssdLines = lines.slice(ssdIdx + 1, end).filter((line) => line !== "");
+  }
+
+  const ramLine = ramIdx !== -1 ? (lines.slice(ramIdx + 1).find((line) => line !== "") ?? null) : null;
+
+  return { cpuLine, ssdLines, ramLine };
+}
+
+function parseRamTotalLine(ramLine: string): ParsedRamSummary | null {
+  const matched = ramLine.match(RAM_TOTAL_LINE_PATTERN);
+  if (!matched) return null;
+
+  return {
+    totalGb: Number(matched[1]),
+    eachGb: Number(matched[2]),
+    count: Number(matched[3]),
+    ddrLabel: matched[4].trim(),
+    speed: Number(matched[5]),
+    manufacturer: matched[6].trim(),
+  };
+}
+
+function roundToRamBucket(totalGb: number): "8GB" | "16GB" | "32GB" | "64GB" | null {
+  if (totalGb >= 64) return "64GB";
+  if (totalGb >= 32) return "32GB";
+  if (totalGb >= 16) return "16GB";
+  if (totalGb > 0) return "8GB";
+  return null;
+}
+
+function pickPreferredSsdLine(lines: string[]): string | undefined {
+  const ssdLooking = lines.find((line) =>
+    /ssd|nvme|m\.2|samsung|western|wd|hynix|crucial|kingston|p41|sn770|990|kc3000|m480/i.test(line)
+  );
+  return ssdLooking ?? lines[0];
+}
+
 export function parseSpecOutput(rawText: string): ParseCommandOutputResult {
   const lowerRaw = rawText.toLowerCase();
   const normalized = normalizeText(rawText);
   const nameSections = extractNameSections(rawText);
-  const cpuRaw = nameSections[0] ?? null;
+  // "CPU:"/"SSD:"/"RAM:" 헤더 새 포맷이 있으면 그쪽을 우선하고, 없으면(구버전 wmic/PowerShell
+  // "Name" 헤더 포맷) 레거시 경로로 자연스럽게 폴백한다.
+  const newFormatSections = extractNewFormatSections(rawText);
+  const cpuRaw = newFormatSections?.cpuLine ?? nameSections[0] ?? null;
   const gpuRaw = nameSections[1] ?? null;
+  const cpuIsLaptop = cpuRaw ? /\b(laptop|mobile)\b/i.test(cpuRaw) : false;
 
   // 1) 카탈로그 전체 대상 매칭(cpuMatch.ts/gpuMatch.ts — 큐레이션 키워드 → 토큰 유사도 2단계).
   //    "Name" 섹션을 못 뽑았으면(포맷이 완전히 다른 텍스트 등) 원문 전체를 대상으로 폴백.
@@ -113,41 +203,75 @@ export function parseSpecOutput(rawText: string): ParseCommandOutputResult {
     /(Z890|Z790|Z690|Z590|B860|B760|B660|B560|H770|H610|H510|X870|X670|X570|B650|B550|B450|A620|A520)/i
   );
 
-  // RAM 용량 바이트 스캔 — 상한을 128GB(단일 DIMM 상한급)로 좁혀 SSD/HDD 용량(보통 150GB+)과의
-  // 오검출 충돌을 줄인다(예: 256GB SSD ≈ 274,877,906,944바이트가 예전 상한 300GB 안에 들어와
-  // RAM으로 잘못 집계되던 문제).
+  // RAM 용량 바이트 스캔(레거시 wmic/PowerShell "Name" 포맷용) — 상한을 128GB(단일 DIMM 상한급)로
+  // 좁혀 SSD/HDD 용량(보통 150GB+)과의 오검출 충돌을 줄인다(예: 256GB SSD ≈ 274,877,906,944바이트가
+  // 예전 상한 300GB 안에 들어와 RAM으로 잘못 집계되던 문제).
   const memoryCapacities = [...rawText.matchAll(/\b(\d{9,13})\b/g)]
     .map((match) => Number(match[1]))
     .filter((value) => Number.isFinite(value) && value > 1_000_000_000 && value <= 137_438_953_472);
   const totalMemoryBytes = memoryCapacities.reduce((sum, value) => sum + value, 0);
   const totalMemoryGb = totalMemoryBytes > 0 ? Math.max(4, Math.round(totalMemoryBytes / 1024 / 1024 / 1024)) : 0;
-  const parsedRamCapacity = totalMemoryGb >= 64 ? "64GB" : totalMemoryGb >= 32 ? "32GB" : totalMemoryGb >= 16 ? "16GB" : totalMemoryGb > 0 ? "8GB" : null;
-  const ramModuleCount = memoryCapacities.length > 0 ? memoryCapacities.length : null;
+  const legacyRamCapacity = roundToRamBucket(totalMemoryGb);
+  const legacyRamModuleCount = memoryCapacities.length > 0 ? memoryCapacities.length : null;
 
   const speedMatch = rawText.match(/\b(3200|3600|4800|5200|5600|6000|6400|7200)\b/);
   const speedValue = speedMatch ? Number(speedMatch[1]) : null;
   const guessedDdr = speedValue && speedValue >= 4800 ? "DDR5" : speedValue ? "DDR4" : null;
-  const ramDetail = parsedRamCapacity
-    ? `${parsedRamCapacity}${guessedDdr ? ` ${guessedDdr}` : ""}${speedValue ? `-${speedValue}` : ""}${ramModuleCount && ramModuleCount > 1 ? ` x${ramModuleCount}` : ""}`
+  const legacyRamDetail = legacyRamCapacity
+    ? `${legacyRamCapacity}${guessedDdr ? ` ${guessedDdr}` : ""}${speedValue ? `-${speedValue}` : ""}${legacyRamModuleCount && legacyRamModuleCount > 1 ? ` x${legacyRamModuleCount}` : ""}`
     : null;
 
-  const preferredSsdLine = rawText
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find((line) => /ssd|nvme|m\.2|samsung|western|wd|hynix|crucial|kingston|p41|sn770|990|kc3000|m480/i.test(line));
+  // 새 포맷("RAM:" 헤더 + "Total N GB (MGB x Kea / 규격 속도MHz / 제조사)" 한 줄)을 우선 사용한다.
+  const parsedRamSummary = newFormatSections?.ramLine ? parseRamTotalLine(newFormatSections.ramLine) : null;
+  const ramMismatch = parsedRamSummary ? parsedRamSummary.eachGb * parsedRamSummary.count !== parsedRamSummary.totalGb : false;
+
+  const parsedRamCapacity = parsedRamSummary ? (ramMismatch ? null : roundToRamBucket(parsedRamSummary.totalGb)) : legacyRamCapacity;
+  const ramModuleCount = parsedRamSummary ? (ramMismatch ? null : parsedRamSummary.count) : legacyRamModuleCount;
+  const ramDetail = parsedRamSummary
+    ? ramMismatch
+      ? null
+      : `${parsedRamSummary.eachGb}GB x${parsedRamSummary.count} / ${parsedRamSummary.ddrLabel} ${parsedRamSummary.speed}MHz`
+    : legacyRamDetail;
+
+  const preferredSsdLine = newFormatSections
+    ? pickPreferredSsdLine(newFormatSections.ssdLines)
+    : rawText
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .find((line) => /ssd|nvme|m\.2|samsung|western|wd|hynix|crucial|kingston|p41|sn770|990|kc3000|m480/i.test(line));
 
   const preferredSsdText = preferredSsdLine ?? rawText;
   const normalizedPreferredSsdText = normalizeText(preferredSsdText);
+  // 브랜드명만 일치해도 "매칭"으로 치면(예: "Samsung SSD 970 EVO Plus 500GB") 카탈로그의 첫 번째
+  // Samsung 항목("990 Pro 1TB" 등 전혀 다른 모델)으로 잘못 확정되는 버그가 있었다 — 브랜드 뒤에
+  // "SSD"/"NVMe" 같은 단어가 끼어들어 모델 전체 문자열 매칭은 실패하면서도, 브랜드만으로는
+  // 통과되던 것. 이제 모델명 전체가 통으로 들어있거나(원래 로직), 브랜드+모델의 "브랜드를 뺀
+  // 나머지 식별 부분"(제품라인+용량)이 원문에 함께 들어있어야만 매칭으로 인정한다.
   const matchedSsd = masterSsdCatalog.find((item) => {
     const normalizedModel = normalizeText(item.model);
+    if (normalizedPreferredSsdText.includes(normalizedModel)) return true;
+
     const normalizedBrand = normalizeText(item.manufacturer);
-    return normalizedPreferredSsdText.includes(normalizedModel) || normalizedPreferredSsdText.includes(normalizedBrand);
+    const modelTail = item.model.startsWith(item.manufacturer) ? item.model.slice(item.manufacturer.length).trim() : item.model;
+    const normalizedModelTail = normalizeText(modelTail);
+    return (
+      normalizedModelTail.length > 0 &&
+      normalizedPreferredSsdText.includes(normalizedBrand) &&
+      normalizedPreferredSsdText.includes(normalizedModelTail)
+    );
   });
 
   const diskSizes = [...rawText.matchAll(/\b(\d{11,14})\b/g)]
     .map((match) => Number(match[1]))
     .filter((value) => Number.isFinite(value) && value > 150_000_000_000);
   const largestDiskBytes = diskSizes.length > 0 ? Math.max(...diskSizes) : 0;
+
+  // 새 포맷의 SSD 모델명엔 용량이 바이트가 아니라 텍스트로 박혀 있다(예: "...970 EVO Plus 500GB") —
+  // 큐레이션 카탈로그에 없는 모델이어도 이 텍스트만으로 용량 등급을 추정할 수 있다.
+  const ssdLineSizeMatch = preferredSsdLine?.match(/(\d+(?:\.\d+)?)\s*(TB|GB)\b/i);
+  const ssdLineSizeGb = ssdLineSizeMatch
+    ? Number(ssdLineSizeMatch[1]) * (ssdLineSizeMatch[2].toUpperCase() === "TB" ? 1000 : 1)
+    : 0;
 
   const parsedSsdCapacity = matchedSsd
     ? matchedSsd.capacityGb >= 2000
@@ -165,7 +289,15 @@ export function parseSpecOutput(rawText: string): ParseCommandOutputResult {
           ? "512GB"
           : largestDiskBytes > 0
             ? "256GB"
-            : null;
+            : ssdLineSizeGb >= 1800
+              ? "2TB"
+              : ssdLineSizeGb >= 900
+                ? "1TB"
+                : ssdLineSizeGb >= 450
+                  ? "512GB"
+                  : ssdLineSizeGb > 0
+                    ? "256GB"
+                    : null;
 
   const parsedSsdDetail = matchedSsd?.model ?? preferredSsdLine ?? null;
 
@@ -202,6 +334,8 @@ export function parseSpecOutput(rawText: string): ParseCommandOutputResult {
     gpuLabel: gpuMatch.matched?.name ?? fallbackGpu?.label ?? null,
     cpuRaw,
     gpuRaw,
+    ramMismatch,
+    cpuIsLaptop,
   };
 }
 

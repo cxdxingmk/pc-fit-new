@@ -30,7 +30,12 @@ function stripCpuBoilerplate(text: string): string {
     .replace(/\bCPU\b/gi, " ")
     .replace(/@\s*[\d.]+\s*GHz/gi, " ")
     .replace(/\b\d+(st|nd|rd|th)\s*Gen\b/gi, " ")
-    .replace(/\b(Intel|AMD)\b/gi, " ");
+    .replace(/\b(Intel|AMD)\b/gi, " ")
+    // AMD Win32_Processor.Name은 보통 "...6-Core Processor"로 끝난다 — 이 noise 토큰이
+    // Jaccard 분모만 부풀려 실제로는 같은 CPU인데도 유사도가 임계값 밑으로 떨어지는 문제가 있다
+    // (Intel(R)/(TM) 보일러플레이트 문제와 같은 종류).
+    .replace(/\b\d+-Core\b/gi, " ")
+    .replace(/\bProcessor\b/gi, " ");
 }
 
 function tokenize(text: string): Set<string> {
