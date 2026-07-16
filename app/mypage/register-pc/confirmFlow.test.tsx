@@ -155,3 +155,70 @@ describe("register-pc 확인 플로우", () => {
     expect(await screen.findByText("로그인 완료! 이전에 스캔한 사양이 자동으로 등록됐어요.")).toBeTruthy();
   });
 });
+
+describe("모니터 주사율 선택 UI", () => {
+  beforeEach(() => {
+    mockUser = { id: "user-1", email: "test@example.com", name: "테스트유저" };
+    readPendingScanSpecMock.mockReturnValue(null);
+    upsertSavedPcSpecMock.mockClear();
+  });
+  afterEach(() => cleanup());
+
+  it("1씩 증감하던 number 입력이 아니라 select로 렌더된다", () => {
+    renderPage();
+    const field = screen.getByLabelText("모니터 주사율(Hz)");
+    expect(field.tagName).toBe("SELECT");
+    // 예전 스피너 속성이 남아있지 않아야 한다.
+    expect(field.getAttribute("step")).toBeNull();
+    expect(field.getAttribute("type")).toBeNull();
+  });
+
+  it("표준 규격 단계 11개만, Hz 단위를 붙여 순서대로 노출한다", () => {
+    renderPage();
+    const select = screen.getByLabelText("모니터 주사율(Hz)") as HTMLSelectElement;
+    const labels = Array.from(select.options).map((option) => option.textContent);
+
+    expect(labels).toEqual(["60Hz", "75Hz", "100Hz", "120Hz", "144Hz", "165Hz", "180Hz", "240Hz", "360Hz", "480Hz", "540Hz"]);
+  });
+
+  it("144에서 다음 단계를 고르면 145가 아니라 165가 선택된다", () => {
+    renderPage();
+    const select = screen.getByLabelText("모니터 주사율(Hz)") as HTMLSelectElement;
+    expect(select.value).toBe("144"); // 기본값
+
+    const values = Array.from(select.options).map((option) => option.value);
+    const next = values[values.indexOf("144") + 1];
+    fireEvent.change(select, { target: { value: next } });
+
+    expect(select.value).toBe("165");
+  });
+
+  it("예전 자유 입력으로 저장된 비표준 값(200Hz)을 불러와도 빈칸이 아니라 가장 가까운 단계(180Hz)로 표시된다", async () => {
+    getSavedPcSpecMock.mockResolvedValueOnce({
+      id: "pc_spec",
+      cpuId: "r5-5600",
+      gpuId: "gtx1660super",
+      ramCapacity: "16GB",
+      ramCount: 2,
+      ramDetailedInputEnabled: false,
+      ramProductName: "",
+      ssdCapacity: "1TB",
+      ssdDetailedInputEnabled: false,
+      ssdProductName: "",
+      mbBrand: "",
+      mbSeries: "",
+      mbDetail: "",
+      psuWatt: "",
+      hasCase: true,
+      monitorResolution: "QHD",
+      monitorRefreshRate: 200, // 표준 단계가 아님
+      monitorCount: 1,
+      commandScanRawText: "",
+    } as never);
+
+    renderPage();
+
+    const select = screen.getByLabelText("모니터 주사율(Hz)") as HTMLSelectElement;
+    await waitFor(() => expect(select.value).toBe("180"));
+  });
+});

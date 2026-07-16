@@ -310,7 +310,9 @@ export function parseSpecOutput(rawText: string): ParseCommandOutputResult {
         : "FHD"
     : null;
 
-  const refreshMatch = rawText.match(/\b(60|75|100|120|144|165|180|200|240|360)\s*hz\b/i);
+  // 480/540Hz 같은 최신 고주사율 패널까지 인식 범위를 넓힌다. 200처럼 표준 단계가 아닌 값이
+  // 잡혀도 호출부(resolveScanUpdates)가 가장 가까운 표준 단계로 맞추므로 그대로 둔다.
+  const refreshMatch = rawText.match(/\b(60|75|100|120|144|165|180|200|240|360|480|540)\s*hz\b/i);
   const monitorRefreshRate = refreshMatch ? Number(refreshMatch[1]) : null;
 
   const motherboardChipset = chipsetMatch

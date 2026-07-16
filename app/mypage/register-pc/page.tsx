@@ -13,6 +13,7 @@ import { HARDWARE_MASTER } from "../../data/hardwareMaster";
 import { parseSpecOutput, powerShellScanCommand, legacyWmicScanCommand, type ParseCommandOutputResult } from "../../lib/scanParser";
 import { getSavedPcSpec, upsertSavedPcSpec, type SavedPcSpec, type UpsertSavedPcSpecInput } from "../../lib/pcSpecs";
 import { savePendingScanSpec, readPendingScanSpec, clearPendingScanSpec } from "../../lib/pendingScanSpec";
+import { REFRESH_RATE_STEPS, snapToNearestRefreshRate } from "../../lib/refreshRateSteps";
 import { derivePartSeries } from "../../lib/derivePartSeries";
 import MyPageTabs from "../components/MyPageTabs";
 import Card from "../../../components/ui/Card";
@@ -138,7 +139,9 @@ function resolveScanUpdates(
   }
 
   if (result.monitorRefreshRate) {
-    next.monitorRefreshRate = result.monitorRefreshRate;
+    // 스캔에서 읽힌 임의 주사율도 여기서 표준 단계로 맞춰둔다 — 이 next 값이 폼 상태와
+    // DB 저장(buildInputFromNext) 양쪽에 그대로 쓰이므로, 원천에서 한 번만 정규화한다.
+    next.monitorRefreshRate = snapToNearestRefreshRate(result.monitorRefreshRate);
   }
 
   const hasAnyMatch = messages.length > 0;
@@ -286,7 +289,9 @@ export default function RegisterPcPage() {
     if (fields.psuWatt) setPsuWatt(fields.psuWatt);
     setHasCase(fields.hasCase);
     if (fields.monitorResolution) setMonitorResolution(fields.monitorResolution as (typeof monitorResolutionOptions)[number]);
-    if (fields.monitorRefreshRate) setMonitorRefreshRate(fields.monitorRefreshRate);
+    // 예전 자유 입력(60~500, 1씩 증감) 시절에 저장된 비표준 값(예: 200Hz)이 그대로 오면
+    // 셀렉트에 맞는 option이 없어 빈칸으로 보이므로, 가장 가까운 표준 단계로 맞춘다.
+    if (fields.monitorRefreshRate) setMonitorRefreshRate(snapToNearestRefreshRate(fields.monitorRefreshRate));
     if (fields.monitorCount >= 1 && fields.monitorCount <= 3) setMonitorCount(fields.monitorCount);
     if (fields.commandScanRawText) setCommandScanRawText(fields.commandScanRawText);
   };
@@ -1003,16 +1008,19 @@ export default function RegisterPcPage() {
                       <label htmlFor="monitor-refresh-rate" className="block text-sm font-medium text-white/70">
                         모니터 주사율(Hz)
                       </label>
-                      <input
-                        id="monitor-refresh-rate"
-                        type="number"
-                        min={60}
-                        max={500}
-                        step={1}
-                        value={monitorRefreshRate}
-                        onChange={(event) => setMonitorRefreshRate(Number(event.target.value) || 60)}
-                        className="mt-2 w-full rounded-xl bg-white/[0.04] px-4 py-3 text-sm text-white ring-1 ring-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
-                      />
+                      <div className="mt-2">
+                        <DarkSelect
+                          id="monitor-refresh-rate"
+                          value={monitorRefreshRate}
+                          onChange={(event) => setMonitorRefreshRate(Number(event.target.value))}
+                        >
+                          {REFRESH_RATE_STEPS.map((hz) => (
+                            <option key={hz} value={hz}>
+                              {hz}Hz
+                            </option>
+                          ))}
+                        </DarkSelect>
+                      </div>
                     </div>
 
                     <div>
