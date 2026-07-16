@@ -6,7 +6,7 @@ import { useBuild } from "../context/BuildContext";
 import { recommend } from "../lib/recommender";
 import { cpus } from "../database/cpu";
 import { gpus } from "../database/gpu";
-import { getSavedPc } from "../lib/savedPc";
+import { getSavedPcSpec } from "../lib/pcSpecs";
 import { trackEvent } from "../lib/analytics";
 import { SectionCard, PrimaryButton, FX } from "../components/pcfit-ui";
 import RecommendationReasons from "../components/quote/RecommendationReasons";
@@ -219,9 +219,9 @@ export default function ResultPage() {
 
   const diffFlags = useMemo(() => computePartDiffFlags(topResults), [topResults]);
 
-  const openPerformanceModal = (index: number, estimateId: string, cpuName: string, gpuName: string) => {
+  const openPerformanceModal = async (index: number, estimateId: string, cpuName: string, gpuName: string) => {
     trackEvent("performance_gate_button_click", { estimateRank: index + 1, estimateId });
-    const savedPc = getSavedPc();
+    const savedPc = await getSavedPcSpec();
     const cpuRecord = cpus.find((cpu) => cpu.name === cpuName);
     const gpuRecord = gpus.find((gpu) => gpu.name === gpuName);
 

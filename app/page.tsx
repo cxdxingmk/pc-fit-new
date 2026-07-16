@@ -4,27 +4,15 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import IndependenceNotice from "@/components/ui/IndependenceNotice";
-
-const storageKey = "user_pc_spec";
+import { getSavedPcSpec } from "@/app/lib/pcSpecs";
 
 export default function Home() {
   const router = useRouter();
   const [isGuardModalOpen, setIsGuardModalOpen] = useState(false);
 
-  const hasSavedPc = () => {
-    if (typeof window === "undefined") return false;
-    try {
-      const raw = window.localStorage.getItem(storageKey);
-      if (!raw) return false;
-      const parsed = JSON.parse(raw) as { cpuId?: string; gpuId?: string };
-      return Boolean(parsed.cpuId && parsed.gpuId);
-    } catch {
-      return false;
-    }
-  };
-
-  const handleAnalyzeClick = () => {
-    if (hasSavedPc()) {
+  const handleAnalyzeClick = async () => {
+    const savedPc = await getSavedPcSpec();
+    if (savedPc) {
       router.push("/mypage/analysis");
       return;
     }

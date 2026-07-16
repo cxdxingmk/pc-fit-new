@@ -1,11 +1,38 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
+import { describe, expect, it, vi, afterEach } from "vitest";
+import { render, screen, fireEvent, cleanup, act, waitFor } from "@testing-library/react";
 import axe from "axe-core";
 import InfoTooltip from "@/components/ui/InfoTooltip";
 import CascadingPartSelect from "@/components/ui/CascadingPartSelect";
 import { useCascadingPartSelect } from "@/components/ui/useCascadingPartSelect";
 import { cpus } from "@/app/database/cpu";
+import type { SavedPcSpec } from "@/app/lib/pcSpecs";
 import MyPageAnalysisPage from "./mypage/analysis/page";
+
+const mockSavedPcSpec: SavedPcSpec = {
+  id: "test-pc",
+  cpuId: cpus[0].id,
+  gpuId: "gtx1660super",
+  ramCapacity: "16GB",
+  ramCount: 2,
+  ramDetailedInputEnabled: false,
+  ramProductName: "",
+  ssdCapacity: "1TB",
+  ssdDetailedInputEnabled: false,
+  ssdProductName: "",
+  mbBrand: "",
+  mbSeries: "",
+  mbDetail: "",
+  psuWatt: "",
+  hasCase: true,
+  monitorResolution: "QHD",
+  monitorRefreshRate: 144,
+  monitorCount: 1,
+  commandScanRawText: "",
+};
+
+vi.mock("@/app/lib/pcSpecs", () => ({
+  getSavedPcSpec: vi.fn(() => Promise.resolve(mockSavedPcSpec)),
+}));
 
 /**
  * E-10: role=tablist/tab/aria-selected 보강 + InfoTooltip 모바일 onClick 토글이
@@ -47,21 +74,10 @@ describe("axe-core critical violations", () => {
   });
 
   it("analysis page's tablist/tab/tabpanel structure has no critical a11y violations", async () => {
-    vi.useFakeTimers();
-    window.localStorage.setItem(
-      "user_pc_spec",
-      JSON.stringify({
-        id: "test-pc",
-        cpuId: cpus[0].id,
-        gpuId: "gtx1660super",
-        ramCapacity: "16GB",
-        ssdCapacity: "1TB",
-        monitorResolution: "QHD",
-        monitorRefreshRate: 144,
-      }),
-    );
-
     const { container } = render(<MyPageAnalysisPage />);
+    await waitFor(() => expect(screen.getByRole("button", { name: /실시간 성능 체크 시작/ })).toBeTruthy());
+
+    vi.useFakeTimers();
     fireEvent.click(screen.getByRole("button", { name: /실시간 성능 체크 시작/ }));
     act(() => {
       vi.advanceTimersByTime(1300);

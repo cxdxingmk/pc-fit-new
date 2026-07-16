@@ -8,10 +8,9 @@ import { gpus } from "../../database/gpu";
 import { motherboards } from "../../database/motherboard";
 import { useAuth } from "../../context/AuthContext";
 import { useBuild } from "../../context/BuildContext";
-import type { UserSavedPc } from "../../types/hardware";
 import { HARDWARE_MASTER } from "../../data/hardwareMaster";
 import { parseSpecOutput, powerShellScanCommand, legacyWmicScanCommand, type ParseCommandOutputResult } from "../../lib/scanParser";
-import { readJsonFromStorage, writeJsonToStorage } from "../../lib/localStorageJson";
+import { getSavedPcSpec, upsertSavedPcSpec, type SavedPcSpec } from "../../lib/pcSpecs";
 import { derivePartSeries } from "../../lib/derivePartSeries";
 import MyPageTabs from "../components/MyPageTabs";
 import Card from "../../../components/ui/Card";
@@ -20,31 +19,9 @@ import CascadingPartSelect from "../../../components/ui/CascadingPartSelect";
 import { useCascadingPartSelect } from "../../../components/ui/useCascadingPartSelect";
 import DarkSelect from "../../../components/ui/DarkSelect";
 
-const storageKey = "user_pc_spec";
 const ramCapacityOptions = ["8GB", "16GB", "32GB", "64GB"] as const;
 const ssdCapacityOptions = ["256GB", "512GB", "1TB", "2TB"] as const;
 const monitorResolutionOptions = ["FHD", "QHD", "4K"] as const;
-
-type LocalSavedPc = UserSavedPc & {
-  userId?: string;
-  pcName?: string;
-  createdAt?: string;
-  ramCapacity: string;
-  ramCount: number;
-  ramDetailedInputEnabled: boolean;
-  ramProductName: string;
-  ssdCapacityOption: string;
-  ssdDetailedInputEnabled: boolean;
-  ssdProductName: string;
-  mbSeries: string;
-  mbDetail: string;
-  mbBrand: string;
-  mbModelName?: string;
-  psuWatt?: string;
-  hasCase?: boolean;
-  commandScanRawText: string;
-  monitorCount: number;
-};
 
 // CPU/GPU/메인보드/파워는 사용자가 실제로 확인 없이 저장할 경우 잘못된 사양이 조용히 등록될
 // 수 있어(예: 실제론 안 쓰는 i9-14900K가 기본값으로 저장) 일부러 빈 값으로 시작한다 — CPU/GPU는
@@ -185,7 +162,7 @@ function buildUnrecognizedLinesMessage(result: ParseCommandOutputResult): string
 export default function RegisterPcPage() {
   const { user } = useAuth();
   const { buildData } = useBuild();
-  const [savedSnapshot, setSavedSnapshot] = useState<LocalSavedPc | null>(null);
+  const [savedSnapshot, setSavedSnapshot] = useState<SavedPcSpec | null>(null);
   const [cpu, setCpu] = useState(initialSelection.cpuId);
   const [gpu, setGpu] = useState(initialSelection.gpuId);
   const [ramCapacity, setRamCapacity] = useState(initialSelection.ramCapacity);
@@ -274,41 +251,35 @@ export default function RegisterPcPage() {
   }, [isExampleOpen]);
 
   useEffect(() => {
-    const parsed = readJsonFromStorage<Partial<LocalSavedPc>>(storageKey);
-    if (!parsed) return;
+    let cancelled = false;
 
-    setSavedSnapshot(parsed as LocalSavedPc);
-    if (parsed.cpuId) setCpu(parsed.cpuId);
-    if (parsed.gpuId) setGpu(parsed.gpuId);
-    if (parsed.ramCapacity) setRamCapacity(parsed.ramCapacity);
-    if (typeof parsed.ramCount === "number" && parsed.ramCount >= 1 && parsed.ramCount <= 4) setRamCount(parsed.ramCount);
-    if (typeof parsed.ramDetailedInputEnabled === "boolean") setRamDetailedInputEnabled(parsed.ramDetailedInputEnabled);
-    if (parsed.ramProductName) setRamProductName(parsed.ramProductName);
-    if (parsed.mbSeries) setMbSeries(parsed.mbSeries);
-    if (parsed.mbDetail) setMbDetail(parsed.mbDetail);
-    if (parsed.mbBrand) setMbBrand(parsed.mbBrand);
+    getSavedPcSpec().then((parsed) => {
+      if (cancelled || !parsed) return;
 
-    if (!parsed.mbSeries && !parsed.mbDetail && parsed.mbModelName) {
-      const model = parsed.mbModelName.trim();
-      const matched = model.match(/^(Intel|AMD)?\s*([ZXBHA])\s*[- ]?(\d{3,4})/i);
-      if (matched) {
-        const vendor = matched[1]?.toUpperCase() === "AMD" ? "AMD" : "Intel";
-        const alpha = matched[2].toUpperCase();
-        setMbSeries(`${vendor} ${alpha}`);
-        setMbDetail(matched[3]);
-      } else {
-        setMbDetail(model);
-      }
-    }
-    if (parsed.ssdCapacityOption) setSsdCapacityOption(parsed.ssdCapacityOption);
-    if (typeof parsed.ssdDetailedInputEnabled === "boolean") setSsdDetailedInputEnabled(parsed.ssdDetailedInputEnabled);
-    if (parsed.ssdProductName) setSsdProductName(parsed.ssdProductName);
-    if (parsed.psuWatt) setPsuWatt(parsed.psuWatt);
-    if (typeof parsed.hasCase === "boolean") setHasCase(parsed.hasCase);
-    if (parsed.monitorResolution) setMonitorResolution(parsed.monitorResolution);
-    if (parsed.monitorRefreshRate) setMonitorRefreshRate(parsed.monitorRefreshRate);
-    if (typeof parsed.monitorCount === "number" && parsed.monitorCount >= 1 && parsed.monitorCount <= 3) setMonitorCount(parsed.monitorCount);
-    if (parsed.commandScanRawText) setCommandScanRawText(parsed.commandScanRawText);
+      setSavedSnapshot(parsed);
+      if (parsed.cpuId) setCpu(parsed.cpuId);
+      if (parsed.gpuId) setGpu(parsed.gpuId);
+      if (parsed.ramCapacity) setRamCapacity(parsed.ramCapacity);
+      if (parsed.ramCount >= 1 && parsed.ramCount <= 4) setRamCount(parsed.ramCount);
+      setRamDetailedInputEnabled(parsed.ramDetailedInputEnabled);
+      if (parsed.ramProductName) setRamProductName(parsed.ramProductName);
+      if (parsed.mbSeries) setMbSeries(parsed.mbSeries);
+      if (parsed.mbDetail) setMbDetail(parsed.mbDetail);
+      if (parsed.mbBrand) setMbBrand(parsed.mbBrand);
+      if (parsed.ssdCapacity) setSsdCapacityOption(parsed.ssdCapacity);
+      setSsdDetailedInputEnabled(parsed.ssdDetailedInputEnabled);
+      if (parsed.ssdProductName) setSsdProductName(parsed.ssdProductName);
+      if (parsed.psuWatt) setPsuWatt(parsed.psuWatt);
+      setHasCase(parsed.hasCase);
+      if (parsed.monitorResolution) setMonitorResolution(parsed.monitorResolution);
+      if (parsed.monitorRefreshRate) setMonitorRefreshRate(parsed.monitorRefreshRate);
+      if (parsed.monitorCount >= 1 && parsed.monitorCount <= 3) setMonitorCount(parsed.monitorCount);
+      if (parsed.commandScanRawText) setCommandScanRawText(parsed.commandScanRawText);
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -351,7 +322,6 @@ export default function RegisterPcPage() {
     const detail = savedSnapshot.mbDetail?.trim();
     const brand = savedSnapshot.mbBrand?.trim();
 
-    if (!series && !detail && savedSnapshot.mbModelName) return savedSnapshot.mbModelName;
     if (!series && !detail) return "미등록";
 
     return `${brand || "브랜드 미지정"} ${series || ""}${detail ? ` ${detail}` : ""}`.trim();
@@ -372,7 +342,7 @@ export default function RegisterPcPage() {
     window.setTimeout(() => setToastMessage(""), 2000);
   };
 
-  const handleParsedResult = (result: ParseCommandOutputResult): boolean => {
+  const handleParsedResult = async (result: ParseCommandOutputResult): Promise<boolean> => {
     const { next, message, hasAnyMatch } = resolveScanUpdates(result, {
       cpu,
       gpu,
@@ -413,35 +383,37 @@ export default function RegisterPcPage() {
     setScanStatusMessage(message);
 
     if (user) {
-      const autoPayload: LocalSavedPc = {
-        id: `pc_${Date.now()}`,
-        userId: user.id,
-        pcName: `${user.name}의 PC`,
+      const autoInput = {
         cpuId: next.cpu,
         gpuId: next.gpu,
         ramCapacity: next.ramCapacity,
         ramCount,
-        ramDetail: next.ramDetailedInputEnabled ? next.ramProductName.trim() : undefined,
-        ssdCapacity: next.ssdCapacityOption,
-        ssdDetail: next.ssdDetailedInputEnabled ? next.ssdProductName.trim() : undefined,
-        monitorResolution: next.monitorResolution,
-        monitorRefreshRate: next.monitorRefreshRate,
-        monitorCount,
         ramDetailedInputEnabled: next.ramDetailedInputEnabled,
         ramProductName: next.ramProductName,
-        ssdCapacityOption: next.ssdCapacityOption,
+        ssdCapacity: next.ssdCapacityOption,
         ssdDetailedInputEnabled: next.ssdDetailedInputEnabled,
         ssdProductName: next.ssdProductName,
         mbSeries: next.mbSeries,
         mbDetail: next.mbDetail,
         mbBrand,
-        mbModelName: `${next.mbSeries} ${next.mbDetail}`.trim(),
         psuWatt,
         hasCase,
+        monitorResolution: next.monitorResolution,
+        monitorRefreshRate: next.monitorRefreshRate,
+        monitorCount,
         commandScanRawText,
       };
-      writeJsonToStorage(storageKey, autoPayload);
-      setSavedSnapshot(autoPayload);
+      const { error } = await upsertSavedPcSpec(autoInput);
+      if (error) {
+        setScanErrorMessage(error);
+        return false;
+      }
+      setSavedSnapshot({
+        id: savedSnapshot?.id ?? "pc_spec",
+        ramDetail: autoInput.ramDetailedInputEnabled ? autoInput.ramProductName.trim() : undefined,
+        ssdDetail: autoInput.ssdDetailedInputEnabled ? autoInput.ssdProductName.trim() : undefined,
+        ...autoInput,
+      });
       setSavedMessage("스캔 결과가 자동으로 등록 및 저장되었습니다.");
       showToast("자동 등록 및 저장이 완료되었습니다.");
       return true;
@@ -453,7 +425,7 @@ export default function RegisterPcPage() {
     return false;
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!user) {
       showToast("로그인이 필요해요 — 새로고침 후 다시 시도해 주세요.");
       return;
@@ -471,34 +443,39 @@ export default function RegisterPcPage() {
       return;
     }
 
-    const payload: LocalSavedPc = {
-      id: `pc_${Date.now()}`,
-      userId: user.id,
-      pcName: `${user.name}의 PC`,
+    const input = {
       cpuId: cpu,
       gpuId: gpu,
       ramCapacity,
       ramCount,
-      ramDetail: ramDetailedInputEnabled ? ramProductName.trim() : undefined,
-      ssdCapacity: ssdCapacityOption,
-      ssdDetail: ssdDetailedInputEnabled ? ssdProductName.trim() : undefined,
-      monitorResolution,
-      monitorRefreshRate,
-      monitorCount,
       ramDetailedInputEnabled,
       ramProductName,
-      ssdCapacityOption,
+      ssdCapacity: ssdCapacityOption,
       ssdDetailedInputEnabled,
       ssdProductName,
       mbSeries,
       mbDetail,
       mbBrand,
-      mbModelName: `${mbSeries} ${mbDetail}`.trim(),
+      psuWatt,
+      hasCase,
+      monitorResolution,
+      monitorRefreshRate,
+      monitorCount,
       commandScanRawText,
     };
 
-    writeJsonToStorage(storageKey, payload);
-    setSavedSnapshot(payload);
+    const { error } = await upsertSavedPcSpec(input);
+    if (error) {
+      showToast(error);
+      return;
+    }
+
+    setSavedSnapshot({
+      id: savedSnapshot?.id ?? "pc_spec",
+      ramDetail: input.ramDetailedInputEnabled ? input.ramProductName.trim() : undefined,
+      ssdDetail: input.ssdDetailedInputEnabled ? input.ssdProductName.trim() : undefined,
+      ...input,
+    });
 
     setSavedMessage("내 컴퓨터 사양이 저장되었습니다.");
     showToast("변경사항 저장이 완료되었습니다.");
@@ -528,16 +505,16 @@ export default function RegisterPcPage() {
     }
   };
 
-  const handleAutoRegisterFromCommand = () => {
+  const handleAutoRegisterFromCommand = async () => {
     if (!commandScanRawText.trim()) {
       setScanErrorMessage("붙여넣은 내용이 없어요 — PowerShell 결과를 먼저 붙여넣어 주세요.");
       return;
     }
     const parsed = parseSpecOutput(commandScanRawText);
-    handleParsedResult(parsed);
+    await handleParsedResult(parsed);
   };
 
-  const handleScanTextPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+  const handleScanTextPaste = async (event: ClipboardEvent<HTMLTextAreaElement>) => {
     const pastedText = event.clipboardData.getData("text");
     if (!pastedText.trim()) return;
 
@@ -545,7 +522,7 @@ export default function RegisterPcPage() {
     setCommandScanRawText(pastedText);
 
     const parsed = parseSpecOutput(pastedText);
-    const succeeded = handleParsedResult(parsed);
+    const succeeded = await handleParsedResult(parsed);
     if (succeeded) {
       setSavedMessage("붙여넣기 결과를 자동 분석하여 저장했습니다.");
       showToast("붙여넣기와 동시에 자동 등록되었습니다.");

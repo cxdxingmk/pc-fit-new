@@ -1,54 +1,39 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { cpus } from "../../database/cpu";
 import { gpus } from "../../database/gpu";
 import { HARDWARE_MASTER } from "../../data/hardwareMaster";
 import { OPTIMIZATION_TIPS } from "../../data/optimizationTips";
 import { simulatePcPerformance } from "../../lib/simulator";
-import type { UserSavedPc } from "../../types/hardware";
+import { getSavedPcSpec, type SavedPcSpec } from "../../lib/pcSpecs";
 import MyPageTabs from "../components/MyPageTabs";
 import Container from "@/components/layout/Container";
 
 type AnalysisTab = "game" | "creator" | "ai";
 
-const storageKey = "user_pc_spec";
-
 const gameList = ["배틀그라운드", "리그 오브 레전드", "Cyberpunk 2077"] as const;
-
-function getSavedPc(): UserSavedPc | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(storageKey);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<UserSavedPc>;
-    if (!parsed.cpuId || !parsed.gpuId || !parsed.ramCapacity || !parsed.ssdCapacity || !parsed.monitorResolution || !parsed.monitorRefreshRate) {
-      return null;
-    }
-    return {
-      id: parsed.id ?? "saved-pc",
-      cpuId: parsed.cpuId,
-      gpuId: parsed.gpuId,
-      ramCapacity: parsed.ramCapacity,
-      ramDetail: parsed.ramDetail,
-      ssdCapacity: parsed.ssdCapacity,
-      ssdDetail: parsed.ssdDetail,
-      monitorResolution: parsed.monitorResolution,
-      monitorRefreshRate: parsed.monitorRefreshRate,
-    };
-  } catch {
-    return null;
-  }
-}
 
 export default function MyPageAnalysisPage() {
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const [analysisReady, setAnalysisReady] = useState(false);
   const [selectedTab, setSelectedTab] = useState<AnalysisTab>("game");
   const [selectedGame, setSelectedGame] = useState<(typeof gameList)[number]>("배틀그라운드");
+  const [savedPc, setSavedPc] = useState<SavedPcSpec | null>(null);
+  const [isLoadingSavedPc, setIsLoadingSavedPc] = useState(true);
 
-  const savedPc = useMemo(() => getSavedPc(), []);
+  useEffect(() => {
+    let cancelled = false;
+    getSavedPcSpec().then((spec) => {
+      if (cancelled) return;
+      setSavedPc(spec);
+      setIsLoadingSavedPc(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const cpuName = useMemo(() => cpus.find((item) => item.id === savedPc?.cpuId)?.name ?? "미확인 CPU", [savedPc?.cpuId]);
   const gpuName = useMemo(() => gpus.find((item) => item.id === savedPc?.gpuId)?.name ?? "미확인 GPU", [savedPc?.gpuId]);
@@ -122,6 +107,16 @@ export default function MyPageAnalysisPage() {
       });
     }, 130);
   };
+
+  if (isLoadingSavedPc) {
+    return (
+      <main className="min-h-screen bg-slate-950 py-12 text-slate-100">
+        <Container className="flex flex-col gap-6">
+          <MyPageTabs activeTab="analysis" />
+        </Container>
+      </main>
+    );
+  }
 
   if (!savedPc) {
     return (
