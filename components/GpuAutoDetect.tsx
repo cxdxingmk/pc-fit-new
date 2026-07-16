@@ -105,6 +105,7 @@ export default function GpuAutoDetect({ onGpuSelected }: { onGpuSelected: (gpuId
               key={gpu.id}
               type="button"
               role="tab"
+              aria-selected={false}
               onClick={() => handleCandidateSelect(gpu)}
               className="rounded-full bg-white/[0.06] px-4 py-2 text-sm font-medium text-white/80 ring-1 ring-line transition hover:bg-white/[0.1] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
             >

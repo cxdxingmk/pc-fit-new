@@ -167,20 +167,44 @@ export default function MyPageAnalysisPage() {
 
         {analysisReady ? (
           <section className="rounded-3xl border border-white/10 bg-slate-900/70 p-8 shadow-2xl shadow-black/50">
-            <div className="flex flex-wrap gap-3">
-              <button type="button" onClick={() => setSelectedTab("game")} className={`rounded-2xl px-5 py-3 text-sm font-semibold transition ${selectedTab === "game" ? "bg-cyan-500 text-slate-950" : "bg-white/5 text-slate-200"}`}>
+            <div className="flex flex-wrap gap-3" role="tablist" aria-label="분석 카테고리">
+              <button
+                type="button"
+                role="tab"
+                id="analysis-tab-game"
+                aria-selected={selectedTab === "game"}
+                aria-controls="analysis-panel-game"
+                onClick={() => setSelectedTab("game")}
+                className={`rounded-2xl px-5 py-3 text-sm font-semibold transition ${selectedTab === "game" ? "bg-cyan-500 text-slate-950" : "bg-white/5 text-slate-200"}`}
+              >
                 🎮 게임 프레임 벤치마크
               </button>
-              <button type="button" onClick={() => setSelectedTab("creator")} className={`rounded-2xl px-5 py-3 text-sm font-semibold transition ${selectedTab === "creator" ? "bg-cyan-500 text-slate-950" : "bg-white/5 text-slate-200"}`}>
+              <button
+                type="button"
+                role="tab"
+                id="analysis-tab-creator"
+                aria-selected={selectedTab === "creator"}
+                aria-controls="analysis-panel-creator"
+                onClick={() => setSelectedTab("creator")}
+                className={`rounded-2xl px-5 py-3 text-sm font-semibold transition ${selectedTab === "creator" ? "bg-cyan-500 text-slate-950" : "bg-white/5 text-slate-200"}`}
+              >
                 🎬 영상 편집/크리에이터
               </button>
-              <button type="button" onClick={() => setSelectedTab("ai")} className={`rounded-2xl px-5 py-3 text-sm font-semibold transition ${selectedTab === "ai" ? "bg-cyan-500 text-slate-950" : "bg-white/5 text-slate-200"}`}>
+              <button
+                type="button"
+                role="tab"
+                id="analysis-tab-ai"
+                aria-selected={selectedTab === "ai"}
+                aria-controls="analysis-panel-ai"
+                onClick={() => setSelectedTab("ai")}
+                className={`rounded-2xl px-5 py-3 text-sm font-semibold transition ${selectedTab === "ai" ? "bg-cyan-500 text-slate-950" : "bg-white/5 text-slate-200"}`}
+              >
                 🤖 AI 가속 성능
               </button>
             </div>
 
             {selectedTab === "game" ? (
-              <div className="mt-6 space-y-5">
+              <div id="analysis-panel-game" role="tabpanel" aria-labelledby="analysis-tab-game" className="mt-6 space-y-5">
                 <label className="block text-sm">
                   분석 게임 선택
                   <select value={selectedGame} onChange={(event) => setSelectedGame(event.target.value as (typeof gameList)[number])} className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-slate-100">
@@ -206,7 +230,7 @@ export default function MyPageAnalysisPage() {
             ) : null}
 
             {selectedTab === "creator" ? (
-              <div className="mt-6 grid gap-4 md:grid-cols-3">
+              <div id="analysis-panel-creator" role="tabpanel" aria-labelledby="analysis-tab-creator" className="mt-6 grid gap-4 md:grid-cols-3">
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
                   <p className="text-sm text-slate-300">4K 렌더링 쾌적 점수</p>
                   <p className="mt-2 text-3xl font-bold text-cyan-300">{creatorScore}</p>
@@ -223,7 +247,7 @@ export default function MyPageAnalysisPage() {
             ) : null}
 
             {selectedTab === "ai" ? (
-              <div className="mt-6 grid gap-4 md:grid-cols-3">
+              <div id="analysis-panel-ai" role="tabpanel" aria-labelledby="analysis-tab-ai" className="mt-6 grid gap-4 md:grid-cols-3">
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
                   <p className="text-sm text-slate-300">이미지 생성 속도</p>
                   <p className="mt-2 text-3xl font-bold text-cyan-300">{aiImagePerSec} 장/초</p>

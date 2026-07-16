@@ -9,6 +9,7 @@
  *  - 배치:   기본 상단(top). 뷰포트 상단 공간 부족 시 우측(right)으로 지능적 폴백
  *  - 전환:   150ms ease-in-out 페이드 인/아웃 (opacity + 미세한 translate)
  *  - 접근성: 키보드 포커스(focus/blur) 및 Escape 지원, aria-describedby 연결
+ *  - 모바일: hover가 없는 터치 환경을 위해 아이콘 탭으로 열기/닫기 토글, 바깥 탭 시 닫힘
  */
 
 import {
@@ -113,11 +114,31 @@ export default function InfoTooltip({
     [handleClose],
   );
 
+  const handleToggle = useCallback(() => {
+    if (isOpen) {
+      handleClose();
+    } else {
+      handleOpen();
+    }
+  }, [isOpen, handleOpen, handleClose]);
+
   useEffect(() => {
     return () => {
       if (unmountTimerRef.current) clearTimeout(unmountTimerRef.current);
     };
   }, []);
+
+  // 터치 기기는 hover(mouseenter/leave)가 없어 탭으로 열고, 다른 곳을 탭하면 닫히게 한다.
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (anchorRef.current && !anchorRef.current.contains(event.target as Node)) {
+        handleClose();
+      }
+    };
+    document.addEventListener("click", handleOutsideClick);
+    return () => document.removeEventListener("click", handleOutsideClick);
+  }, [isOpen, handleClose]);
 
   // 열려 있는 동안 리사이즈 시 배치 재계산
   useLayoutEffect(() => {
@@ -133,6 +154,7 @@ export default function InfoTooltip({
         ref={anchorRef}
         type="button"
         aria-label={ariaLabel}
+        aria-expanded={isOpen}
         aria-describedby={isMounted ? tooltipId : undefined}
         className={styles.iconButton}
         onMouseEnter={handleOpen}
@@ -140,6 +162,7 @@ export default function InfoTooltip({
         onFocus={handleOpen}
         onBlur={handleClose}
         onKeyDown={handleKeyDown}
+        onClick={handleToggle}
       >
         <svg width={iconSize} height={iconSize} viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.4" />
