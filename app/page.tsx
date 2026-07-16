@@ -59,6 +59,8 @@ export default function Home() {
             </button>
           </div>
 
+          <p className="mt-4 text-xs text-slate-500">현재 데스크탑 PC를 기준으로 진단합니다.</p>
+
           <IndependenceNotice className="mt-8" />
         </div>
 

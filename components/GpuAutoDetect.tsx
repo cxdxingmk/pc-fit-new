@@ -18,7 +18,12 @@ import DarkSelect from "./ui/DarkSelect";
 
 type Status = "loading" | "matched" | "candidates" | "unmatched" | "failed";
 
-export default function GpuAutoDetect({ onGpuSelected }: { onGpuSelected: (gpuId: string) => void }) {
+export default function GpuAutoDetect({
+  onGpuSelected,
+}: {
+  /** rawGpu: WebGL이 실제로 보고한 원문(수동 선택 시엔 감지 시도 당시의 원문, 감지 자체가 안 됐으면 null) — 노트북 GPU("... Laptop GPU") 키워드 감지 등에 사용 */
+  onGpuSelected: (gpuId: string, rawGpu: string | null) => void;
+}) {
   const isMobile = useIsMobileDevice();
   const [status, setStatus] = useState<Status>("loading");
   const [rawGpu, setRawGpu] = useState<string | null>(null);
@@ -41,7 +46,7 @@ export default function GpuAutoDetect({ onGpuSelected }: { onGpuSelected: (gpuId
     if (matched) {
       setConfirmedGpu(matched);
       setStatus("matched");
-      onGpuSelected(matched.id);
+      onGpuSelected(matched.id, normalized);
     } else if (found.length > 0) {
       setCandidates(found);
       setStatus("candidates");
@@ -55,7 +60,7 @@ export default function GpuAutoDetect({ onGpuSelected }: { onGpuSelected: (gpuId
   const handleCandidateSelect = (gpu: GPU) => {
     setConfirmedGpu(gpu);
     setStatus("matched");
-    onGpuSelected(gpu.id);
+    onGpuSelected(gpu.id, rawGpu);
   };
 
   const handleManualSelect = (gpuId: string) => {
@@ -63,7 +68,7 @@ export default function GpuAutoDetect({ onGpuSelected }: { onGpuSelected: (gpuId
     if (!found) return;
     setConfirmedGpu(found);
     setStatus("matched");
-    onGpuSelected(found.id);
+    onGpuSelected(found.id, rawGpu);
   };
 
   // 기기 판별 전 — 깜빡임(로딩→모바일 카드로 튐) 방지를 위해 로딩 스켈레톤 그대로 유지
