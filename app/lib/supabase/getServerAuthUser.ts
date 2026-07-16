@@ -15,12 +15,13 @@ export async function getServerAuthUser(): Promise<AuthUser | null> {
     } = await supabase.auth.getUser();
     if (!user) return null;
 
-    const { data: profile } = await supabase.from("profiles").select("nickname").eq("id", user.id).single();
+    const { data: profile } = await supabase.from("profiles").select("nickname, is_admin").eq("id", user.id).single();
 
     return {
       id: user.id,
       email: user.email ?? "",
       name: profile?.nickname ?? user.email?.split("@")[0] ?? "",
+      isAdmin: profile?.is_admin ?? false,
     };
   } catch (error) {
     console.error("[getServerAuthUser] 인증 사용자 조회 실패 — 비로그인으로 폴백합니다:", error);

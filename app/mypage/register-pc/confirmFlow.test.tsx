@@ -84,7 +84,7 @@ describe("register-pc 확인 플로우", () => {
   });
 
   it("(6) 예 선택 + 로그인 상태 → pc_specs에 upsert되고 저장 완료 메시지가 뜬다", async () => {
-    mockUser = { id: "user-1", email: "test@example.com", name: "테스트유저" };
+    mockUser = { id: "user-1", email: "test@example.com", name: "테스트유저", isAdmin: false };
     renderPage();
     await pasteAndParse();
 
@@ -113,7 +113,7 @@ describe("register-pc 확인 플로우", () => {
   });
 
   it("(8) 아니요 선택 → DB에는 저장하지 않고, 화면에만 반영되며 미저장 안내 문구가 뜬다", async () => {
-    mockUser = { id: "user-1", email: "test@example.com", name: "테스트유저" };
+    mockUser = { id: "user-1", email: "test@example.com", name: "테스트유저", isAdmin: false };
     renderPage();
     await pasteAndParse();
 
@@ -126,7 +126,7 @@ describe("register-pc 확인 플로우", () => {
   });
 
   it("로그인 후 대기 중이던 값이 있으면 마운트 시 자동으로 이어서 저장한다", async () => {
-    mockUser = { id: "user-1", email: "test@example.com", name: "테스트유저" };
+    mockUser = { id: "user-1", email: "test@example.com", name: "테스트유저", isAdmin: false };
     readPendingScanSpecMock.mockReturnValue({
       cpuId: "r5-5600",
       gpuId: "gtx1660super",
@@ -158,7 +158,7 @@ describe("register-pc 확인 플로우", () => {
 
 describe("모니터 주사율 선택 UI", () => {
   beforeEach(() => {
-    mockUser = { id: "user-1", email: "test@example.com", name: "테스트유저" };
+    mockUser = { id: "user-1", email: "test@example.com", name: "테스트유저", isAdmin: false };
     readPendingScanSpecMock.mockReturnValue(null);
     upsertSavedPcSpecMock.mockClear();
   });
