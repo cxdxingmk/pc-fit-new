@@ -18,6 +18,9 @@ function getConfirmField() {
 function getSubmit() {
   return screen.getByRole("button", { name: "회원가입" }) as HTMLButtonElement;
 }
+function getAgreeCheckbox() {
+  return screen.getByRole("checkbox") as HTMLInputElement;
+}
 
 describe("회원가입 폼 UX", () => {
   afterEach(() => cleanup());
@@ -38,10 +41,11 @@ describe("회원가입 폼 UX", () => {
     expect(passwordField.type).toBe("password");
   });
 
-  it("(2) 확인 칸에 일치하는 값을 입력하면 '비밀번호가 일치해요'가 뜨고 제출이 활성화된다", () => {
+  it("(2) 확인 칸에 일치하는 값을 입력하고 약관에 동의하면 '비밀번호가 일치해요'가 뜨고 제출이 활성화된다", () => {
     render(<SignupPage />);
     fireEvent.change(getPasswordField(), { target: { value: PW } });
     fireEvent.change(getConfirmField(), { target: { value: PW } });
+    fireEvent.click(getAgreeCheckbox());
 
     expect(screen.getByText("비밀번호가 일치해요")).toBeTruthy();
     expect(getSubmit().disabled).toBe(false);
@@ -79,5 +83,59 @@ describe("회원가입 폼 UX", () => {
     render(<SignupPage />);
     expect(getPasswordField().getAttribute("autocomplete")).toBe("new-password");
     expect(getConfirmField().getAttribute("autocomplete")).toBe("new-password");
+  });
+});
+
+describe("회원가입 약관 동의", () => {
+  afterEach(() => cleanup());
+
+  function fillValidPasswords() {
+    fireEvent.change(getPasswordField(), { target: { value: PW } });
+    fireEvent.change(getConfirmField(), { target: { value: PW } });
+  }
+
+  it("체크박스가 있고 기본은 비동의(unchecked) 상태다", () => {
+    render(<SignupPage />);
+    expect(getAgreeCheckbox().checked).toBe(false);
+  });
+
+  it("개인정보처리방침/이용약관 링크가 각각 /privacy, /terms로 연결된다", () => {
+    render(<SignupPage />);
+    expect(screen.getByRole("link", { name: "개인정보 수집·이용" }).getAttribute("href")).toBe("/privacy");
+    expect(screen.getByRole("link", { name: "이용약관" }).getAttribute("href")).toBe("/terms");
+  });
+
+  it("비밀번호가 일치해도 약관에 동의하지 않으면 제출 버튼이 비활성화된다", () => {
+    render(<SignupPage />);
+    fillValidPasswords();
+
+    expect(getAgreeCheckbox().checked).toBe(false);
+    expect(getSubmit().disabled).toBe(true);
+  });
+
+  it("체크박스를 누르면 제출이 활성화되고, 다시 누르면 비활성화된다", () => {
+    render(<SignupPage />);
+    fillValidPasswords();
+
+    fireEvent.click(getAgreeCheckbox());
+    expect(getSubmit().disabled).toBe(false);
+
+    fireEvent.click(getAgreeCheckbox());
+    expect(getSubmit().disabled).toBe(true);
+  });
+
+  it("문구 안 링크를 클릭해도 label의 기본 토글 전파 때문에 체크 상태가 원치 않게 바뀌지 않는다", () => {
+    // <label htmlFor>로 감싼 텍스트 안에 <Link>가 있으면, 링크 클릭 시 브라우저가 그 클릭을
+    // label에 연결된 체크박스 토글로도 전달한다 — onClick의 stopPropagation으로 막았는지 검증.
+    render(<SignupPage />);
+    expect(getAgreeCheckbox().checked).toBe(false);
+
+    fireEvent.click(screen.getByRole("link", { name: "개인정보 수집·이용" }));
+    expect(getAgreeCheckbox().checked).toBe(false); // 클릭 전과 동일 — 링크 클릭이 체크박스에 영향 없어야 함
+
+    fireEvent.click(getAgreeCheckbox());
+    expect(getAgreeCheckbox().checked).toBe(true);
+    fireEvent.click(screen.getByRole("link", { name: "이용약관" }));
+    expect(getAgreeCheckbox().checked).toBe(true); // 이미 체크된 상태도 링크 클릭으로 풀리면 안 됨
   });
 });

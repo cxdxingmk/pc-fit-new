@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
 import Header from "../components/Header";
+import Footer from "../components/Footer";
 import { BuildProvider } from "./context/BuildContext";
 import { AuthProvider } from "./context/AuthContext";
 import { getServerAuthUser } from "./lib/supabase/getServerAuthUser";
@@ -67,8 +68,11 @@ export default async function RootLayout({
         />
         <AuthProvider initialUser={initialUser}>
           <BuildProvider>
-            <Header />
-            {children}
+            <div className="flex min-h-screen flex-col">
+              <Header />
+              <div className="flex-1">{children}</div>
+              <Footer />
+            </div>
           </BuildProvider>
         </AuthProvider>
       </body>

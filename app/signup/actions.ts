@@ -14,6 +14,9 @@ const SignupSchema = z
       .min(PASSWORD_MIN_LENGTH, "비밀번호는 8자 이상이어야 해요.")
       .regex(PASSWORD_HAS_LETTER_AND_DIGIT, "비밀번호에 영문과 숫자를 함께 포함해 주세요."),
     passwordConfirm: z.string(),
+    // 체크된 <input type="checkbox">는 FormData에 "on"으로 담기고, 체크 안 하면 필드 자체가
+    // 없다(formData.get()이 null) — 클라이언트의 disabled 버튼을 우회해도 서버에서 다시 막는다.
+    agreeTerms: z.literal("on", "개인정보 수집·이용 및 이용약관에 동의해 주세요."),
   })
   .refine((data) => data.password === data.passwordConfirm, {
     message: PASSWORD_MISMATCH_MESSAGE,
@@ -28,6 +31,7 @@ export async function signup(_prevState: AuthFormState, formData: FormData): Pro
     email: formData.get("email"),
     password: formData.get("password"),
     passwordConfirm: formData.get("passwordConfirm"),
+    agreeTerms: formData.get("agreeTerms"),
   });
 
   if (!parsed.success) {

@@ -19,6 +19,7 @@ export default function SignupPage() {
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
   const [passwordBlurred, setPasswordBlurred] = useState(false);
+  const [agreed, setAgreed] = useState(false);
 
   const passwordHintId = useId();
 
@@ -31,7 +32,8 @@ export default function SignupPage() {
   const showMismatch = confirmFilled && !passwordsMatch;
 
   // 스펙 B-3: 실시간 일치 확인이 불일치면 제출 버튼 비활성화(제출 전 서버 왕복을 막는 UX 게이트).
-  const submitDisabled = pending || showMismatch;
+  // 약관 동의도 같은 원리로 체크 전엔 제출을 막는다(서버 액션에서도 동일 조건을 재검증함).
+  const submitDisabled = pending || showMismatch || !agreed;
 
   if (state?.needsEmailConfirmation) {
     return (
@@ -119,6 +121,41 @@ export default function SignupPage() {
                 {passwordsMatch ? PASSWORD_MATCH_MESSAGE : PASSWORD_MISMATCH_MESSAGE}
               </p>
             ) : null}
+          </div>
+
+          <div className="flex items-start gap-2.5">
+            <input
+              type="checkbox"
+              id="agree-terms"
+              name="agreeTerms"
+              checked={agreed}
+              onChange={(event) => setAgreed(event.target.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0 rounded border-white/20 bg-slate-950 accent-cyan-500"
+            />
+            <label htmlFor="agree-terms" className="text-sm leading-snug text-slate-300">
+              {/* Link 클릭 시 label의 기본 동작(연결된 체크박스 토글)까지 함께 발동해 체크가
+                  풀리는 걸 막기 위해 stopPropagation — 새 탭으로 열어 작성 중인 폼 값도 보존한다. */}
+              <Link
+                href="/privacy"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(event) => event.stopPropagation()}
+                className="font-semibold text-cyan-300 underline underline-offset-2 hover:text-cyan-200"
+              >
+                개인정보 수집·이용
+              </Link>
+              {" 및 "}
+              <Link
+                href="/terms"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(event) => event.stopPropagation()}
+                className="font-semibold text-cyan-300 underline underline-offset-2 hover:text-cyan-200"
+              >
+                이용약관
+              </Link>
+              에 동의합니다
+            </label>
           </div>
 
           {state?.error ? (
