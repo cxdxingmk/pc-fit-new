@@ -21,10 +21,27 @@ export async function login(_prevState: AuthFormState, formData: FormData): Prom
     return { error: parsed.error.issues[0]?.message ?? "입력값을 확인해 주세요." };
   }
 
-  const supabase = await createClient();
+  let supabase;
+  try {
+    supabase = await createClient();
+  } catch (configError) {
+    console.error("[login] Supabase 클라이언트 생성 실패(환경변수/설정 문제일 수 있음):", configError);
+    return { error: "서버 설정 문제로 로그인을 처리할 수 없어요. 잠시 후 다시 시도해 주세요." };
+  }
+
   const { error } = await supabase.auth.signInWithPassword(parsed.data);
 
   if (error) {
+    console.error("[login] supabase.auth.signInWithPassword 실패:", {
+      message: error.message,
+      status: error.status,
+      code: (error as { code?: string }).code,
+    });
+    // 잘못된 자격증명은 400/"invalid login credentials" — 그 외(401 invalid api key, 5xx 등)는
+    // 설정/서버 문제일 수 있으므로 화면 문구만 갈라 준다(원인 상세는 위 로그로).
+    if (error.status === 401 || error.message.toLowerCase().includes("api key")) {
+      return { error: "서버 인증 설정 문제로 로그인을 처리할 수 없어요. 잠시 후 다시 시도해 주세요." };
+    }
     return { error: "이메일 또는 비밀번호가 올바르지 않아요." };
   }
 

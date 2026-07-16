@@ -30,7 +30,15 @@ export async function signup(_prevState: AuthFormState, formData: FormData): Pro
     return { error: parsed.error.issues[0]?.message ?? "입력값을 확인해 주세요." };
   }
 
-  const supabase = await createClient();
+  let supabase;
+  try {
+    supabase = await createClient();
+  } catch (configError) {
+    // 환경변수 누락 등 클라이언트 자체를 못 만든 경우 — 원문을 로그로 남긴다(Vercel Functions 로그에서 확인).
+    console.error("[signup] Supabase 클라이언트 생성 실패(환경변수/설정 문제일 수 있음):", configError);
+    return { error: "서버 설정 문제로 회원가입을 처리할 수 없어요. 잠시 후 다시 시도해 주세요." };
+  }
+
   const { data, error } = await supabase.auth.signUp({
     email: parsed.data.email,
     password: parsed.data.password,
@@ -38,7 +46,25 @@ export async function signup(_prevState: AuthFormState, formData: FormData): Pro
   });
 
   if (error) {
-    return { error: error.message.includes("already registered") ? "이미 가입된 이메일이에요." : "회원가입에 실패했어요. 다시 시도해 주세요." };
+    // 예전엔 error.message를 통째로 삼켜서 로그에도 안 남았다 — 이제 원문을 남겨 원인을 추적한다.
+    console.error("[signup] supabase.auth.signUp 실패:", {
+      message: error.message,
+      status: error.status,
+      code: (error as { code?: string }).code,
+    });
+
+    const lower = error.message.toLowerCase();
+    if (lower.includes("already registered") || lower.includes("already been registered") || lower.includes("user already")) {
+      return { error: "이미 가입된 이메일이에요." };
+    }
+    if (error.status === 429 || lower.includes("rate limit")) {
+      return { error: "요청이 많아요. 잠시 후 다시 시도해 주세요." };
+    }
+    if (error.status === 401 || lower.includes("invalid api key") || lower.includes("api key")) {
+      // 배포 환경의 Supabase 키가 잘못됐을 때 나타나는 신호 — 화면엔 일반 안내, 로그엔 원문.
+      return { error: "서버 인증 설정 문제로 회원가입을 처리할 수 없어요. 잠시 후 다시 시도해 주세요." };
+    }
+    return { error: "회원가입에 실패했어요. 잠시 후 다시 시도해 주세요." };
   }
 
   // Supabase 프로젝트의 "Confirm email" 설정은 대시보드에서만 바뀌는 값이라 코드로는 알 수 없다 —
