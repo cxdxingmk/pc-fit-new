@@ -175,6 +175,15 @@ export default function Header() {
                     >
                       🎧 고객센터
                     </button>
+                    {user.isAdmin ? (
+                      <Link
+                        href="/admin/support"
+                        onClick={() => setIsDropdownOpen(false)}
+                        className="block px-4 py-2 text-slate-200 transition hover:bg-slate-800"
+                      >
+                        🛠️ 관리자
+                      </Link>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => {
