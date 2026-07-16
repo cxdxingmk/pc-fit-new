@@ -3,16 +3,20 @@
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createClient } from "@/app/lib/supabase/server";
+import { PASSWORD_MIN_LENGTH, PASSWORD_HAS_LETTER_AND_DIGIT, PASSWORD_MISMATCH_MESSAGE } from "@/app/lib/passwordRule";
 
 const SignupSchema = z
   .object({
     nickname: z.string().trim().min(1, "닉네임을 입력해 주세요.").max(20, "닉네임은 20자 이내로 입력해 주세요."),
     email: z.email("올바른 이메일 형식이 아니에요."),
-    password: z.string().min(8, "비밀번호는 8자 이상이어야 해요."),
+    password: z
+      .string()
+      .min(PASSWORD_MIN_LENGTH, "비밀번호는 8자 이상이어야 해요.")
+      .regex(PASSWORD_HAS_LETTER_AND_DIGIT, "비밀번호에 영문과 숫자를 함께 포함해 주세요."),
     passwordConfirm: z.string(),
   })
   .refine((data) => data.password === data.passwordConfirm, {
-    message: "비밀번호가 일치하지 않아요.",
+    message: PASSWORD_MISMATCH_MESSAGE,
     path: ["passwordConfirm"],
   });
 

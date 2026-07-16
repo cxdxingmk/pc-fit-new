@@ -1,12 +1,15 @@
 "use client";
 
+import { useState } from "react";
 import { useActionState } from "react";
 import Link from "next/link";
 import { login, devLogin } from "./actions";
+import PasswordInput from "@/components/ui/PasswordInput";
 
 export default function LoginPage() {
   const [state, formAction, pending] = useActionState(login, undefined);
   const [devState, devFormAction, devPending] = useActionState(devLogin, undefined);
+  const [password, setPassword] = useState("");
 
   return (
     <main className="min-h-screen bg-slate-950 px-6 py-12 text-slate-100">
@@ -26,16 +29,17 @@ export default function LoginPage() {
             />
           </label>
 
-          <label className="block text-sm font-medium text-slate-300">
-            비밀번호
-            <input
-              type="password"
+          <div className="text-sm font-medium text-slate-300">
+            <label htmlFor="login-password">비밀번호</label>
+            <PasswordInput
+              id="login-password"
               name="password"
-              required
+              value={password}
+              onChange={setPassword}
+              autoComplete="current-password"
               placeholder="비밀번호를 입력하세요"
-              className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950 px-4 py-3 text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-cyan-400/60"
             />
-          </label>
+          </div>
 
           {state?.error ? (
             <p role="alert" className="rounded-xl bg-rose-500/10 px-4 py-3 text-sm text-rose-300 ring-1 ring-rose-500/25">
