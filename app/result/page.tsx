@@ -1,18 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useBuild } from "../context/BuildContext";
 import { recommend } from "../lib/recommender";
-import { cpus } from "../database/cpu";
-import { gpus } from "../database/gpu";
-import { getSavedPcSpec } from "../lib/pcSpecs";
+import { encodeSpec } from "../lib/specPermalink";
+import { buildPerformanceSpec } from "../lib/estimatePermalink";
 import { trackEvent } from "../lib/analytics";
 import { SectionCard, PrimaryButton, FX } from "../components/pcfit-ui";
-import RecommendationReasons from "../components/quote/RecommendationReasons";
+import { RecommendationReasonsToggle, RecommendationReasonsPanel } from "../components/quote/RecommendationReasons";
 
 import CompatibilityCard from "./components/CompatibilityCard";
-import PerformanceGateModal from "./components/PerformanceGateModal";
 import Container from "@/components/layout/Container";
 import IndependenceNotice from "@/components/ui/IndependenceNotice";
 
@@ -60,6 +58,7 @@ function EstimateAccordionCard({
   const featured = index === 0;
   const strategyTag = STRATEGY_TAGS[index] ?? STRATEGY_TAGS[STRATEGY_TAGS.length - 1];
   const performanceParts = item.parts.filter((part) => !/케이스|case/i.test(part.label));
+  const reasonsPanelId = useId();
 
   return (
     <article className={`flex flex-col gap-5 rounded-3xl bg-surface p-7 shadow-card ${FX.card} ${featured ? "ring-2 ring-brand/60 shadow-glow" : "ring-1 ring-line"}`}>
@@ -91,11 +90,18 @@ function EstimateAccordionCard({
       </dl>
 
       <div className="flex items-start justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2">
+        {/* flex-wrap이었을 때 TOP1 카드에서만(그리드 3분할의 서브픽셀 반올림으로 이 줄의 가용
+            너비가 두 버튼 합계보다 1px 미만 모자란 경우가 있었다) "추천 이유" 버튼이 다음 줄로
+            밀려 "견적 보기"와 나란히 서지 못하는 회귀가 있었다. 패널을 이 줄 밖으로 뺀 지금은
+            이 줄에 버튼 2개만 남으므로 줄바꿈이 필요할 이유가 없다 — nowrap으로 고정하고, 버튼에
+            shrink-0을 줘서 그 서브픽셀 부족분 때문에 버튼 자체가 찌그러져(내부 텍스트가 2줄로
+            밀림) 카드마다 높이가 달라지는 일도 없게 한다(0.5px 미만의 시각적으로 무의미한
+            오버플로만 남는다). */}
+        <div className="flex flex-nowrap items-center gap-2">
           <button
             type="button"
             onClick={onToggle}
-            className="inline-flex items-center gap-2 rounded-full bg-white/[0.05] px-4 py-2 text-sm font-semibold text-white/70 ring-1 ring-line transition-all hover:bg-white/[0.08]"
+            className="inline-flex shrink-0 items-center gap-2 rounded-full bg-white/[0.05] px-4 py-2 text-sm font-semibold text-white/70 ring-1 ring-line transition-all hover:bg-white/[0.08]"
             aria-expanded={isOpen}
             aria-controls={`estimate-detail-${item.id}`}
           >
@@ -114,11 +120,13 @@ function EstimateAccordionCard({
             </svg>
           </button>
 
-          <RecommendationReasons reasons={item.reason} open={reasonsOpen} onToggle={onToggleReasons} className="contents" />
+          <RecommendationReasonsToggle open={reasonsOpen} onToggle={onToggleReasons} panelId={reasonsPanelId} />
         </div>
 
         <span className="shrink-0 pt-2 text-xs font-semibold text-white/40">종합 {item.finalScore.toFixed(1)}점</span>
       </div>
+
+      <RecommendationReasonsPanel reasons={item.reason} open={reasonsOpen} panelId={reasonsPanelId} />
 
       <div
         id={`estimate-detail-${item.id}`}
@@ -162,17 +170,6 @@ function EstimateAccordionCard({
   );
 }
 
-type ModalState = {
-  isOpen: boolean;
-  isLocked: boolean;
-  estimateId: string;
-  bundleTitle: string;
-  cpuName: string;
-  gpuName: string;
-  cpuIndex: number | null;
-  gpuIndex: number | null;
-};
-
 type PanelKind = "estimate" | "reasons";
 type OpenPanel = { index: number; kind: PanelKind } | null;
 
@@ -186,16 +183,6 @@ export default function ResultPage() {
   const togglePanel = (index: number, kind: PanelKind) => {
     setOpenPanel((prev) => (prev && prev.index === index && prev.kind === kind ? null : { index, kind }));
   };
-  const [modalState, setModalState] = useState<ModalState>({
-    isOpen: false,
-    isLocked: true,
-    estimateId: "",
-    bundleTitle: "",
-    cpuName: "",
-    gpuName: "",
-    cpuIndex: null,
-    gpuIndex: null,
-  });
 
   const topResults = useMemo(
     () =>
@@ -219,22 +206,13 @@ export default function ResultPage() {
 
   const diffFlags = useMemo(() => computePartDiffFlags(topResults), [topResults]);
 
-  const openPerformanceModal = async (index: number, estimateId: string, cpuName: string, gpuName: string) => {
-    trackEvent("performance_gate_button_click", { estimateRank: index + 1, estimateId });
-    const savedPc = await getSavedPcSpec();
-    const cpuRecord = cpus.find((cpu) => cpu.name === cpuName);
-    const gpuRecord = gpus.find((gpu) => gpu.name === gpuName);
-
-    setModalState({
-      isOpen: true,
-      isLocked: savedPc === null,
-      estimateId,
-      bundleTitle: `추천 #${index + 1} 성능 보기`,
-      cpuName,
-      gpuName,
-      cpuIndex: cpuRecord?.gameScore ?? null,
-      gpuIndex: gpuRecord?.gameScore ?? null,
-    });
+  // /my-pc는 로그인/DB 저장 없이도 ?spec= 퍼머링크만으로 사양을 복원해 보여주는 페이지다
+  // (/build 자체가 비로그인으로 시작 가능하니, 그 결과 조회도 로그인을 요구하면 안 된다).
+  // 그래서 로그인 게이트 모달 대신 이 견적의 부품 id를 그대로 퍼머링크로 인코딩해 이동시킨다.
+  const viewPerformance = (item: ResultItem, index: number) => {
+    trackEvent("performance_gate_button_click", { estimateRank: index + 1, estimateId: item.id });
+    const encoded = encodeSpec(buildPerformanceSpec(item));
+    router.push(`/my-pc?spec=${encoded}`);
   };
 
   return (
@@ -266,23 +244,10 @@ export default function ResultPage() {
                   onToggle={() => togglePanel(index, "estimate")}
                   reasonsOpen={openPanel?.index === index && openPanel.kind === "reasons"}
                   onToggleReasons={() => togglePanel(index, "reasons")}
-                  onOpenPerformance={() => openPerformanceModal(index, item.id, item.cpu, item.gpu)}
+                  onOpenPerformance={() => viewPerformance(item, index)}
                 />
               ))}
             </div>
-
-            <PerformanceGateModal
-              isOpen={modalState.isOpen}
-              isLocked={modalState.isLocked}
-              onClose={() => setModalState((prev) => ({ ...prev, isOpen: false }))}
-              onGoRegister={() => router.push("/mypage/register-pc")}
-              estimateId={modalState.estimateId}
-              bundleTitle={modalState.bundleTitle}
-              cpuName={modalState.cpuName}
-              gpuName={modalState.gpuName}
-              cpuIndex={modalState.cpuIndex}
-              gpuIndex={modalState.gpuIndex}
-            />
 
             <IndependenceNotice className="mt-8" />
           </>

@@ -549,6 +549,7 @@ function buildCandidate(
     case: caseOwnership === "owned" ? "보유 케이스 사용" : "신규 케이스 포함",
     totalPrice,
     casePrice,
+    partIds: { cpu: cpu.id, gpu: gpu.id, ram: ram.id, ssd: ssd.id, motherboard: mb.id, psuWattage: psu.wattage },
     parts: [
       { label: "CPU", name: cpu.name, price: cpuPrice },
       { label: "GPU", name: gpu.name, price: gpuPrice },

@@ -77,4 +77,14 @@ export type RecommendationResult = {
   warnings: CompatibilityWarning[];
   finalScore: number;
   reason: string[];
+  /** cpu/gpu/ram/ssd/motherboard는 표시용 이름이라 카탈로그 역참조가 불안정해서(동명이인·문자열
+   *  가공 등) 실제 카탈로그 id를 별도로 들고 다닌다 — /my-pc?spec= 퍼머링크 생성에 필요. */
+  partIds: {
+    cpu: string;
+    gpu: string;
+    ram: string;
+    ssd: string;
+    motherboard: string;
+    psuWattage: number;
+  };
 };
