@@ -87,4 +87,15 @@ export type RecommendationResult = {
     motherboard: string;
     psuWattage: number;
   };
+  /** 사용자가 /build 2단계에서 "보유 중"으로 체크·지정한 부품이 이 후보에 그대로 고정됐는지 —
+   *  true인 항목은 가격이 0으로 제외돼 있다(app/lib/ownedParts.ts). /result UI가 "보유 중" 배지를
+   *  붙이는 데 쓴다. */
+  ownedParts: {
+    cpu: boolean;
+    gpu: boolean;
+    ram: boolean;
+    ssd: boolean;
+    motherboard: boolean;
+    psu: boolean;
+  };
 };

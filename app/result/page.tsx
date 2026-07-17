@@ -83,6 +83,7 @@ function EstimateAccordionCard({
             <dt className="shrink-0 text-white/35">{SUMMARY_PART_LABELS[key]}</dt>
             <dd className={`truncate text-right font-semibold ${diffFlags[key] ? "text-brand-soft" : "text-white/80"}`}>
               {item[key]}
+              {item.ownedParts[key] && <span className="ml-1.5 rounded-full bg-good/10 px-1.5 py-0.5 text-[10px] font-bold text-good">보유 중</span>}
               {diffFlags[key] && <span className="ml-1.5 text-[10px] font-bold text-brand-soft/70">차이</span>}
             </dd>
           </div>

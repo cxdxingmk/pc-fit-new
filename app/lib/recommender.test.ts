@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import { computeBudgetFactor, cpuPurposeFitScore, pickPurpose, recommend, selectDiverseCpuPool, selectDiversePool } from "./recommender";
 import type { CPU } from "../database/cpu";
 import { cpus, curatedCpus } from "../database/cpu";
+import { gpus } from "../database/gpu";
+import type { ExistingPartsState } from "../types/build";
 
 describe("pickPurpose", () => {
   it("prefers the typed purposes[] array over string parsing when both are given", () => {
@@ -288,5 +290,165 @@ describe("recommend (integration)", () => {
     expect(topCpu).toBeDefined();
     expect(topCpu!.igpu).toBe(true);
     expect(results[0].reason).toContain("내장그래픽과 전력 효율을 갖춘 사무용 CPU로 구성했습니다.");
+  });
+});
+
+function baseExistingParts(): ExistingPartsState {
+  return {
+    CPU: { enabled: false, brand: "", model: "" },
+    GPU: { enabled: false, brand: "", manufacturer: "", model: "" },
+    RAM: { enabled: false, ddr: "", capacity: "", brand: "", model: "" },
+    SSD: { enabled: false, capacity: "", brand: "", model: "" },
+    HDD: { enabled: false, capacity: "" },
+    Motherboard: { enabled: false, series: "", manufacturer: "", model: "" },
+    Power: { enabled: false, wattage: "" },
+  };
+}
+
+describe("recommend — 보유 부품(existingParts) 고정 회귀", () => {
+  // 신고된 버그: CPU를 "보유 중"으로 체크하고 구체적 모델까지 지정해도 추천 결과가 완전히
+  // 무시하고 매번 다른 CPU를 새로 구매할 부품으로 청구했다. TOP1/2/3 전부, 그리고 CPU 외
+  // GPU/RAM/SSD/메인보드/파워도 동일한 방식으로 무시되고 있었는지 전부 점검해 고정한다.
+
+  it("보유 CPU를 지정하면 TOP1/2/3 전부 그 CPU로 고정되고 가격에서 제외된다", () => {
+    const existingParts = baseExistingParts();
+    existingParts.CPU = { enabled: true, brand: "AMD", model: "Ryzen 5 5600" };
+
+    const results = recommend({ 1: ["사무"], 3: ["150~200만원"] }, existingParts, "none", ["work"]);
+    expect(results.length).toBeGreaterThan(0);
+
+    for (const result of results) {
+      expect(result.partIds.cpu).toBe("r5-5600");
+      expect(result.ownedParts.cpu).toBe(true);
+      const cpuPart = result.parts.find((p) => p.label === "CPU");
+      expect(cpuPart?.price).toBe(0);
+    }
+  });
+
+  it("보유 GPU를 지정하면 TOP1/2/3 전부 그 GPU로 고정되고 가격에서 제외된다", () => {
+    const existingParts = baseExistingParts();
+    existingParts.GPU = { enabled: true, brand: "NVIDIA", manufacturer: "", model: "GeForce RTX 4070" };
+
+    const results = recommend({ 1: ["게임"], 3: ["200~300만원"] }, existingParts, "none", ["gaming"]);
+    expect(results.length).toBeGreaterThan(0);
+
+    const expectedGpuId = gpus.find((g) => g.name === "GeForce RTX 4070")!.id;
+    for (const result of results) {
+      expect(result.partIds.gpu).toBe(expectedGpuId);
+      expect(result.ownedParts.gpu).toBe(true);
+      const gpuPart = result.parts.find((p) => p.label === "GPU");
+      expect(gpuPart?.price).toBe(0);
+    }
+  });
+
+  it("보유 RAM(규격 지정)을 지정하면 TOP1/2/3 전부 그 규격으로 고정되고 가격에서 제외된다", () => {
+    const existingParts = baseExistingParts();
+    existingParts.RAM = { enabled: true, ddr: "DDR5", capacity: "32GB", brand: "", model: "" };
+
+    const results = recommend({ 1: ["사무"], 3: ["150~200만원"] }, existingParts, "none", ["work"]);
+    expect(results.length).toBeGreaterThan(0);
+
+    for (const result of results) {
+      expect(result.partIds.ram).toBe("32-ddr5-6000");
+      expect(result.ownedParts.ram).toBe(true);
+      const ramPart = result.parts.find((p) => p.label === "RAM");
+      expect(ramPart?.price).toBe(0);
+    }
+  });
+
+  it("보유 SSD(용량 지정)를 지정하면 TOP1/2/3 전부 그 용량으로 고정되고 가격에서 제외된다", () => {
+    const existingParts = baseExistingParts();
+    existingParts.SSD = { enabled: true, capacity: "1TB", brand: "", model: "" };
+
+    const results = recommend({ 1: ["사무"], 3: ["150~200만원"] }, existingParts, "none", ["work"]);
+    expect(results.length).toBeGreaterThan(0);
+
+    for (const result of results) {
+      expect(result.ownedParts.ssd).toBe(true);
+      const ssdPart = result.parts.find((p) => p.label === "SSD");
+      expect(ssdPart?.price).toBe(0);
+    }
+  });
+
+  it("보유 메인보드(시리즈+모델)를 지정하면 TOP1/2/3 전부 그 보드로 고정되고 가격에서 제외된다", () => {
+    const existingParts = baseExistingParts();
+    existingParts.Motherboard = { enabled: true, series: "AMD B", manufacturer: "GIGABYTE", model: "650" };
+
+    const results = recommend({ 1: ["사무"], 3: ["150~200만원"] }, existingParts, "none", ["work"]);
+    expect(results.length).toBeGreaterThan(0);
+
+    for (const result of results) {
+      expect(result.partIds.motherboard).toBe("b650m-aorus-elite");
+      expect(result.ownedParts.motherboard).toBe(true);
+      const mbPart = result.parts.find((p) => p.label === "메인보드");
+      expect(mbPart?.price).toBe(0);
+    }
+  });
+
+  it("보유 파워(와트수)를 지정하면 TOP1/2/3 전부 그 와트수로 고정되고 가격에서 제외된다", () => {
+    const existingParts = baseExistingParts();
+    existingParts.Power = { enabled: true, wattage: "850W" };
+
+    const results = recommend({ 1: ["사무"], 3: ["150~200만원"] }, existingParts, "none", ["work"]);
+    expect(results.length).toBeGreaterThan(0);
+
+    for (const result of results) {
+      expect(result.partIds.psuWattage).toBe(850);
+      expect(result.ownedParts.psu).toBe(true);
+      const psuPart = result.parts.find((p) => p.label === "파워");
+      expect(psuPart?.price).toBe(0);
+    }
+  });
+
+  it("보유 부품이 제외된 만큼 미보유 상태보다 총액이 낮다(가격 제외 검증)", () => {
+    const existingParts = baseExistingParts();
+    existingParts.CPU = { enabled: true, brand: "AMD", model: "Ryzen 5 5600" };
+
+    const withOwnedCpu = recommend({ 1: ["사무"], 3: ["150~200만원"] }, existingParts, "none", ["work"]);
+    const withoutOwnedCpu = recommend({ 1: ["사무"], 3: ["150~200만원"] }, baseExistingParts(), "none", ["work"]);
+
+    expect(withOwnedCpu.length).toBeGreaterThan(0);
+    expect(withoutOwnedCpu.length).toBeGreaterThan(0);
+    // 보유 CPU 견적의 부품별 가격 합(케이스 포함, parts에 이미 케이스 항목이 있다)이 실제로
+    // totalPrice와 일치하고(CPU=0 포함), 미보유 견적보다 싸다.
+    const ownedTotal = withOwnedCpu[0].parts.reduce((sum, p) => sum + p.price, 0);
+    expect(ownedTotal).toBe(withOwnedCpu[0].totalPrice);
+    expect(withOwnedCpu[0].totalPrice).toBeLessThan(withoutOwnedCpu[0].totalPrice);
+  });
+
+  it("보유 RAM(DDR4)이 나머지 부품과 호환되도록 캐스케이드된다 — TOP1의 CPU도 DDR4 호환이다", () => {
+    const existingParts = baseExistingParts();
+    existingParts.RAM = { enabled: true, ddr: "DDR4", capacity: "16GB", brand: "", model: "" };
+
+    const results = recommend({ 1: ["사무"], 3: ["100만원 이하"] }, existingParts, "none", ["work"]);
+    expect(results.length).toBeGreaterThan(0);
+
+    for (const result of results) {
+      const cpu = cpus.find((c) => c.id === result.partIds.cpu);
+      expect(cpu?.ddr).toBe("DDR4");
+    }
+  });
+
+  it("여러 부품을 동시에 보유 지정해도 전부 함께 고정된다(CPU+GPU+RAM)", () => {
+    const existingParts = baseExistingParts();
+    existingParts.CPU = { enabled: true, brand: "AMD", model: "Ryzen 5 5600" };
+    existingParts.GPU = { enabled: true, brand: "NVIDIA", manufacturer: "", model: "GeForce GTX 1660 SUPER" };
+    existingParts.RAM = { enabled: true, ddr: "DDR4", capacity: "16GB", brand: "", model: "" };
+
+    const results = recommend({ 1: ["사무"], 3: ["100만원 이하"] }, existingParts, "none", ["work"]);
+    expect(results.length).toBeGreaterThan(0);
+
+    for (const result of results) {
+      expect(result.partIds.cpu).toBe("r5-5600");
+      expect(result.ownedParts.cpu).toBe(true);
+      expect(result.ownedParts.gpu).toBe(true);
+      expect(result.ownedParts.ram).toBe(true);
+      const cpuPart = result.parts.find((p) => p.label === "CPU");
+      const gpuPart = result.parts.find((p) => p.label === "GPU");
+      const ramPart = result.parts.find((p) => p.label === "RAM");
+      expect(cpuPart?.price).toBe(0);
+      expect(gpuPart?.price).toBe(0);
+      expect(ramPart?.price).toBe(0);
+    }
   });
 });

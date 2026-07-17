@@ -1,6 +1,7 @@
 import { compatibilityScore, recencyBoost } from "./compatibility";
 import { getCpuBenchmark } from "../../database/mapping/cpuMap";
 import { getGpuBenchmark } from "../../database/mapping/gpuMap";
+import { resolveOwnedParts, buildOwnedPsuRepresentative, type ResolvedOwnedParts } from "./ownedParts";
 
 // synchronous local DB imports for backward-compatible recommend()
 import { cpus as _cpus } from "../database/cpu";
@@ -371,16 +372,28 @@ export function generateCandidates(
   // 목적 하나짜리 배열로 취급해 기존 동작과 동일하게 폴백한다.
   purposes: Purpose[] = [purpose]
 ): RecommendationResult[] {
-  const cpuPool = selectDiverseCpuPool(cpus, purposes, CPU_POOL_PER_TIER);
-  const gpuPool = selectDiversePool(gpus, purpose, GPU_POOL_PER_TIER);
-  const mbsBySocketDdr = groupMotherboardsBySocketAndDdr(mbs);
+  // /build 2단계에서 "보유 중"으로 체크하고 모델까지 지정한 부품은 새로 사는 후보군에서
+  // 완전히 자유롭게 재최적화하는 대신 이 값 하나로 고정한다 — 후보 풀 자체를 [보유 부품]
+  // 싱글턴으로 좁히면, 아래 기존 소켓/DDR 호환성 캐스케이드(mbsBySocketDdr/ramsByDdr)가
+  // 그대로 "나머지 부품이 보유 부품과 호환되는가"까지 자동으로 처리해준다(예: DDR4 RAM을
+  // 보유 중이면 DDR5 전용 CPU는 ramsToUse가 비어 자연히 후보에서 빠진다).
+  const owned = resolveOwnedParts(existingParts, { cpus, gpus, rams, ssds, motherboards: mbs });
+
+  const cpuPool = owned.cpu ? [owned.cpu] : selectDiverseCpuPool(cpus, purposes, CPU_POOL_PER_TIER);
+  const gpuPool = owned.gpu ? [owned.gpu] : selectDiversePool(gpus, purpose, GPU_POOL_PER_TIER);
+  const ramCandidates = owned.ram ? [owned.ram] : rams;
+  const ssdCandidates = owned.ssd ? [owned.ssd] : ssds;
+  const mbCandidates = owned.motherboard ? [owned.motherboard] : mbs;
+  const psuCandidates = owned.psuWattage !== null ? [buildOwnedPsuRepresentative(owned.psuWattage, psus)] : psus;
+
+  const mbsBySocketDdr = groupMotherboardsBySocketAndDdr(mbCandidates);
   const mbsBySocket = new Map<string, MotherBoard[]>();
-  for (const mb of mbs) {
+  for (const mb of mbCandidates) {
     const bucket = mbsBySocket.get(mb.socket);
     if (bucket) bucket.push(mb);
     else mbsBySocket.set(mb.socket, [mb]);
   }
-  const ramsByDdr = groupRamsByDdr(rams);
+  const ramsByDdr = groupRamsByDdr(ramCandidates);
 
   // buildKey(핵심 부품 조합: cpu+gpu+mb+psu)와 gpu.id, 원시 성능점수를 함께 추적해
   // 최종 랭킹 단계에서 결정적 동점자 비교 + 완전 중복 제거 + GPU 편중 완화 필터를 적용한다.
@@ -393,7 +406,7 @@ export function generateCandidates(
 
     for (const gpu of gpuPool) {
       // cpu+gpu 조합만으로 이미 전력 요구치가 보유 파워를 넘으면 ram/ssd/mb/psu까지 내려갈 필요가 없다.
-      const powerLimit = existingParts.Power.enabled ? parseWattage(existingParts.Power.wattage) : null;
+      const powerLimit = owned.psuWattage;
       if (powerLimit && powerLimit < cpu.tdp + gpu.tgp + 150) continue;
 
       // 결정적 동점자 비교용 원시 성능점수 — buildCandidate 내부의 cpuScore/gpuScore 산출식과 동일하다.
@@ -405,22 +418,27 @@ export function generateCandidates(
 
       // 메인보드 품질 하한선 — CPU TDP가 높을수록(=발열/전력 부하가 큰 CPU) 검증된 VRM
       // 설계의 보드만 허용한다. qualityScore 없는 레거시 항목은 하한선 적용 없이 통과.
+      // 단, 이미 보유 중인 메인보드는 "새로 살 보드 추천"이 아니므로 이 품질 하한선을 적용하지
+      // 않는다 — 적용하면 사용자가 이미 갖고 있는 보드가 단지 등급이 낮다는 이유로 결과 자체가
+      // 통째로 사라져버린다.
       const minBoardQuality = cpu.tdp >= 150 ? 78 : cpu.tdp >= 100 ? 65 : 0;
 
       for (const ram of ramsToUse) {
-        for (const ssd of ssds) {
+        for (const ssd of ssdCandidates) {
           for (const mb of motherboardsToUse) {
             if (mb.ddr !== ram.ddr) continue;
-            if (typeof mb.qualityScore === "number" && mb.qualityScore < minBoardQuality) continue;
+            if (!owned.motherboard && typeof mb.qualityScore === "number" && mb.qualityScore < minBoardQuality) continue;
 
-            for (const psu of psus) {
+            for (const psu of psuCandidates) {
               // 메인보드/PSU 결합: 소켓·DDR 호환 메인보드(위에서 이미 필터링)에
               // 부하 기준 충분 용량 PSU만 결합한다 — 용량 미달 PSU는 감점이 아니라 원천 제외.
+              // 보유 파워도 예외 없이 이 하드 컷을 받는다(전력 부족은 품질 문제가 아니라 실사용
+              // 불가 문제라 보유 여부와 무관하게 걸러야 한다).
               if (psu.wattage < cpu.tdp + gpu.tgp + 150) continue;
-              // PSU 신뢰도 하한선 — qualityScore 없는 레거시 항목은 하한선 적용 없이 통과.
-              if (typeof psu.qualityScore === "number" && psu.qualityScore < 70) continue;
+              // PSU 신뢰도 하한선 — qualityScore 없는 레거시 항목/보유 파워는 하한선 적용 없이 통과.
+              if (owned.psuWattage === null && typeof psu.qualityScore === "number" && psu.qualityScore < 70) continue;
 
-              const built = buildCandidate(cpu, gpu, ram, ssd, mb, psu, purpose, budgetTarget, existingParts, caseOwnership, budgetMin, purposes);
+              const built = buildCandidate(cpu, gpu, ram, ssd, mb, psu, purpose, budgetTarget, existingParts, caseOwnership, budgetMin, purposes, owned);
               if (built) {
                 pool.push({
                   candidate: built.result,
@@ -555,7 +573,9 @@ function buildCandidate(
   caseOwnership: CaseOwnershipOption,
   budgetMin: number | null,
   // 동시에 선택된 모든 용도 — CPU 항목(baseScore)에만 쓰인다(용도별 CPU 추천 후보군 로직).
-  purposes: Purpose[] = [purpose]
+  purposes: Purpose[] = [purpose],
+  // 보유 부품으로 고정된 항목 — 가격을 0으로 제외하고 "보유 중" 표시를 붙이는 데 쓴다.
+  owned: ResolvedOwnedParts = { cpu: null, gpu: null, ram: null, ssd: null, motherboard: null, psuWattage: null }
 ): { result: RecommendationResult; normalizedBaseScore: number } | null {
   const { score: compatibilityScoreVal, warnings } = compatibilityScore(
     cpu,
@@ -603,16 +623,27 @@ function buildCandidate(
   // 곱해 넣어 경고가 있으면 그만큼 감점되게 하고, 더 깔끔한 대안이 있으면 자연히 밀려나게 한다.
   const normalizedBaseScore = (baseScore * 0.88 + recency * 0.12) * (compatibilityScoreVal / 100);
 
-  const cpuPrice = priceTierToPrice[cpu.priceTier] ?? 0;
-  const gpuPrice = priceTierToPrice[gpu.priceTier] ?? 0;
+  // 보유 중으로 고정된 항목은 새로 사지 않으므로 가격을 0으로 제외한다(케이스가 이미 이 패턴 —
+  // caseOwnership === "owned" ? 0 : CASE_PRICE — 을 쓰고 있어 그대로 확장했다).
+  const isOwnedCpu = owned.cpu?.id === cpu.id;
+  const isOwnedGpu = owned.gpu?.id === gpu.id;
+  const isOwnedRam = owned.ram?.id === ram.id;
+  const isOwnedSsd = owned.ssd?.id === ssd.id;
+  const isOwnedMotherboard = owned.motherboard?.id === mb.id;
+  const isOwnedPsu = owned.psuWattage !== null;
+
+  const cpuPrice = isOwnedCpu ? 0 : priceTierToPrice[cpu.priceTier] ?? 0;
+  const gpuPrice = isOwnedGpu ? 0 : priceTierToPrice[gpu.priceTier] ?? 0;
   // RAM은 모든 카탈로그 항목에 실거래가(price)가 있으므로 그걸 그대로 쓴다 — priceTier 폴백을
   // 쓰면 8GB든 64GB든 같은 티어면 같은 가격이 나오는 문제가 있었다(예: 32GB DDR5가 50만원).
-  const ramPrice = ram.price;
-  const ssdPrice = priceTierToPrice[ssd.priceTier] ?? 0;
+  const ramPrice = isOwnedRam ? 0 : ram.price;
+  const ssdPrice = isOwnedSsd ? 0 : priceTierToPrice[ssd.priceTier] ?? 0;
   // hardwareSeed.ts 병합분은 priceTier 대신 실거래가(price)를 들고 있다 — 있으면 우선 사용.
-  const motherboardPrice = mb.price ?? (mb.priceTier ? priceTierToPrice[mb.priceTier] : 0) ?? 0;
-  const psuPrice = psu.price ?? (psu.priceTier ? priceTierToPrice[psu.priceTier] : 0) ?? 0;
+  const motherboardPrice = isOwnedMotherboard ? 0 : mb.price ?? (mb.priceTier ? priceTierToPrice[mb.priceTier] : 0) ?? 0;
+  const psuPrice = isOwnedPsu ? 0 : psu.price ?? (psu.priceTier ? priceTierToPrice[psu.priceTier] : 0) ?? 0;
   const casePrice = caseOwnership === "owned" ? 0 : CASE_PRICE;
+
+  const ownedTag = (isOwned: boolean, name: string) => (isOwned ? `${name} (보유 중)` : name);
 
   const totalPrice = cpuPrice + gpuPrice + ramPrice + ssdPrice + motherboardPrice + psuPrice + casePrice;
 
@@ -637,18 +668,26 @@ function buildCandidate(
     ram: ram.name,
     ssd: `${ssd.capacity}GB ${ssd.interface}`,
     motherboard: mb.name,
-    power: `${psu.wattage}W 추천 파워`,
+    power: isOwnedPsu ? `${psu.wattage}W 보유 파워` : `${psu.wattage}W 추천 파워`,
     case: caseOwnership === "owned" ? "보유 케이스 사용" : "신규 케이스 포함",
     totalPrice,
     casePrice,
     partIds: { cpu: cpu.id, gpu: gpu.id, ram: ram.id, ssd: ssd.id, motherboard: mb.id, psuWattage: psu.wattage },
+    ownedParts: {
+      cpu: isOwnedCpu,
+      gpu: isOwnedGpu,
+      ram: isOwnedRam,
+      ssd: isOwnedSsd,
+      motherboard: isOwnedMotherboard,
+      psu: isOwnedPsu,
+    },
     parts: [
-      { label: "CPU", name: cpu.name, price: cpuPrice },
-      { label: "GPU", name: gpu.name, price: gpuPrice },
-      { label: "RAM", name: ram.name, price: ramPrice },
-      { label: "SSD", name: `${ssd.capacity}GB ${ssd.interface}`, price: ssdPrice },
-      { label: "메인보드", name: mb.name, price: motherboardPrice },
-      { label: "파워", name: `${psu.wattage}W ${psu.name}`, price: psuPrice },
+      { label: "CPU", name: ownedTag(isOwnedCpu, cpu.name), price: cpuPrice },
+      { label: "GPU", name: ownedTag(isOwnedGpu, gpu.name), price: gpuPrice },
+      { label: "RAM", name: ownedTag(isOwnedRam, ram.name), price: ramPrice },
+      { label: "SSD", name: ownedTag(isOwnedSsd, `${ssd.capacity}GB ${ssd.interface}`), price: ssdPrice },
+      { label: "메인보드", name: ownedTag(isOwnedMotherboard, mb.name), price: motherboardPrice },
+      { label: "파워", name: isOwnedPsu ? `${psu.wattage}W 보유 파워` : `${psu.wattage}W ${psu.name}`, price: psuPrice },
       { label: "케이스", name: caseOwnership === "owned" ? "보유 케이스" : "추천 케이스", price: casePrice },
     ],
     compatibilityScore: compatibilityScoreVal,
