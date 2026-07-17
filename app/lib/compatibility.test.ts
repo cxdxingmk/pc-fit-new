@@ -26,6 +26,9 @@ function makeCpu(overrides: Partial<CPU> = {}): CPU {
     gameScore: 90,
     workScore: 88,
     aiScore: 85,
+    singleCoreScore: 85,
+    multiCoreScore: 80,
+    efficiencyScore: 70,
     priceTier: "mid",
     ...overrides,
   };

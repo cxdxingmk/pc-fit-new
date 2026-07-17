@@ -32,6 +32,13 @@ export interface CPU {
   workScore: number;
   aiScore: number;
 
+  /** 싱글코어 성능(IPC×클럭 위주) — CAD/3D 모델링처럼 싱글스레드 의존도가 높은 작업의 적합도 판단에 쓴다. */
+  singleCoreScore: number;
+  /** 멀티코어 성능(코어·스레드 수 위주) — 인코딩/렌더링/컴파일 등 병렬화가 잘 되는 작업의 적합도 판단에 쓴다. */
+  multiCoreScore: number;
+  /** 저전력/사무용 적합도(TDP 대비 성능) — 사무용 추천에서 고성능 게이밍 CPU보다 우선시된다. */
+  efficiencyScore: number;
+
   priceTier: "budget" | "mid" | "high" | "enthusiast";
 }
 
@@ -56,6 +63,9 @@ const curatedCpus: CPU[] = [
     gameScore: 99,
     workScore: 99,
     aiScore: 99,
+    singleCoreScore: 97,
+    multiCoreScore: 100,
+    efficiencyScore: 55,
     priceTier: "enthusiast",
   },
   {
@@ -76,6 +86,9 @@ const curatedCpus: CPU[] = [
     gameScore: 100,
     workScore: 94,
     aiScore: 90,
+    singleCoreScore: 92,
+    multiCoreScore: 78,
+    efficiencyScore: 70,
     priceTier: "high",
   },
   {
@@ -96,6 +109,9 @@ const curatedCpus: CPU[] = [
     gameScore: 97,
     workScore: 98,
     aiScore: 97,
+    singleCoreScore: 88,
+    multiCoreScore: 98,
+    efficiencyScore: 80,
     priceTier: "enthusiast",
   },
   {
@@ -116,6 +132,9 @@ const curatedCpus: CPU[] = [
     gameScore: 92,
     workScore: 96,
     aiScore: 93,
+    singleCoreScore: 85,
+    multiCoreScore: 90,
+    efficiencyScore: 78,
     priceTier: "high",
   },
   {
@@ -136,6 +155,9 @@ const curatedCpus: CPU[] = [
     gameScore: 93,
     workScore: 91,
     aiScore: 86,
+    singleCoreScore: 88,
+    multiCoreScore: 75,
+    efficiencyScore: 90,
     priceTier: "mid",
   },
   {
@@ -156,6 +178,9 @@ const curatedCpus: CPU[] = [
     gameScore: 92,
     workScore: 91,
     aiScore: 84,
+    singleCoreScore: 82,
+    multiCoreScore: 80,
+    efficiencyScore: 55,
     priceTier: "mid",
   },
   {
@@ -176,6 +201,9 @@ const curatedCpus: CPU[] = [
     gameScore: 90,
     workScore: 88,
     aiScore: 82,
+    singleCoreScore: 85,
+    multiCoreScore: 62,
+    efficiencyScore: 88,
     priceTier: "mid",
   },
   {
@@ -196,6 +224,9 @@ const curatedCpus: CPU[] = [
     gameScore: 88,
     workScore: 86,
     aiScore: 80,
+    singleCoreScore: 78,
+    multiCoreScore: 74,
+    efficiencyScore: 60,
     priceTier: "mid",
   },
   {
@@ -216,6 +247,9 @@ const curatedCpus: CPU[] = [
     gameScore: 84,
     workScore: 84,
     aiScore: 75,
+    singleCoreScore: 68,
+    multiCoreScore: 60,
+    efficiencyScore: 78,
     priceTier: "budget",
   },
   {
@@ -236,6 +270,9 @@ const curatedCpus: CPU[] = [
     gameScore: 98,
     workScore: 99,
     aiScore: 95,
+    singleCoreScore: 93,
+    multiCoreScore: 96,
+    efficiencyScore: 40,
     priceTier: "enthusiast",
   },
   {
@@ -256,6 +293,9 @@ const curatedCpus: CPU[] = [
     gameScore: 95,
     workScore: 96,
     aiScore: 90,
+    singleCoreScore: 88,
+    multiCoreScore: 90,
+    efficiencyScore: 48,
     priceTier: "high",
   },
   {
@@ -276,6 +316,9 @@ const curatedCpus: CPU[] = [
     gameScore: 98,
     workScore: 93,
     aiScore: 88,
+    singleCoreScore: 87,
+    multiCoreScore: 74,
+    efficiencyScore: 82,
     priceTier: "high",
   },
   {
@@ -296,6 +339,9 @@ const curatedCpus: CPU[] = [
     gameScore: 88,
     workScore: 86,
     aiScore: 78,
+    singleCoreScore: 80,
+    multiCoreScore: 70,
+    efficiencyScore: 85,
     priceTier: "mid",
   },
   {
@@ -316,6 +362,9 @@ const curatedCpus: CPU[] = [
     gameScore: 80,
     workScore: 76,
     aiScore: 70,
+    singleCoreScore: 65,
+    multiCoreScore: 48,
+    efficiencyScore: 80,
     priceTier: "budget",
   },
   {
@@ -336,6 +385,9 @@ const curatedCpus: CPU[] = [
     gameScore: 78,
     workScore: 74,
     aiScore: 68,
+    singleCoreScore: 62,
+    multiCoreScore: 45,
+    efficiencyScore: 82,
     priceTier: "budget",
   },
 ];

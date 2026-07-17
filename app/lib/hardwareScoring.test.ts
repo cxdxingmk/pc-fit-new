@@ -26,6 +26,9 @@ const curatedCpuAnchors: CPU[] = [
     gameScore: 78,
     workScore: 74,
     aiScore: 68,
+    singleCoreScore: 65,
+    multiCoreScore: 48,
+    efficiencyScore: 75,
     priceTier: "budget",
   },
   {
@@ -46,6 +49,9 @@ const curatedCpuAnchors: CPU[] = [
     gameScore: 99,
     workScore: 99,
     aiScore: 99,
+    singleCoreScore: 97,
+    multiCoreScore: 100,
+    efficiencyScore: 55,
     priceTier: "enthusiast",
   },
 ];
@@ -119,6 +125,16 @@ describe("buildAdditionalCpus", () => {
     expect(entry.gameScore).toBeLessThanOrEqual(100);
     // between the two anchors' scores directionally (more cores/clock than the budget anchor)
     expect(entry.gameScore).toBeGreaterThan(curatedCpuAnchors[0].gameScore);
+
+    expect(Number.isNaN(entry.singleCoreScore)).toBe(false);
+    expect(Number.isNaN(entry.multiCoreScore)).toBe(false);
+    expect(Number.isNaN(entry.efficiencyScore)).toBe(false);
+    expect(entry.singleCoreScore).toBeGreaterThan(0);
+    expect(entry.singleCoreScore).toBeLessThanOrEqual(100);
+    expect(entry.multiCoreScore).toBeGreaterThan(0);
+    expect(entry.multiCoreScore).toBeLessThanOrEqual(100);
+    expect(entry.efficiencyScore).toBeGreaterThan(0);
+    expect(entry.efficiencyScore).toBeLessThanOrEqual(100);
   });
 });
 
@@ -153,6 +169,9 @@ describe("merged app/database catalogs (real data regression check)", () => {
       expect(Number.isNaN(cpu.gameScore)).toBe(false);
       expect(Number.isNaN(cpu.workScore)).toBe(false);
       expect(Number.isNaN(cpu.aiScore)).toBe(false);
+      expect(Number.isNaN(cpu.singleCoreScore)).toBe(false);
+      expect(Number.isNaN(cpu.multiCoreScore)).toBe(false);
+      expect(Number.isNaN(cpu.efficiencyScore)).toBe(false);
     }
     for (const gpu of mergedGpus) {
       expect(Number.isNaN(gpu.gameScore)).toBe(false);

@@ -1,5 +1,9 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { computeBudgetFactor, pickPurpose, recommend, selectDiversePool } from "./recommender";
+import { computeBudgetFactor, cpuPurposeFitScore, pickPurpose, recommend, selectDiverseCpuPool, selectDiversePool } from "./recommender";
+import type { CPU } from "../database/cpu";
+import { cpus, curatedCpus } from "../database/cpu";
 
 describe("pickPurpose", () => {
   it("prefers the typed purposes[] array over string parsing when both are given", () => {
@@ -97,6 +101,130 @@ describe("selectDiversePool", () => {
   });
 });
 
+function makeCpu(overrides: Partial<CPU> = {}): CPU {
+  return {
+    id: "test-cpu",
+    name: "Test CPU",
+    brand: "AMD",
+    socket: "AM5",
+    cores: 8,
+    threads: 16,
+    baseClock: 4.0,
+    boostClock: 5.0,
+    cache: 32,
+    tdp: 105,
+    igpu: true,
+    ddr: "DDR5",
+    pcie: "5.0",
+    releaseYear: 2024,
+    gameScore: 80,
+    workScore: 78,
+    aiScore: 75,
+    singleCoreScore: 80,
+    multiCoreScore: 80,
+    efficiencyScore: 70,
+    priceTier: "mid",
+    ...overrides,
+  };
+}
+
+describe("cpuPurposeFitScore — 용도별 CPU 후보 우선순위", () => {
+  it("게임 용도는 gamingScore(gameScore)를 그대로 쓴다 — 3D V-Cache 계열이 이미 최상위권으로 반영돼 있다", () => {
+    const x3d = makeCpu({ id: "r7-9800x3d-like", gameScore: 100 });
+    const nonX3d = makeCpu({ id: "generic", gameScore: 90 });
+
+    expect(cpuPurposeFitScore(x3d, ["gaming"])).toBe(100);
+    expect(cpuPurposeFitScore(x3d, ["gaming"])).toBeGreaterThan(cpuPurposeFitScore(nonX3d, ["gaming"]));
+  });
+
+  it("실제 카탈로그에서도 게임 용도 1순위 CPU는 gameScore가 가장 높은 CPU다(회귀 방지)", () => {
+    const best = [...curatedCpus].sort((a, b) => cpuPurposeFitScore(b, ["gaming"]) - cpuPurposeFitScore(a, ["gaming"]))[0];
+    const maxGameScore = Math.max(...curatedCpus.map((c) => c.gameScore));
+    expect(best.gameScore).toBe(maxGameScore);
+  });
+
+  it("사무 용도는 내장그래픽(hasIntegratedGraphics) 있는 CPU를 우선한다 — 다른 스탯이 전부 열세여도", () => {
+    const withIgpu = makeCpu({ id: "with-igpu", igpu: true, efficiencyScore: 70, gameScore: 75, multiCoreScore: 70, singleCoreScore: 70 });
+    // 내장그래픽만 없을 뿐 효율/게임/멀티코어 점수는 전부 더 높게 설정 — 그래도 사무 용도에선 밀려야 한다.
+    const withoutIgpu = makeCpu({ id: "without-igpu", igpu: false, efficiencyScore: 95, gameScore: 95, multiCoreScore: 95, singleCoreScore: 95 });
+
+    expect(cpuPurposeFitScore(withIgpu, ["work"])).toBeGreaterThan(cpuPurposeFitScore(withoutIgpu, ["work"]));
+  });
+
+  it("사무 용도는 같은 내장그래픽 조건에서 efficiencyScore가 높을수록, gameScore가 높을수록(게이밍 특화) 페널티를 받는다", () => {
+    const efficient = makeCpu({ igpu: true, efficiencyScore: 90, gameScore: 60 });
+    const gamingLeaning = makeCpu({ igpu: true, efficiencyScore: 90, gameScore: 95 });
+    expect(cpuPurposeFitScore(efficient, ["work"])).toBeGreaterThan(cpuPurposeFitScore(gamingLeaning, ["work"]));
+  });
+
+  it("영상/방송/AI/개발 용도는 multiCoreScore를 그대로 쓴다", () => {
+    const cpu = makeCpu({ multiCoreScore: 88 });
+    for (const purpose of ["video", "stream", "ai", "dev"] as const) {
+      expect(cpuPurposeFitScore(cpu, [purpose])).toBe(88);
+    }
+  });
+
+  it("건축/3D/CAD 용도는 singleCoreScore와 multiCoreScore의 가중 평균(50/50)이다", () => {
+    const cpu = makeCpu({ singleCoreScore: 90, multiCoreScore: 60 });
+    expect(cpuPurposeFitScore(cpu, ["cad"])).toBeCloseTo(75, 5);
+  });
+
+  it("기타(직접 입력) 용도는 게임/멀티코어의 중간값이다", () => {
+    const cpu = makeCpu({ gameScore: 80, multiCoreScore: 60 });
+    expect(cpuPurposeFitScore(cpu, ["etc"])).toBeCloseTo(70, 5);
+  });
+
+  it("여러 용도를 동시에 선택하면 각 용도 점수의 가중 평균(단순 평균)이 된다", () => {
+    const cpu = makeCpu({ gameScore: 100, multiCoreScore: 40 });
+    // gaming(=gameScore=100)과 video(=multiCoreScore=40)를 동시에 선택 -> 평균 70
+    expect(cpuPurposeFitScore(cpu, ["gaming", "video"])).toBeCloseTo(70, 5);
+  });
+});
+
+describe("selectDiverseCpuPool — 용도 기반 CPU 다양성 풀", () => {
+  it("게임 용도에서 각 가격 티어의 대표 CPU는 그 티어 안에서 gameScore가 가장 높은 CPU다", () => {
+    const pool = selectDiverseCpuPool(curatedCpus, ["gaming"], 1);
+    for (const cpu of pool) {
+      const sameTier = curatedCpus.filter((c) => c.priceTier === cpu.priceTier);
+      const maxInTier = Math.max(...sameTier.map((c) => c.gameScore));
+      expect(cpu.gameScore).toBe(maxInTier);
+    }
+  });
+
+  it("사무 용도에서 티어별 대표 CPU는 내장그래픽이 없는 동일 티어 CPU보다 항상 우선 채택된다", () => {
+    const pool = selectDiverseCpuPool(curatedCpus, ["work"], 1);
+    for (const cpu of pool) {
+      const sameTierWithIgpu = curatedCpus.some((c) => c.priceTier === cpu.priceTier && c.igpu);
+      if (sameTierWithIgpu) {
+        expect(cpu.igpu).toBe(true);
+      }
+    }
+  });
+});
+
+describe("CPU 추천 로직에 브랜드 하드코딩 배제 규칙이 없는지 확인", () => {
+  it("recommender.ts 소스 어디에도 CPU 브랜드(Intel/AMD)를 이유로 배제/필터링하는 조건이 없다", () => {
+    const source = readFileSync(join(__dirname, "recommender.ts"), "utf-8");
+    // cpu.brand를 조건문에서 비교하는 패턴 자체가 없어야 한다(대소문자 무관, 공백 허용).
+    expect(source).not.toMatch(/\.brand\s*(===|!==)\s*["'](AMD|Intel)["']/i);
+    expect(source).not.toMatch(/brand\s*(===|!==)\s*["'](AMD|Intel)["']/i);
+  });
+
+  it("hardwareScoring.ts(카탈로그 확장 로직) 소스에도 브랜드 배제 조건이 없다", () => {
+    const source = readFileSync(join(__dirname, "hardwareScoring.ts"), "utf-8");
+    expect(source).not.toMatch(/\.brand\s*(===|!==)\s*["'](AMD|Intel)["']/i);
+  });
+
+  it("동일 성능 특성을 가진 Intel/AMD CPU는 브랜드와 무관하게 동일한 적합도 점수를 받는다", () => {
+    const intelCpu = makeCpu({ id: "intel-twin", brand: "Intel", gameScore: 92, multiCoreScore: 85 });
+    const amdCpu = makeCpu({ id: "amd-twin", brand: "AMD", gameScore: 92, multiCoreScore: 85 });
+
+    for (const purpose of ["gaming", "work", "video", "cad", "etc"] as const) {
+      expect(cpuPurposeFitScore(intelCpu, [purpose])).toBe(cpuPurposeFitScore(amdCpu, [purpose]));
+    }
+  });
+});
+
 describe("recommend (integration)", () => {
   const existingParts = {
     CPU: { enabled: false, brand: "" as const, model: "" },
@@ -140,5 +268,25 @@ describe("recommend (integration)", () => {
     const expensive = recommend({ 1: ["게임"], 3: ["300만원 이상"] }, existingParts, "none");
 
     expect(cheap[0].totalPrice).toBeLessThan(expensive[0].totalPrice);
+  });
+
+  it("(검증 1) 게임 용도 + 넉넉한 예산 -> TOP1 CPU는 게임 벤치마크 상위권(gameScore>=90)이다", () => {
+    const results = recommend({ 1: ["게임"], 3: ["300만원 이상"] }, existingParts, "none", ["gaming"]);
+    expect(results.length).toBeGreaterThan(0);
+
+    const topCpu = cpus.find((c) => c.id === results[0].partIds.cpu);
+    expect(topCpu).toBeDefined();
+    expect(topCpu!.gameScore).toBeGreaterThanOrEqual(90);
+    expect(results[0].reason).toContain("게이밍 벤치마크 기준 상위권 CPU로 구성했습니다.");
+  });
+
+  it("(검증 2) 사무 용도 + 저예산 -> TOP1 CPU는 내장그래픽(hasIntegratedGraphics)을 갖췄다", () => {
+    const results = recommend({ 1: ["사무"], 3: ["100만원 이하"] }, existingParts, "none", ["work"]);
+    expect(results.length).toBeGreaterThan(0);
+
+    const topCpu = cpus.find((c) => c.id === results[0].partIds.cpu);
+    expect(topCpu).toBeDefined();
+    expect(topCpu!.igpu).toBe(true);
+    expect(results[0].reason).toContain("내장그래픽과 전력 효율을 갖춘 사무용 CPU로 구성했습니다.");
   });
 });

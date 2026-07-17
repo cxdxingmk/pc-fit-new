@@ -108,6 +108,20 @@ function cpuFeature(c: { cores: number; threads: number; baseClock: number; rele
   return [1, c.cores, c.threads, c.baseClock, c.releaseYear - 2015];
 }
 
+// singleCoreScore/multiCoreScore/efficiencyScore용 별도 feature — tdp를 추가로 넣는다(특히
+// efficiencyScore는 코어수/클럭보다 TDP가 훨씬 직접적인 예측 변수). gameScore/workScore/aiScore의
+// 기존 회귀식(cpuFeature)은 건드리지 않아 이미 검증된 두 필드의 추정치가 그대로 유지된다.
+interface CpuCoreScoreAnchor {
+  feature: number[];
+  singleCoreScore: number;
+  multiCoreScore: number;
+  efficiencyScore: number;
+}
+
+function cpuFeatureWithTdp(c: { cores: number; threads: number; baseClock: number; releaseYear: number; tdp: number }): number[] {
+  return [1, c.cores, c.threads, c.baseClock, c.releaseYear - 2015, c.tdp];
+}
+
 export function buildAdditionalCpus(curated: CPU[], newCatalog: CPUData[]): CPU[] {
   // id 문자열끼리 비교하면 curated의 제각각인 id 표기 관례 때문에 같은 부품이 중복으로 들어갈 수 있어
   // (예: "gtx1660" vs slugify 결과 "gtx-1660"), 반드시 정규화한 모델명으로 동일 부품 여부를 판정한다.
@@ -123,6 +137,16 @@ export function buildAdditionalCpus(curated: CPU[], newCatalog: CPUData[]): CPU[
   const gameCoeffs = fitLinearRegression(anchors.map((a) => a.feature), anchors.map((a) => a.gameScore));
   const workCoeffs = fitLinearRegression(anchors.map((a) => a.feature), anchors.map((a) => a.workScore));
   const aiCoeffs = fitLinearRegression(anchors.map((a) => a.feature), anchors.map((a) => a.aiScore));
+
+  const coreScoreAnchors: CpuCoreScoreAnchor[] = curated.map((c) => ({
+    feature: cpuFeatureWithTdp({ cores: c.cores, threads: c.threads, baseClock: c.baseClock, releaseYear: c.releaseYear, tdp: c.tdp }),
+    singleCoreScore: c.singleCoreScore,
+    multiCoreScore: c.multiCoreScore,
+    efficiencyScore: c.efficiencyScore,
+  }));
+  const singleCoreCoeffs = fitLinearRegression(coreScoreAnchors.map((a) => a.feature), coreScoreAnchors.map((a) => a.singleCoreScore));
+  const multiCoreCoeffs = fitLinearRegression(coreScoreAnchors.map((a) => a.feature), coreScoreAnchors.map((a) => a.multiCoreScore));
+  const efficiencyCoeffs = fitLinearRegression(coreScoreAnchors.map((a) => a.feature), coreScoreAnchors.map((a) => a.efficiencyScore));
 
   const result: CPU[] = [];
 
@@ -143,6 +167,13 @@ export function buildAdditionalCpus(curated: CPU[], newCatalog: CPUData[]): CPU[
       threads: entry.threads,
       baseClock: entry.baseClockGhz,
       releaseYear: entry.releaseYear,
+    });
+    const coreScoreFeature = cpuFeatureWithTdp({
+      cores: entry.cores,
+      threads: entry.threads,
+      baseClock: entry.baseClockGhz,
+      releaseYear: entry.releaseYear,
+      tdp: compat.tdp,
     });
 
     const brandName = /^AMD/i.test(entry.model) || /Ryzen/i.test(entry.model) ? "AMD" : "Intel";
@@ -165,6 +196,9 @@ export function buildAdditionalCpus(curated: CPU[], newCatalog: CPUData[]): CPU[
       gameScore: clampScore(predict(gameCoeffs, feature)),
       workScore: clampScore(predict(workCoeffs, feature)),
       aiScore: clampScore(predict(aiCoeffs, feature)),
+      singleCoreScore: clampScore(predict(singleCoreCoeffs, coreScoreFeature)),
+      multiCoreScore: clampScore(predict(multiCoreCoeffs, coreScoreFeature)),
+      efficiencyScore: clampScore(predict(efficiencyCoeffs, coreScoreFeature)),
       priceTier: estimateCpuPriceTier(entry.model, entry.releaseYear),
     });
   }

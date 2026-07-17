@@ -169,12 +169,33 @@ export function ratePsu(psu: PSU, cpu: CPU, gpu: GPU) {
   return typeof psu.qualityScore === "number" ? baseline * 0.5 + psu.qualityScore * 0.5 : baseline;
 }
 
-function createReason(score: number, compatibility: number, caseOwnership: CaseOwnershipOption) {
+// 용도별 CPU 선정 기준을 사용자에게 설명하는 문구 — 대표 목적(purpose) 하나를 기준으로 고른다.
+function cpuPurposeReason(purpose: Purpose): string {
+  switch (purpose) {
+    case "gaming":
+      return "게이밍 벤치마크 기준 상위권 CPU로 구성했습니다.";
+    case "work":
+      return "내장그래픽과 전력 효율을 갖춘 사무용 CPU로 구성했습니다.";
+    case "video":
+    case "stream":
+    case "ai":
+    case "dev":
+      return "멀티코어 성능이 뛰어난 CPU로 인코딩·렌더링·컴파일 작업에 유리하게 구성했습니다.";
+    case "cad":
+      return "싱글코어와 멀티코어 성능의 균형을 맞춘 CPU로 구성했습니다.";
+    case "etc":
+      return "게임과 멀티코어 작업 모두 무난한 CPU로 구성했습니다.";
+  }
+}
+
+function createReason(score: number, compatibility: number, caseOwnership: CaseOwnershipOption, purpose: Purpose) {
   const messages: string[] = [];
   if (score > 90) messages.push("최신 세대 아키텍처와 안정성을 동시에 만족하는 세트입니다.");
   else if (score > 80) messages.push("전반적으로 매우 균형 잡힌 완성형 세트입니다.");
   else if (score > 70) messages.push("예산 대비 만족도가 높은 추천 조합입니다.");
   else messages.push("성능과 예산을 다시 조정해보면 더 좋은 결과가 나올 수 있습니다.");
+
+  messages.push(cpuPurposeReason(purpose));
 
   if (compatibility >= 90) messages.push("소켓·전력·메모리 규격까지 정교하게 맞춘 안정형 조합입니다.");
   if (caseOwnership === "owned") messages.push("케이스를 보유 중이라 케이스 비용을 제외한 견적으로 계산했습니다.");
@@ -198,6 +219,56 @@ function purposeScore(scores: { gameScore: number; workScore: number; aiScore: n
   return scores.workScore;
 }
 
+const clampCpuFitScore = (value: number): number => Math.max(0, Math.min(100, value));
+
+// 사무용 CPU 적합도 — hasIntegratedGraphics(igpu)를 1순위 기준으로 크게 우대하고(브랜드가 아니라
+// 내장그래픽 유무·전력효율이라는 성능 특성으로 판단), efficiencyScore를 주 신호로 삼되, 게이밍
+// 특화 CPU(gameScore가 높은 CPU)는 사무용으로는 오히려 후순위가 되도록 감점한다.
+function cpuOfficeFitScore(cpu: CPU): number {
+  const igpuBonus = cpu.igpu ? 40 : 0;
+  return clampCpuFitScore(igpuBonus + cpu.efficiencyScore * 0.6 - cpu.gameScore * 0.3);
+}
+
+// 단일 용도 하나에 대한 CPU 적합도. 브랜드(Intel/AMD)는 어떤 분기에도 등장하지 않는다 — 오직
+// gamingScore(gameScore)/multiCoreScore/singleCoreScore/efficiencyScore/hasIntegratedGraphics(igpu)
+// 같은 성능 특성만으로 순위가 갈린다.
+function singlePurposeCpuFitScore(cpu: CPU, purpose: Purpose): number {
+  switch (purpose) {
+    case "gaming":
+      // 게이밍 벤치마크(gameScore) 기준 — 3D V-Cache 계열(9800X3D/7800X3D 등)이 이미 이 점수에서
+      // 최상위권으로 반영돼 있다.
+      return cpu.gameScore;
+    case "work":
+      return cpuOfficeFitScore(cpu);
+    case "video":
+    case "stream":
+    case "ai":
+    case "dev":
+      // 영상/방송/AI/개발 — 인코딩·렌더링·컴파일·다중 스트림 처리처럼 병렬화가 잘 되는 작업 위주라
+      // 멀티코어 성능이 핵심 신호다.
+      return cpu.multiCoreScore;
+    case "cad":
+      // 건축/3D/CAD — 뷰포트 조작(싱글코어 의존)과 렌더링(멀티코어 의존)을 둘 다 하므로 균형(가중평균).
+      return cpu.singleCoreScore * 0.5 + cpu.multiCoreScore * 0.5;
+    case "etc":
+      // 직접 입력한 기타 용도는 특정 워크로드로 단정할 수 없어 게임/멀티코어의 중간값을 쓴다.
+      return (cpu.gameScore + cpu.multiCoreScore) / 2;
+  }
+}
+
+/**
+ * 여러 용도가 동시에 선택됐을 때(BuildContext의 purposes[])는 각 용도별 적합도의 가중 평균으로
+ * CPU 후보 우선순위를 매긴다(선택된 용도마다 동일 가중치 — 특정 용도를 더 중요하게 취급할 근거가
+ * 없으므로 단순 평균이 "가중 평균"의 가장 공정한 기본형이다). 이 점수는 (1) selectDiverseCpuPool의
+ * 예산 티어별 후보 선별과 (2) buildCandidate의 baseScore CPU 항목 양쪽에 쓰여, 예산 필터링 이후의
+ * 최종 정렬에도 반영된다.
+ */
+export function cpuPurposeFitScore(cpu: CPU, purposes: Purpose[]): number {
+  if (purposes.length === 0) return singlePurposeCpuFitScore(cpu, "work"); // 시스템 기본 목적(work)과 동일한 폴백
+  const total = purposes.reduce((sum, purpose) => sum + singlePurposeCpuFitScore(cpu, purpose), 0);
+  return total / purposes.length;
+}
+
 // 순수 점수 기준 top-K만 뽑으면 예산과 무관하게 항상 최상급 부품만 후보 풀에 남아,
 // "저예산" 요청에도 고가 조합만 추천되는 문제가 생긴다(가격은 최종 점수에서 10%만 반영되므로
 // 애초에 저가 후보가 풀에 없으면 만회할 기회가 없다). 그래서 가격 티어별로 상위 N개씩 골고루 남긴다.
@@ -212,6 +283,22 @@ export function selectDiversePool<T extends { gameScore: number; workScore: numb
     const sorted = tierItems.length <= limitPerTier
       ? tierItems
       : [...tierItems].sort((a, b) => purposeScore(b, purpose) - purposeScore(a, purpose)).slice(0, limitPerTier);
+    pool.push(...sorted);
+  }
+  return pool;
+}
+
+// CPU 전용 다양성 풀 — selectDiversePool과 같은 "가격 티어별 상위 N개" 전략을 쓰되, 정렬 기준이
+// purposeScore(단일 목적 3분류)가 아니라 cpuPurposeFitScore(선택된 모든 목적의 가중 평균, CPU
+// 고유의 singleCore/multiCore/efficiency/hasIntegratedGraphics까지 반영)다. selectDiversePool은
+// GPU 등 다른 부품군에서 그대로 쓰이므로 시그니처를 바꾸지 않고 별도 함수로 둔다.
+export function selectDiverseCpuPool(cpus: CPU[], purposes: Purpose[], limitPerTier: number): CPU[] {
+  const pool: CPU[] = [];
+  for (const tier of PRICE_TIERS) {
+    const tierItems = cpus.filter((cpu) => cpu.priceTier === tier);
+    const sorted = tierItems.length <= limitPerTier
+      ? tierItems
+      : [...tierItems].sort((a, b) => cpuPurposeFitScore(b, purposes) - cpuPurposeFitScore(a, purposes)).slice(0, limitPerTier);
     pool.push(...sorted);
   }
   return pool;
@@ -278,9 +365,13 @@ export function generateCandidates(
   existingParts: ExistingPartsState,
   caseOwnership: CaseOwnershipOption,
   budgetMin: number | null = null,
-  preferredBudgetTarget: number | null = null
+  preferredBudgetTarget: number | null = null,
+  // 동시에 선택된 모든 용도(BuildContext의 purposes[]) — CPU 후보 선별/정렬에서만 purpose(대표
+  // 목적 하나) 대신 이 배열 전체의 가중 평균(cpuPurposeFitScore)을 쓴다. 주어지지 않으면 대표
+  // 목적 하나짜리 배열로 취급해 기존 동작과 동일하게 폴백한다.
+  purposes: Purpose[] = [purpose]
 ): RecommendationResult[] {
-  const cpuPool = selectDiversePool(cpus, purpose, CPU_POOL_PER_TIER);
+  const cpuPool = selectDiverseCpuPool(cpus, purposes, CPU_POOL_PER_TIER);
   const gpuPool = selectDiversePool(gpus, purpose, GPU_POOL_PER_TIER);
   const mbsBySocketDdr = groupMotherboardsBySocketAndDdr(mbs);
   const mbsBySocket = new Map<string, MotherBoard[]>();
@@ -329,7 +420,7 @@ export function generateCandidates(
               // PSU 신뢰도 하한선 — qualityScore 없는 레거시 항목은 하한선 적용 없이 통과.
               if (typeof psu.qualityScore === "number" && psu.qualityScore < 70) continue;
 
-              const built = buildCandidate(cpu, gpu, ram, ssd, mb, psu, purpose, budgetTarget, existingParts, caseOwnership, budgetMin);
+              const built = buildCandidate(cpu, gpu, ram, ssd, mb, psu, purpose, budgetTarget, existingParts, caseOwnership, budgetMin, purposes);
               if (built) {
                 pool.push({
                   candidate: built.result,
@@ -462,7 +553,9 @@ function buildCandidate(
   budgetTarget: number | null,
   existingParts: ExistingPartsState,
   caseOwnership: CaseOwnershipOption,
-  budgetMin: number | null
+  budgetMin: number | null,
+  // 동시에 선택된 모든 용도 — CPU 항목(baseScore)에만 쓰인다(용도별 CPU 추천 후보군 로직).
+  purposes: Purpose[] = [purpose]
 ): { result: RecommendationResult; normalizedBaseScore: number } | null {
   const { score: compatibilityScoreVal, warnings } = compatibilityScore(
     cpu,
@@ -478,13 +571,12 @@ function buildCandidate(
     return null;
   }
 
-  const cpuBench = getCpuBenchmark(cpu.id);
   const gpuBench = getGpuBenchmark(gpu.id);
 
-  const cpuScore =
-    (cpuBench as { game?: number; work?: number; ai?: number })[
-      purpose === "gaming" ? "game" : purpose === "ai" ? "ai" : "work"
-    ] ?? cpu.gameScore;
+  // CPU 항목은 getCpuBenchmark(과거엔 커버리지가 거의 없어 항상 cpu.gameScore로만 폴백되던 값)
+  // 대신 cpuPurposeFitScore를 쓴다 — 선택된 모든 용도의 가중 평균으로, singleCore/multiCore/
+  // efficiency/hasIntegratedGraphics까지 반영해 baseScore(→ finalScore → 최종 정렬)를 구동한다.
+  const cpuScore = cpuPurposeFitScore(cpu, purposes);
   const gpuScore =
     (gpuBench as { game?: number; work?: number; ai?: number })[
       purpose === "gaming" ? "game" : purpose === "ai" ? "ai" : "work"
@@ -568,7 +660,7 @@ function buildCandidate(
     ],
     warnings,
     finalScore,
-    reason: createReason(finalScore, compatibilityScoreVal, caseOwnership),
+    reason: createReason(finalScore, compatibilityScoreVal, caseOwnership, purpose),
   });
 
   return { result, normalizedBaseScore };
@@ -597,6 +689,9 @@ export function recommend(
   const purpose = pickPurpose(answers, purposes);
   const budgetTarget = budgetRange ? budgetRange.max : pickBudgetTarget(answers);
   const budgetMin = budgetRange?.min ?? null;
+  // CPU 후보 선별/정렬엔 대표 목적 하나(purpose)가 아니라 동시에 선택된 용도 전체를 쓴다 —
+  // purposes[]가 없을 때만(answers[1] 문자열 파싱 경로 등) 대표 목적 하나짜리로 폴백한다.
+  const effectivePurposes: Purpose[] = purposes && purposes.length > 0 ? purposes : [purpose];
 
   return generateCandidates(
     _cpus,
@@ -610,7 +705,8 @@ export function recommend(
     existingParts,
     caseOwnership,
     budgetMin,
-    preferredBudgetTarget ?? null
+    preferredBudgetTarget ?? null,
+    effectivePurposes
   );
 }
 
