@@ -264,6 +264,38 @@ describe("parseSpecOutput — 새 포맷(CPU:/SSD:/RAM: 헤더, GPU 미포함)",
   });
 });
 
+describe("parseSpecOutput — 백틱+n 이스케이프 미해석 회귀", () => {
+  // 신고된 버그: powerShellScanCommand 안의 '`nSSD:'/'`nRAM:'이 작은따옴표 문자열이라
+  // PowerShell 버전과 무관하게 절대 줄바꿈으로 해석되지 않고, 실제 유저 PC(PowerShell 5.1
+  // 포함)에서 "`n" 두 글자가 그대로 출력됐다. 그 결과 CPU만 인식되고 SSD/RAM은 인식이
+  // 안 됐다 — 사용자가 실제로 재현해 보고한 정확한 출력을 그대로 회귀 테스트로 고정한다.
+  it("실제 재현 사례 — `nSSD:/`nRAM: 헤더가 줄바꿈 없이 그대로 붙어 나와도 CPU/SSD/RAM을 모두 인식한다", () => {
+    const raw = "CPU:\nAMD Ryzen 7 7800X3D 8-Core Processor\n`nSSD:\nSAMSUNG MZVL2512HCJQ-00BT7\n`nRAM:\nTotal 32 GB (16GB x 2ea / DDR5 5200MHz / Micron)";
+    const result = parseSpecOutput(raw);
+
+    expect(result.cpuId).toBe("r7-7800x3d");
+    expect(result.ssdDetail).toBe("SAMSUNG MZVL2512HCJQ-00BT7");
+    expect(result.ramCapacity).toBe("16GB");
+    expect(result.ramModuleCount).toBe(2);
+  });
+
+  it("`n이 헤더 바로 앞이 아니라 값 안에 우연히 등장해도(정상 출력) 인식에 영향이 없다", () => {
+    const raw = "CPU:\nAMD Ryzen 5 5600\n\nSSD:\nSamsung SSD 990 PRO 1TB\n\nRAM:\nTotal 16 GB (8GB x 2ea / DDR4 3200MHz / Samsung)";
+    const result = parseSpecOutput(raw);
+
+    expect(result.cpuId).toBe("r5-5600");
+    expect(result.ssdCapacity).toBe("1TB");
+    expect(result.ramCapacity).toBe("8GB");
+  });
+
+  it("powerShellScanCommand는 더 이상 작은따옴표 문자열 안에 `n 이스케이프를 쓰지 않는다(회귀 방지)", () => {
+    expect(powerShellScanCommand).not.toMatch(/`n/);
+    // 대신 헤더마다 별도의 Write-Host 문으로 나눠, 이스케이프 해석 여부와 무관하게 줄바꿈된다.
+    expect(powerShellScanCommand).toMatch(/Write-Host 'SSD:'/);
+    expect(powerShellScanCommand).toMatch(/Write-Host 'RAM:'/);
+  });
+});
+
 describe("parseSpecOutput — RAM 개당/총합 정합성 회귀", () => {
   // 신고된 버그: "16GB x2 (총 32GB)"를 등록했는데 요약이 "32GB x 2 (총 64GB)"로 떴다.
   // ramCapacity에 총합을 넣는 바람에 UI가 개수를 한 번 더 곱해 2배가 된 것.

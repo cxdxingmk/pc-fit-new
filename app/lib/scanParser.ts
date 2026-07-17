@@ -20,8 +20,14 @@ import { getAllSsds } from "../../src/utils/hardwareLookup";
  * parseSpecOutput()이 이 한 줄만 정규식으로 읽으면 되므로 원문 전체를 바이트 단위로 스캔하던
  * 예전 방식보다 훨씬 정확하다.
  */
+// 백틱+n(`n`) 이스케이프는 큰따옴표 문자열 안에서만 줄바꿈으로 풀린다는 게 함정이었다 —
+// 이 명령은 작은따옴표 문자열 안에 `n을 넣어놨었는데, 작은따옴표 문자열은 PowerShell 버전과
+// 무관하게 이스케이프를 절대 해석하지 않는다. 그 결과 일부 환경(PowerShell 5.1 등)에서 "`n"이
+// 줄바꿈이 아니라 문자 그대로("`nSSD:") 출력돼 파서가 SSD/RAM 헤더를 못 찾았다. 이스케이프
+// 해석에 기대는 대신, 헤더마다 별도의 Write-Host 문으로 나눠 각 호출이 스스로 줄바꿈을
+// 내도록 했다 — 이 방식은 이스케이프 처리 여부와 무관하게 항상 동작한다.
 export const powerShellScanCommand =
-  "Write-Host 'CPU:'; Get-CimInstance Win32_Processor | % Name; Write-Host '`nSSD:'; Get-CimInstance Win32_DiskDrive | % Model; Write-Host '`nRAM:'; $m = Get-CimInstance Win32_PhysicalMemory; $count = $m.Count; $cap = [Math]::Round(($m | Measure-Object Capacity -Sum).Sum / 1GB); $each = [Math]::Round($m[0].Capacity / 1GB); $speed = $m[0].ConfiguredClockSpeed; $mfg = $m[0].Manufacturer; $v = $m[0].SMBIOSMemoryType; $ddr = switch($v){26{'DDR4'} 34{'DDR5'} default{'DDR3 or Older'}}; Write-Host ('Total ' + $cap + ' GB (' + $each + 'GB x ' + $count + 'ea / ' + $ddr + ' ' + $speed + 'MHz / ' + $mfg + ')' )";
+  "Write-Host 'CPU:'; Get-CimInstance Win32_Processor | % Name; Write-Host ''; Write-Host 'SSD:'; Get-CimInstance Win32_DiskDrive | % Model; Write-Host ''; Write-Host 'RAM:'; $m = Get-CimInstance Win32_PhysicalMemory; $count = $m.Count; $cap = [Math]::Round(($m | Measure-Object Capacity -Sum).Sum / 1GB); $each = [Math]::Round($m[0].Capacity / 1GB); $speed = $m[0].ConfiguredClockSpeed; $mfg = $m[0].Manufacturer; $v = $m[0].SMBIOSMemoryType; $ddr = switch($v){26{'DDR4'} 34{'DDR5'} default{'DDR3 or Older'}}; Write-Host ('Total ' + $cap + ' GB (' + $each + 'GB x ' + $count + 'ea / ' + $ddr + ' ' + $speed + 'MHz / ' + $mfg + ')' )";
 
 /** 구버전 Windows(wmic 제거 전)용 — "구버전 Windows는 이 명령" 접기 섹션에서만 노출. */
 export const legacyWmicScanCommand =
@@ -63,6 +69,17 @@ const masterSsdCatalog = getAllSsds();
 function motherboardChipsetFromText(text: string): string | null {
   const found = motherboards.find((board) => text.toLowerCase().includes(board.chipset.toLowerCase()));
   return found?.chipset ?? null;
+}
+
+/**
+ * 구버전 powerShellScanCommand(작은따옴표 문자열 안에 `n`을 넣었던 버전)를 이미 복사해 실행한
+ * 사용자가 여전히 있을 수 있어, 이스케이프가 풀리지 않아 헤더 앞에 "`n" 두 글자가 그대로
+ * 붙어 나오는 레거시 출력도 방어적으로 흡수한다 — 예: "...Processor\n`nSSD:\n...".
+ * 이 두 글자는 정상적인 하드웨어 이름에는 나타나지 않으므로, 헤더 토큰 바로 앞에 붙은
+ * 경우에만 실제 줄바꿈으로 되돌린다.
+ */
+function normalizeUnescapedBacktickN(rawText: string): string {
+  return rawText.replace(/`n\s*(?=(CPU|SSD|RAM)\s*:)/gi, "\n");
 }
 
 /**
@@ -164,7 +181,8 @@ function pickPreferredSsdLine(lines: string[]): string | undefined {
   return ssdLooking ?? lines[0];
 }
 
-export function parseSpecOutput(rawText: string): ParseCommandOutputResult {
+export function parseSpecOutput(rawTextInput: string): ParseCommandOutputResult {
+  const rawText = normalizeUnescapedBacktickN(rawTextInput);
   const lowerRaw = rawText.toLowerCase();
   const normalized = normalizeText(rawText);
   const nameSections = extractNameSections(rawText);
