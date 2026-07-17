@@ -18,11 +18,21 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-// 우선순위: NEXT_PUBLIC_SITE_URL(직접 설정) → Vercel이 배포마다 자동 주입하는 VERCEL_URL →
-// 로컬 개발 폴백. 하드코딩된 임의 도메인은 쓰지 않는다(ShareReportCard의 resolvedServiceUrl과
-// 동일한 원칙).
-const configuredHost = process.env.NEXT_PUBLIC_SITE_URL || process.env.VERCEL_URL;
-const siteBaseUrl = configuredHost ? `https://${configuredHost.replace(/^https?:\/\//, "")}` : "http://localhost:3000";
+// 실제 서비스 도메인 — 커스텀 도메인을 연결하기 전까지는 이 Vercel 기본 도메인이 프로덕션 주소다.
+const PRODUCTION_SITE_URL = "https://pc-fit-new.vercel.app";
+
+// 우선순위: NEXT_PUBLIC_SITE_URL(직접 설정, 커스텀 도메인 연결 시 이 값만 바꾸면 된다) → 고정
+// 프로덕션 도메인 → 로컬 개발 폴백.
+// VERCEL_URL(배포마다 바뀌는 임시 미리보기 주소, 예: pc-fit-xxxxx.vercel.app)은 절대 쓰지 않는다 —
+// 그 주소로 만든 og:image/twitter:image 절대 URL은 Vercel 배포 보호(SSO)에 막혀 카카오톡/트위터
+// 크롤러가 열지 못하고 계속 로딩 중 상태로 멈춘다(실제로 겪은 버그). process.env.VERCEL은 프로덕션·
+// 프리뷰 배포 전부에서 "1"로 주입되므로, Vercel 위에서 도는 배포는 전부 고정 도메인을 쓰고 로컬
+// 개발 서버에서만 localhost로 폴백한다.
+const siteBaseUrl = process.env.NEXT_PUBLIC_SITE_URL
+  ? `https://${process.env.NEXT_PUBLIC_SITE_URL.replace(/^https?:\/\//, "")}`
+  : process.env.VERCEL
+    ? PRODUCTION_SITE_URL
+    : "http://localhost:3000";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteBaseUrl),
