@@ -10,6 +10,10 @@ import {
   selectDiversePool,
   selectRecommendedPsu,
   selectFixedSsd,
+  isNewPurchaseEligibleCpu,
+  isNewPurchaseEligibleGpu,
+  MIN_NEW_PURCHASE_CPU_RELEASE_YEAR,
+  MIN_NEW_PURCHASE_GPU_RELEASE_YEAR,
 } from "./recommender";
 import type { CPU } from "../database/cpu";
 import { cpus, curatedCpus } from "../database/cpu";
@@ -601,6 +605,131 @@ describe("recommend — 파워 오버스펙 방지 + SSD 512GB 고정 정책 회
     for (const result of results) {
       expect(result.parts.some((p) => p.label === "HDD")).toBe(false);
       expect(result.parts.some((p) => /hdd/i.test(p.name))).toBe(false);
+    }
+  });
+});
+
+describe("isNewPurchaseEligibleCpu / isNewPurchaseEligibleGpu — 단종/구형 세대 판정", () => {
+  it("RTX 30번대/RX 6000번대(2021년 이전)는 신규 구매 후보에서 제외된다", () => {
+    const rtx3090 = gpus.find((g) => g.id === "rtx3090")!;
+    const rtx3080 = gpus.find((g) => g.id === "rtx3080")!;
+    const rtx3070 = gpus.find((g) => g.id === "rtx3070")!;
+    const rtx3060 = gpus.find((g) => g.id === "rtx3060")!;
+    const rx6800xt = gpus.find((g) => g.id === "rx6800xt")!;
+    for (const gpu of [rtx3090, rtx3080, rtx3070, rtx3060, rx6800xt]) {
+      expect(isNewPurchaseEligibleGpu(gpu)).toBe(false);
+    }
+  });
+
+  it("RTX 4090/RX 7900 XTX·XT(2022년, RTX 40/RDNA3 세대)부터는 신규 구매 후보로 허용된다", () => {
+    const rtx4090 = gpus.find((g) => g.id === "rtx4090")!;
+    const rx7900xtx = gpus.find((g) => g.id === "rx7900xtx")!;
+    const rtx4060 = gpus.find((g) => g.id === "rtx4060")!;
+    for (const gpu of [rtx4090, rx7900xtx, rtx4060]) {
+      expect(isNewPurchaseEligibleGpu(gpu)).toBe(true);
+    }
+  });
+
+  it("세대 접두 패턴이 없는 브랜드(Intel Arc 등)만 releaseYear 폴백 경계값을 쓴다", () => {
+    expect(isNewPurchaseEligibleGpu({ name: "Intel Arc B580", releaseYear: MIN_NEW_PURCHASE_GPU_RELEASE_YEAR } as never)).toBe(true);
+    expect(isNewPurchaseEligibleGpu({ name: "Intel Arc B580", releaseYear: MIN_NEW_PURCHASE_GPU_RELEASE_YEAR - 1 } as never)).toBe(false);
+  });
+
+  it("실제로 겪은 회귀: releaseYear가 2022로 찍힌 'GeForce RTX 3050 4 GB'도 RTX 30번대라 제외된다", () => {
+    // releaseYear만 봤다면 MIN_NEW_PURCHASE_GPU_RELEASE_YEAR(2022) 기준을 통과해 "최신"으로
+    // 잘못 분류됐을 항목 — 병합 카탈로그 실측치로 그대로 고정한다.
+    expect(isNewPurchaseEligibleGpu({ name: "GeForce RTX 3050 4 GB", releaseYear: 2022 } as never)).toBe(false);
+  });
+
+  it("병합 카탈로그 전체를 통틀어, RTX 30번대 이하/RX 6000번대 이하로 이름이 붙은 GPU는 예외 없이 제외된다", () => {
+    const leaked = gpus.filter((gpu) => {
+      const isLegacyName = /RTX\s?[123]\d{3}|GTX\s?\d{3,4}|RX\s?[3-6]\d{3}\b|RX\s?[3-5]\d{2}\b/i.test(gpu.name);
+      return isLegacyName && isNewPurchaseEligibleGpu(gpu);
+    });
+    expect(leaked.map((g) => g.name)).toEqual([]);
+  });
+
+  it("2019년 이전(Ryzen 1000~3000번대 등)은 신규 구매 후보에서 제외된다", () => {
+    const ryzen3_1200 = cpus.find((c) => c.name === "Ryzen 3 1200")!;
+    expect(ryzen3_1200).toBeDefined();
+    expect(isNewPurchaseEligibleCpu(ryzen3_1200)).toBe(false);
+  });
+
+  it("Ryzen 5 5600(2020, 지금도 신품 유통되는 예산형 스테디셀러)은 신규 구매 후보로 계속 허용된다", () => {
+    const r5600 = cpus.find((c) => c.id === "r5-5600")!;
+    expect(isNewPurchaseEligibleCpu(r5600)).toBe(true);
+  });
+});
+
+describe("recommend — 신규 구매 후보군의 구형 세대 제외 회귀", () => {
+  const purposeBudgetMatrix: Array<[string, string]> = [
+    ["게임", "100만원 이하"],
+    ["게임", "150~200만원"],
+    ["게임", "200~300만원"],
+    ["게임", "300만원 이상"],
+    ["사무", "100만원 이하"],
+    ["영상편집", "300만원 이상"],
+  ];
+
+  it("(검증 1) 신규 구매 추천 결과(TOP1~3)에 RTX 30번대 이하 GPU/2019년 이전 CPU가 전혀 나오지 않는다", () => {
+    for (const [purposeLabel, budgetLabel] of purposeBudgetMatrix) {
+      const results = recommend({ 1: [purposeLabel], 3: [budgetLabel] }, baseExistingParts(), "none");
+      for (const result of results) {
+        const cpu = cpus.find((c) => c.id === result.partIds.cpu);
+        const gpu = gpus.find((g) => g.id === result.partIds.gpu);
+        expect(cpu).toBeDefined();
+        expect(gpu).toBeDefined();
+        // releaseYear 단순 비교가 아니라 실제 판정 함수로 확인한다 — RTX 3050처럼 releaseYear만으로는
+        // "최신"으로 잘못 통과되는 회귀가 실제로 있었다(위 isNewPurchaseEligibleGpu 테스트 참고).
+        expect(isNewPurchaseEligibleCpu(cpu!)).toBe(true);
+        expect(isNewPurchaseEligibleGpu(gpu!)).toBe(true);
+      }
+    }
+  });
+
+  it("(검증 3) 100만원 이하부터 300만원 이상까지 어느 예산대에서도 최신 세대만으로 결과가 비지 않는다", () => {
+    for (const [purposeLabel, budgetLabel] of purposeBudgetMatrix) {
+      const results = recommend({ 1: [purposeLabel], 3: [budgetLabel] }, baseExistingParts(), "none");
+      expect(results.length, `${purposeLabel}/${budgetLabel}에서 결과가 비었다`).toBeGreaterThan(0);
+    }
+  });
+
+  it("(검증 2) 보유 부품으로 RTX 3080(구형 세대)을 지정하면 세대 제외 필터와 무관하게 여전히 정상 인식된다", () => {
+    const existingParts = baseExistingParts();
+    existingParts.GPU = { enabled: true, brand: "NVIDIA", manufacturer: "", model: "GeForce RTX 3080" };
+
+    const results = recommend({ 1: ["게임"], 3: ["150~200만원"] }, existingParts, "none", ["gaming"]);
+    expect(results.length).toBeGreaterThan(0);
+    for (const result of results) {
+      expect(result.partIds.gpu).toBe("rtx3080");
+      expect(result.ownedParts.gpu).toBe(true);
+    }
+  });
+
+  it("(검증 2) 보유 부품으로 2019년 이전 구형 CPU(Ryzen 3 1200)를 지정해도 세대 제외 필터와 무관하게 정상 인식된다", () => {
+    const existingParts = baseExistingParts();
+    existingParts.CPU = { enabled: true, brand: "AMD", model: "Ryzen 3 1200" };
+
+    const results = recommend({ 1: ["사무"], 3: ["100만원 이하"] }, existingParts, "none", ["work"]);
+    expect(results.length).toBeGreaterThan(0);
+    for (const result of results) {
+      expect(result.partIds.cpu).toBe(cpus.find((c) => c.name === "Ryzen 3 1200")!.id);
+      expect(result.ownedParts.cpu).toBe(true);
+    }
+  });
+});
+
+describe("recommend — CPU-GPU 병목 자기모순 경고 방지(CPU 보유 고정 시)", () => {
+  it("보유 CPU와 치명적 병목(CPU_GPU_GAP_LARGE 초과) 관계인 GPU는 후보에 오르지 않는다 — 경고와 추천이 서로 모순되지 않는다", () => {
+    const existingParts = baseExistingParts();
+    existingParts.CPU = { enabled: true, brand: "AMD", model: "Ryzen 5 5600" };
+
+    const results = recommend({ 1: ["게임"], 3: ["300만원 이상"] }, existingParts, "none", ["gaming"]);
+    expect(results.length).toBeGreaterThan(0);
+
+    for (const result of results) {
+      const criticalBottleneck = result.warnings.some((w) => w.severity === "critical" && /병목/.test(w.message));
+      expect(criticalBottleneck).toBe(false);
     }
   });
 });

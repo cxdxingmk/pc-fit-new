@@ -15,7 +15,11 @@ export interface CompatibilityWarning {
 }
 
 // CPU/GPU 성능 격차에 따른 병목 페널티
-const CPU_GPU_GAP_LARGE = 20;
+// CPU_GPU_GAP_LARGE는 recommender.ts도 그대로 가져다 쓴다 — "치명적 병목"이라고 경고하면서
+// 동시에 그 조합을 추천하는 자기모순을 막으려면, 후보 선별 단계의 격차 기준과 경고 발생
+// 기준이 절대 어긋나면 안 되기 때문이다(숫자를 각자 따로 들고 있으면 나중에 한쪽만 바뀌어
+// 다시 어긋나기 쉽다).
+export const CPU_GPU_GAP_LARGE = 20;
 const CPU_GPU_GAP_SMALL = 10;
 const PENALTY_CPU_GPU_GAP_LARGE = 24;
 const PENALTY_CPU_GPU_GAP_SMALL = 10;
