@@ -1,10 +1,23 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { computeBudgetFactor, cpuPurposeFitScore, pickPurpose, recommend, selectDiverseCpuPool, selectDiversePool } from "./recommender";
+import {
+  computeBudgetFactor,
+  cpuPurposeFitScore,
+  pickPurpose,
+  recommend,
+  selectDiverseCpuPool,
+  selectDiversePool,
+  selectRecommendedPsu,
+  selectFixedSsd,
+} from "./recommender";
 import type { CPU } from "../database/cpu";
 import { cpus, curatedCpus } from "../database/cpu";
 import { gpus } from "../database/gpu";
+import { psus } from "../database/psu";
+import { ssds } from "../database/ssd";
+import type { PSU } from "../database/psu";
+import type { SSD } from "../database/ssd";
 import type { ExistingPartsState } from "../types/build";
 
 describe("pickPurpose", () => {
@@ -449,6 +462,145 @@ describe("recommend — 보유 부품(existingParts) 고정 회귀", () => {
       expect(cpuPart?.price).toBe(0);
       expect(gpuPart?.price).toBe(0);
       expect(ramPart?.price).toBe(0);
+    }
+  });
+});
+
+function makePsu(overrides: Partial<PSU> = {}): PSU {
+  return {
+    id: "test-psu",
+    name: "Test PSU",
+    brand: "Seasonic",
+    wattage: 650,
+    efficiency: "80 PLUS Gold",
+    modularity: "full",
+    formFactor: "ATX",
+    releaseYear: 2023,
+    ...overrides,
+  };
+}
+
+describe("selectRecommendedPsu — 파워는 필요 전력의 1.3~1.5배 안전마진 안에서만 고른다", () => {
+  // 신고된 버그: Ryzen 5 5600(tdp 65) + RTX 4060(tgp 115) 조합(필요 전력 330W대)에 카탈로그의
+  // 1500W Titanium 파워(qualityScore 83)가 선택됐다 — ratePsu의 오버사이즈 감점(최대 -25)이
+  // qualityScore 가중치를 뚫지 못했기 때문. 이제는 후보 자체를 안전마진 범위로 제한한다.
+  const r5600 = cpus.find((c) => c.id === "r5-5600")!;
+  const rtx4060 = gpus.find((g) => g.id === "rtx4060")!;
+
+  it("실제 카탈로그: Ryzen 5 5600 + RTX 4060(필요 330W대) 조합은 절대 1500W를 고르지 않는다", () => {
+    const picked = selectRecommendedPsu(r5600, rtx4060, psus);
+    expect(picked).not.toBeNull();
+    expect(picked!.wattage).toBeLessThan(800); // 1500W(psu-nzxt-c1500-platinum)는 물론 오버스펙 전부 배제
+  });
+
+  it("사용자가 제시한 예시: 필요 전력 500W대 조합은 650W를 고른다", () => {
+    // tdp+tgp+150 = 500 이 되도록 합성 CPU/GPU를 구성(카탈로그 CPU/GPU에 의존하지 않고 정확히 검증).
+    const cpu = { ...r5600, tdp: 150 };
+    const gpu = { ...rtx4060, tgp: 200 }; // 150+200+150 = 500
+    const picked = selectRecommendedPsu(cpu, gpu, psus);
+    expect(picked?.wattage).toBe(650);
+  });
+
+  it("안전마진 범위(1.3~1.5배) 안에 후보가 있으면 그중 가장 작은 것을 고른다", () => {
+    const catalog = [makePsu({ id: "a", wattage: 500 }), makePsu({ id: "b", wattage: 550 }), makePsu({ id: "c", wattage: 1000 })];
+    // required=400 -> 범위 [520, 600] -> 550만 해당
+    const picked = selectRecommendedPsu({ tdp: 100 } as CPU, { tgp: 150 } as never, catalog);
+    expect(picked?.id).toBe("b");
+  });
+
+  it("안전마진 범위 안에 후보가 없으면(카탈로그가 성김) 요구 전력을 만족하는 가장 작은 것으로 폴백한다", () => {
+    const catalog = [makePsu({ id: "small", wattage: 400 }), makePsu({ id: "big", wattage: 1200 })];
+    // required=350 -> 범위 [455, 525]엔 아무것도 없음 -> 요구(>=350) 만족하는 가장 작은 것(400)
+    const picked = selectRecommendedPsu({ tdp: 100 } as CPU, { tgp: 100 } as never, catalog);
+    expect(picked?.id).toBe("small");
+  });
+
+  it("품질 하한선(70점) 미만인 파워는 범위 안에 있어도 건너뛰고 다음으로 넘어간다", () => {
+    const catalog = [
+      makePsu({ id: "low-quality", wattage: 550, qualityScore: 50 }),
+      makePsu({ id: "high-quality", wattage: 650, qualityScore: 90 }),
+    ];
+    // required=400 -> 범위 [520,600] -> low-quality(550)만 범위 안이지만 품질 미달 -> 폴백해서
+    // 요구 전력 만족 + 품질 통과 중 가장 작은 것(high-quality, 650)을 고른다.
+    const picked = selectRecommendedPsu({ tdp: 100 } as CPU, { tgp: 150 } as never, catalog);
+    expect(picked?.id).toBe("high-quality");
+  });
+
+  it("카탈로그 전체가 용량 미달이면 null을 반환한다(추천 자체가 불가능한 극단적 사양)", () => {
+    const catalog = [makePsu({ id: "tiny", wattage: 100 })];
+    const picked = selectRecommendedPsu({ tdp: 200 } as CPU, { tgp: 300 } as never, catalog);
+    expect(picked).toBeNull();
+  });
+});
+
+describe("selectFixedSsd — SSD는 예산/견적 성격과 무관하게 항상 512GB로 고정한다", () => {
+  it("실제 카탈로그에서 정확히 512GB 항목을 고른다", () => {
+    const picked = selectFixedSsd(ssds);
+    expect(picked?.capacity).toBe(512);
+  });
+
+  it("카탈로그에 정확히 512GB가 없으면 가장 작은 등급으로 폴백한다", () => {
+    const catalog: SSD[] = [
+      { ...ssds[0], id: "a", capacity: 1000 },
+      { ...ssds[0], id: "b", capacity: 2000 },
+    ];
+    const picked = selectFixedSsd(catalog);
+    expect(picked?.id).toBe("a");
+  });
+});
+
+describe("recommend — 파워 오버스펙 방지 + SSD 512GB 고정 정책 회귀", () => {
+  it("보유 CPU+GPU가 같으면 TOP1/2/3 전부 파워도 동일한 등급으로 고정된다(전략별로 파워가 갈리지 않음)", () => {
+    // AM5+DDR5(호환 메인보드가 여럿이라 RAM/보드 조합으로 TOP1/2/3가 실제로 갈리는 조합)로
+    // CPU/GPU를 고정해, "같은 cpu+gpu인데 파워만 카드마다 달랐다"는 신고 시나리오를 재현한다.
+    const existingParts = baseExistingParts();
+    existingParts.CPU = { enabled: true, brand: "AMD", model: "Ryzen 7 9700X" };
+    existingParts.GPU = { enabled: true, brand: "NVIDIA", manufacturer: "", model: "GeForce RTX 4070" };
+
+    const results = recommend({ 1: ["게임"], 3: ["300만원 이상"] }, existingParts, "none", ["gaming"]);
+    expect(results.length).toBeGreaterThan(1);
+    // RAM/메인보드는 실제로 카드마다 다르게 나온다(다양성 유지) — 그래도 파워만은 고정.
+    expect(new Set(results.map((r) => r.ram)).size).toBeGreaterThan(1);
+
+    const wattages = new Set(results.map((r) => r.partIds.psuWattage));
+    expect(wattages.size).toBe(1); // 전략(균형/가성비/고성능)과 무관하게 항상 같은 파워 등급
+    expect([...wattages][0]).toBeLessThan(800); // 1500W 같은 오버스펙이 아니어야 한다
+  });
+
+  it("신고된 재현 조건 그대로: Ryzen 5 5600 + RTX 4060 조합에서 절대 1500W가 선택되지 않는다", () => {
+    const existingParts = baseExistingParts();
+    existingParts.CPU = { enabled: true, brand: "AMD", model: "Ryzen 5 5600" };
+    existingParts.GPU = { enabled: true, brand: "NVIDIA", manufacturer: "", model: "GeForce RTX 4060" };
+
+    const results = recommend({ 1: ["게임"], 3: ["150~200만원"] }, existingParts, "none", ["gaming"]);
+    for (const result of results) {
+      expect(result.partIds.psuWattage).not.toBe(1500);
+      expect(result.parts.find((p) => p.label === "파워")?.name).not.toMatch(/1500W/);
+    }
+  });
+
+  it("SSD는 예산·용도와 무관하게 모든 추천 견적에서 항상 512GB다", () => {
+    const scenarios: Array<[string, string]> = [
+      ["게임", "300만원 이상"],
+      ["사무", "100만원 이하"],
+      ["영상편집", "200~300만원"],
+    ];
+
+    for (const [purposeLabel, budgetLabel] of scenarios) {
+      const results = recommend({ 1: [purposeLabel], 3: [budgetLabel] }, baseExistingParts(), "none");
+      expect(results.length).toBeGreaterThan(0);
+      for (const result of results) {
+        expect(result.ssd).toContain("512GB");
+        expect(result.parts.find((p) => p.label === "SSD")?.name).toContain("512GB");
+      }
+    }
+  });
+
+  it("HDD는 어떤 추천 견적의 부품 목록(parts)에도 노출되지 않는다", () => {
+    const results = recommend({ 1: ["게임"], 3: ["300만원 이상"] }, baseExistingParts(), "none");
+    for (const result of results) {
+      expect(result.parts.some((p) => p.label === "HDD")).toBe(false);
+      expect(result.parts.some((p) => /hdd/i.test(p.name))).toBe(false);
     }
   });
 });

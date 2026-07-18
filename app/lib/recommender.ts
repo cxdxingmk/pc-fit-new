@@ -170,6 +170,53 @@ export function ratePsu(psu: PSU, cpu: CPU, gpu: GPU) {
   return typeof psu.qualityScore === "number" ? baseline * 0.5 + psu.qualityScore * 0.5 : baseline;
 }
 
+// 정책: 파워는 "필요 전력 × 1.3~1.5배" 안전마진 안에서만 고른다 — ratePsu의 오버사이즈 감점(위
+// PSU_HEADROOM_SWEET_SPOT)만으로는 qualityScore가 아주 높은 대용량 PSU(예: 1500W Titanium,
+// qualityScore 83)가 감점을 뚫고 점수로 이겨버리는 사례가 실제로 있었다(요구 350W대 조합에
+// 1500W가 선택됨). 그래서 후보 자체를 이 범위로 강하게 제한해, 균형/가성비/고성능 어떤 전략을
+// 쓰든 PSU는 cpu+gpu 조합에 의해 결정적으로 하나만 정해지게 한다(전략별로 PSU가 갈릴 이유
+// 자체를 없앰 — 회귀 테스트로 고정).
+const PSU_SAFETY_MARGIN_MIN = 1.3;
+const PSU_SAFETY_MARGIN_MAX = 1.5;
+const PSU_MIN_QUALITY_SCORE = 70;
+
+export function selectRecommendedPsu(cpu: CPU, gpu: GPU, catalog: PSU[]): PSU | null {
+  const required = cpu.tdp + gpu.tgp + 150;
+  const minWattage = required * PSU_SAFETY_MARGIN_MIN;
+  const maxWattage = required * PSU_SAFETY_MARGIN_MAX;
+  const qualifies = (psu: PSU) => typeof psu.qualityScore !== "number" || psu.qualityScore >= PSU_MIN_QUALITY_SCORE;
+
+  // 1순위: 안전마진 범위 안 + 품질 기준 통과 — 그중 가장 작은(=과도한 스펙 지양) 것을 고르고,
+  // 동일 와트수 동률이면 qualityScore가 높은 쪽을 우선한다.
+  const inRange = catalog
+    .filter((psu) => psu.wattage >= minWattage && psu.wattage <= maxWattage && qualifies(psu))
+    .sort((a, b) => a.wattage - b.wattage || (b.qualityScore ?? 0) - (a.qualityScore ?? 0));
+  if (inRange.length > 0) return inRange[0];
+
+  // 2순위: 카탈로그 등급이 성겨 안전마진 범위 안에 맞는 게 없으면(품질 기준은 유지한 채) 요구
+  // 전력을 만족하는 것 중 가장 작은 것으로 폴백한다.
+  const meetsRequirement = catalog
+    .filter((psu) => psu.wattage >= required && qualifies(psu))
+    .sort((a, b) => a.wattage - b.wattage);
+  if (meetsRequirement.length > 0) return meetsRequirement[0];
+
+  // 3순위(안전망): 품질 기준을 만족하는 것마저 없으면 품질 기준을 내려놓고 요구 전력만
+  // 만족하는 것 중 가장 작은 것 — "추천 자체가 없음"보다는 낫다.
+  const anyMeetsRequirement = catalog.filter((psu) => psu.wattage >= required).sort((a, b) => a.wattage - b.wattage);
+  return anyMeetsRequirement[0] ?? null;
+}
+
+// 정책: 새로 구매하는 SSD는 예산/견적 성격과 무관하게 항상 512GB 한 등급으로 고정한다(보유
+// SSD가 있으면 당연히 그걸 그대로 쓴다 — ownedParts.ts 참고). 카탈로그에 정확히 512GB가 없으면
+// (성긴 등급 구성) 가장 작은 등급으로 안전하게 폴백한다.
+const FIXED_SSD_CAPACITY_GB = 512;
+
+export function selectFixedSsd(catalog: SSD[]): SSD | null {
+  const exact = catalog.find((ssd) => ssd.capacity === FIXED_SSD_CAPACITY_GB);
+  if (exact) return exact;
+  return [...catalog].sort((a, b) => a.capacity - b.capacity)[0] ?? null;
+}
+
 // 용도별 CPU 선정 기준을 사용자에게 설명하는 문구 — 대표 목적(purpose) 하나를 기준으로 고른다.
 function cpuPurposeReason(purpose: Purpose): string {
   switch (purpose) {
@@ -382,9 +429,13 @@ export function generateCandidates(
   const cpuPool = owned.cpu ? [owned.cpu] : selectDiverseCpuPool(cpus, purposes, CPU_POOL_PER_TIER);
   const gpuPool = owned.gpu ? [owned.gpu] : selectDiversePool(gpus, purpose, GPU_POOL_PER_TIER);
   const ramCandidates = owned.ram ? [owned.ram] : rams;
-  const ssdCandidates = owned.ssd ? [owned.ssd] : ssds;
   const mbCandidates = owned.motherboard ? [owned.motherboard] : mbs;
-  const psuCandidates = owned.psuWattage !== null ? [buildOwnedPsuRepresentative(owned.psuWattage, psus)] : psus;
+
+  // 정책: SSD는 보유 중이 아니면 항상 512GB 한 등급으로 고정(예산/견적 성격과 무관) — 더 이상
+  // "여러 SSD 후보 중 점수로 고르기"가 아니라 cpu/gpu와 무관하게 결정된 값 하나이므로 루프
+  // 차원 자체가 필요 없다.
+  const ssd = owned.ssd ?? selectFixedSsd(ssds);
+  if (!ssd) return [];
 
   const mbsBySocketDdr = groupMotherboardsBySocketAndDdr(mbCandidates);
   const mbsBySocket = new Map<string, MotherBoard[]>();
@@ -405,9 +456,18 @@ export function generateCandidates(
     if (motherboardsToUse.length === 0 || ramsToUse.length === 0) continue;
 
     for (const gpu of gpuPool) {
-      // cpu+gpu 조합만으로 이미 전력 요구치가 보유 파워를 넘으면 ram/ssd/mb/psu까지 내려갈 필요가 없다.
+      // cpu+gpu 조합만으로 이미 전력 요구치가 보유 파워를 넘으면 ram/mb까지 내려갈 필요가 없다.
       const powerLimit = owned.psuWattage;
       if (powerLimit && powerLimit < cpu.tdp + gpu.tgp + 150) continue;
+
+      // 정책: 파워는 cpu+gpu 조합이 정해지는 순간 결정적으로 하나만 고른다(선택 로직은
+      // selectRecommendedPsu 참고 — 필요 전력의 1.3~1.5배 안전마진 안에서 가장 작은 것).
+      // 더 이상 "여러 PSU 후보 중 전략별로 다른 걸 고르기"가 불가능해, 균형/가성비/고성능
+      // 세 카드가 같은 cpu+gpu를 쓰면 파워도 항상 같은 등급이 된다.
+      const psu = owned.psuWattage !== null ? buildOwnedPsuRepresentative(owned.psuWattage, psus) : selectRecommendedPsu(cpu, gpu, psus);
+      if (!psu) continue; // 카탈로그에 이 조합을 감당할 파워가 전혀 없음(극단적 사양 조합)
+      // 보유 파워도 예외 없이 이 하드 컷을 받는다(전력 부족은 품질 문제가 아니라 실사용 불가 문제).
+      if (psu.wattage < cpu.tdp + gpu.tgp + 150) continue;
 
       // 결정적 동점자 비교용 원시 성능점수 — buildCandidate 내부의 cpuScore/gpuScore 산출식과 동일하다.
       const cpuBench = getCpuBenchmark(cpu.id);
@@ -424,33 +484,21 @@ export function generateCandidates(
       const minBoardQuality = cpu.tdp >= 150 ? 78 : cpu.tdp >= 100 ? 65 : 0;
 
       for (const ram of ramsToUse) {
-        for (const ssd of ssdCandidates) {
-          for (const mb of motherboardsToUse) {
-            if (mb.ddr !== ram.ddr) continue;
-            if (!owned.motherboard && typeof mb.qualityScore === "number" && mb.qualityScore < minBoardQuality) continue;
+        for (const mb of motherboardsToUse) {
+          if (mb.ddr !== ram.ddr) continue;
+          if (!owned.motherboard && typeof mb.qualityScore === "number" && mb.qualityScore < minBoardQuality) continue;
 
-            for (const psu of psuCandidates) {
-              // 메인보드/PSU 결합: 소켓·DDR 호환 메인보드(위에서 이미 필터링)에
-              // 부하 기준 충분 용량 PSU만 결합한다 — 용량 미달 PSU는 감점이 아니라 원천 제외.
-              // 보유 파워도 예외 없이 이 하드 컷을 받는다(전력 부족은 품질 문제가 아니라 실사용
-              // 불가 문제라 보유 여부와 무관하게 걸러야 한다).
-              if (psu.wattage < cpu.tdp + gpu.tgp + 150) continue;
-              // PSU 신뢰도 하한선 — qualityScore 없는 레거시 항목/보유 파워는 하한선 적용 없이 통과.
-              if (owned.psuWattage === null && typeof psu.qualityScore === "number" && psu.qualityScore < 70) continue;
-
-              const built = buildCandidate(cpu, gpu, ram, ssd, mb, psu, purpose, budgetTarget, existingParts, caseOwnership, budgetMin, purposes, owned);
-              if (built) {
-                pool.push({
-                  candidate: built.result,
-                  buildKey: `${cpu.id}::${gpu.id}::${mb.id}::${psu.id}`,
-                  cpuId: cpu.id,
-                  gpuId: gpu.id,
-                  gpuScore,
-                  cpuScore,
-                  normalizedBaseScore: built.normalizedBaseScore,
-                });
-              }
-            }
+          const built = buildCandidate(cpu, gpu, ram, ssd, mb, psu, purpose, budgetTarget, existingParts, caseOwnership, budgetMin, purposes, owned);
+          if (built) {
+            pool.push({
+              candidate: built.result,
+              buildKey: `${cpu.id}::${gpu.id}::${mb.id}::${psu.id}`,
+              cpuId: cpu.id,
+              gpuId: gpu.id,
+              gpuScore,
+              cpuScore,
+              normalizedBaseScore: built.normalizedBaseScore,
+            });
           }
         }
       }

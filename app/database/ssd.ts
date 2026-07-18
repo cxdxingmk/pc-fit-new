@@ -30,6 +30,26 @@ export interface SSD {
 
 export const ssds: SSD[] = [
   {
+    // 정책: 새로 구매하는 SSD는 예산/견적 성격과 무관하게 항상 512GB로 고정한다
+    // (recommender.ts의 selectFixedSsd 참고) — 이 카탈로그에서 유일한 512GB 항목이다.
+    id: "sn770-512gb",
+    name: "WD Black SN770 500GB",
+    brand: "WD",
+    capacity: 512,
+    interface: "PCIe 4.0",
+    formFactor: "M.2 2280",
+    readSpeed: 5000,
+    writeSpeed: 4000,
+    dram: false,
+    nand: "TLC",
+    tbw: 300,
+    releaseYear: 2022,
+    gameScore: 80,
+    workScore: 75,
+    aiScore: 70,
+    priceTier: "budget",
+  },
+  {
     id: "sn770-1tb",
     name: "WD Black SN770 1TB",
     brand: "WD",

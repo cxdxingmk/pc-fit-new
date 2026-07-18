@@ -77,8 +77,14 @@ describe("resolveOwnedSsd", () => {
     expect(resolved?.capacity).toBe(1000);
   });
 
-  it("카탈로그에 없는 세부 용량(512GB)은 그 이상인 가장 작은 항목으로 근사한다", () => {
+  it("512GB는 이제 카탈로그에 정확히 있다 — recommender.ts의 SSD 512GB 고정 정책용 항목과 동일하다", () => {
     const resolved = resolveOwnedSsd({ enabled: true, capacity: "512GB", brand: "", model: "" }, ssds);
+    expect(resolved?.capacity).toBe(512);
+  });
+
+  it("카탈로그에 정확한 용량이 없으면 그 이상인 가장 작은 항목으로 근사한다(합성 카탈로그로 검증)", () => {
+    const sparseCatalog = ssds.filter((ssd) => ssd.capacity !== 512);
+    const resolved = resolveOwnedSsd({ enabled: true, capacity: "512GB", brand: "", model: "" }, sparseCatalog);
     expect(resolved?.capacity).toBe(1000);
   });
 
