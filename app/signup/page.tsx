@@ -1,7 +1,8 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useActionState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { signup } from "./actions";
 import PasswordInput from "@/components/ui/PasswordInput";
@@ -14,7 +15,17 @@ import {
 } from "@/app/lib/passwordRule";
 
 export default function SignupPage() {
+  const router = useRouter();
   const [state, formAction, pending] = useActionState(signup, undefined);
+
+  // 가입 즉시 세션이 발급된 경우(이메일 확인 비활성) — app/login/page.tsx와 동일한 이유로
+  // router.refresh()를 먼저 호출해 루트 레이아웃이 새 세션을 반영하게 한 뒤 이동한다.
+  useEffect(() => {
+    if (state?.success) {
+      router.refresh();
+      router.push("/mypage/register-pc");
+    }
+  }, [state, router]);
 
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");

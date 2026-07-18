@@ -40,6 +40,13 @@ export function AuthProvider({ children, initialUser }: { children: React.ReactN
   const [user, setUser] = useState<AuthUser | null>(initialUser);
   const [isLoading, setIsLoading] = useState(false);
 
+  // useState(initialUser)는 "최초 렌더"에만 쓰이고, 이후 부모(루트 레이아웃)가 router.refresh()로
+  // 새 initialUser를 내려줘도 이미 마운트된 이 컴포넌트는 그 prop 변화를 스스로 반영하지 않는다
+  // (로그인 서버 액션 → router.refresh()+push() 이후에도 헤더가 로그인 전 상태로 남던 원인).
+  useEffect(() => {
+    setUser(initialUser);
+  }, [initialUser]);
+
   useEffect(() => {
     const supabase = createClient();
 

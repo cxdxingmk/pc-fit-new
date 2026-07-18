@@ -1,6 +1,5 @@
 "use server";
 
-import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createClient } from "@/app/lib/supabase/server";
 import { PASSWORD_MIN_LENGTH, PASSWORD_HAS_LETTER_AND_DIGIT, PASSWORD_MISMATCH_MESSAGE } from "@/app/lib/passwordRule";
@@ -23,7 +22,10 @@ const SignupSchema = z
     path: ["passwordConfirm"],
   });
 
-export type AuthFormState = { error?: string; needsEmailConfirmation?: boolean } | undefined;
+// success 시 여기서 직접 redirect()하지 않는 이유는 app/login/actions.ts의 동일한 주석 참고 —
+// /signup과 로그인 후 목적지가 같은 루트 레이아웃을 공유해서, 서버 액션발 redirect(soft
+// navigation)로는 AuthContext의 initialUser가 새 세션으로 갱신되지 않는다.
+export type AuthFormState = { error?: string; needsEmailConfirmation?: boolean; success?: true } | undefined;
 
 export async function signup(_prevState: AuthFormState, formData: FormData): Promise<AuthFormState> {
   const parsed = SignupSchema.safeParse({
@@ -81,5 +83,5 @@ export async function signup(_prevState: AuthFormState, formData: FormData): Pro
     return { needsEmailConfirmation: true };
   }
 
-  redirect("/mypage/register-pc");
+  return { success: true };
 }

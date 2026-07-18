@@ -7,6 +7,11 @@ vi.mock("./actions", () => ({
   signup: vi.fn(async () => undefined),
 }));
 
+// success 후 router.refresh()/push()를 호출하는 useEffect 때문에 App Router 없이 렌더하면 invariant 에러가 남.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+}));
+
 const PW = "abcd1234";
 
 function getPasswordField() {
