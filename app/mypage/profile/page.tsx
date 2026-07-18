@@ -10,6 +10,7 @@ import type { UserProfile } from "../../types/user";
 import { buildDefaultUserProfile, getStoredUserProfile, saveUserProfile, validateUserProfile } from "../../lib/userProfileStorage";
 import { SectionCard, PrimaryButton } from "../../components/pcfit-ui";
 import DarkSelect from "../../../components/ui/DarkSelect";
+import PasswordChangeForm from "./PasswordChangeForm";
 
 const EMAIL_DOMAIN_OPTIONS = [
   { label: "네이버", value: "naver.com" },
@@ -115,6 +116,7 @@ export default function MyPageProfilePage() {
   const [emailDomain, setEmailDomain] = useState<EmailDomainOption>("naver.com");
   const [customEmailDomain, setCustomEmailDomain] = useState("");
   const [isAccountEditOpen, setIsAccountEditOpen] = useState(false);
+  const [isPasswordSectionOpen, setIsPasswordSectionOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -393,6 +395,26 @@ export default function MyPageProfilePage() {
               <PrimaryButton full onClick={handleSaveProfile}>
                 개인정보 저장하기
               </PrimaryButton>
+            </SectionCard>
+          )}
+
+          <SettingsList
+            title="보안"
+            rows={[
+              {
+                label: "비밀번호 변경",
+                caption: "다른 사람이 알아내기 어려운 비밀번호로 주기적으로 바꿔주세요",
+                onClick: () => setIsPasswordSectionOpen((prev) => !prev),
+              },
+            ]}
+          />
+
+          {isPasswordSectionOpen && (
+            <SectionCard className="!p-6">
+              <PasswordChangeForm
+                onSuccess={() => showToast("비밀번호가 변경되었습니다.")}
+                onDismiss={() => setIsPasswordSectionOpen(false)}
+              />
             </SectionCard>
           )}
 
