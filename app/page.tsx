@@ -30,31 +30,49 @@ export default function Home() {
           <h1 className="mb-4 text-5xl font-bold tracking-tight">PC FIT</h1>
 
           <p className="mb-10 text-slate-300">
-            내 컴퓨터 사양 몰라도 괜찮아요 — 지금 바로 게임·작업 성능부터 확인해보세요.
+            새로 살 PC 견적이 필요하든, 지금 쓰는 PC로 뭐가 되는지 궁금하든 — 원하는 쪽을 골라보세요.
           </p>
 
-          <div className="mb-8">
+          <div className="mb-8 grid gap-5 sm:grid-cols-2">
+            <Link
+              href="/build"
+              className="group flex flex-col items-start rounded-3xl border border-white/10 bg-slate-900/60 p-7 text-left transition duration-200 hover:-translate-y-1 hover:border-cyan-400/50 hover:bg-slate-900"
+            >
+              <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-500/10 text-2xl ring-1 ring-cyan-400/30">🛒</span>
+              <h2 className="mt-4 text-xl font-bold text-slate-100">뭘 사야 할지 모르겠어요</h2>
+              <p className="mt-2 text-sm text-slate-400">예산이랑 용도만 알려주면 견적 짜드려요</p>
+              <span className="mt-5 inline-flex items-center gap-1 text-sm font-semibold text-cyan-300 transition group-hover:gap-2">
+                견적 받으러 가기 →
+              </span>
+            </Link>
+
             <Link
               href="/analyze"
-              className="inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-cyan-400 via-cyan-300 to-sky-300 px-8 py-4 text-base font-extrabold text-slate-950 shadow-lg shadow-cyan-500/30 transition duration-200 hover:scale-105 hover:from-cyan-300 hover:to-sky-200"
+              className="group flex flex-col items-start rounded-3xl border border-white/10 bg-slate-900/60 p-7 text-left transition duration-200 hover:-translate-y-1 hover:border-cyan-400/50 hover:bg-slate-900"
             >
-              로그인 없이, 3초 만에 시작하는 사양 & 성능 보기
+              <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-500/10 text-2xl ring-1 ring-cyan-400/30">🎮</span>
+              <h2 className="mt-4 text-xl font-bold text-slate-100">내 PC로 게임/작업 되는지 궁금해요</h2>
+              <p className="mt-2 text-sm text-slate-400">지금 있는 컴퓨터 사양으로 성능 확인</p>
+              <span className="mt-5 inline-flex items-center gap-1 text-sm font-semibold text-cyan-300 transition group-hover:gap-2">
+                성능 확인하러 가기 →
+              </span>
             </Link>
           </div>
 
-          <div className="flex flex-wrap justify-center gap-4">
-            <Link
-              href="/build"
-              className="rounded-2xl bg-cyan-500 px-8 py-4 font-semibold text-slate-950 transition hover:bg-cyan-400"
-            >
+          <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs text-slate-500">
+            <Link href="/analyze" className="underline-offset-2 transition hover:text-slate-300 hover:underline">
+              로그인 없이 3초 만에 시작
+            </Link>
+            <span aria-hidden="true" className="text-slate-700">
+              ·
+            </span>
+            <Link href="/build" className="underline-offset-2 transition hover:text-slate-300 hover:underline">
               AI 맞춤 PC 구성
             </Link>
-
-            <button
-              type="button"
-              onClick={handleAnalyzeClick}
-              className="rounded-2xl border border-white/20 bg-white/5 px-8 py-4 font-semibold text-slate-100 transition hover:bg-white/10"
-            >
+            <span aria-hidden="true" className="text-slate-700">
+              ·
+            </span>
+            <button type="button" onClick={handleAnalyzeClick} className="underline-offset-2 transition hover:text-slate-300 hover:underline">
               내 PC 분석하기
             </button>
           </div>
