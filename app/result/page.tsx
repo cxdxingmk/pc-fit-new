@@ -3,7 +3,7 @@
 import { useId, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useBuild } from "../context/BuildContext";
-import { recommend } from "../lib/recommender";
+import { recommend, findCheapestViableTotalPrice } from "../lib/recommender";
 import { encodeSpec } from "../lib/specPermalink";
 import { buildPerformanceSpec } from "../lib/estimatePermalink";
 import { trackEvent } from "../lib/analytics";
@@ -24,6 +24,13 @@ const SUMMARY_PART_LABELS: Record<(typeof SUMMARY_PART_KEYS)[number], string> = 
   ram: "RAM",
   ssd: "SSD",
 };
+
+// "OO만원 이상을 권장해요" 안내용 — 10만원 단위로 올림해, 안내한 금액으로 다시 시도해도
+// 여전히 애매하게 부족한 상황이 나오지 않게 한다.
+function formatManwonRoundedUp(won: number): string {
+  const roundedUp = Math.ceil(won / 100_000) * 100_000;
+  return `${Math.round(roundedUp / 10_000).toLocaleString()}만원`;
+}
 
 /** TOP1~3 세트를 서로 비교해 "왜 이 견적이 다른가"를 보여주는 diff 플래그를 계산한다.
  *  세 세트 모두 같은 부품이면 굳이 강조할 필요가 없고, 하나라도 다르면 그 부품이 견적 차이의 핵심이다. */
@@ -207,6 +214,15 @@ export default function ResultPage() {
 
   const diffFlags = useMemo(() => computePartDiffFlags(topResults), [topResults]);
 
+  // "정확한 금액 입력"으로 target±20만원 안에 구성 가능한 조합이 하나도 없는 경우(예: 목표가가
+  // 최소 구성가보다 낮음) — 억지로 범위를 벗어난 결과를 보여주는 대신, 실제 구성 가능한 최저가를
+  // 찾아 "OO만원 이상을 권장해요"로 안내한다.
+  const isExactModeEmpty = buildData.budget.mode === "exact" && buildData.budget.exactValue !== null && topResults.length === 0;
+  const cheapestViablePrice = useMemo(() => {
+    if (!isExactModeEmpty) return null;
+    return findCheapestViableTotalPrice(buildData.answers, buildData.existingParts, buildData.caseOwnership, buildData.purposes);
+  }, [isExactModeEmpty, buildData.answers, buildData.existingParts, buildData.caseOwnership, buildData.purposes]);
+
   // /my-pc는 로그인/DB 저장 없이도 ?spec= 퍼머링크만으로 사양을 복원해 보여주는 페이지다
   // (/build 자체가 비로그인으로 시작 가능하니, 그 결과 조회도 로그인을 요구하면 안 된다).
   // 그래서 로그인 게이트 모달 대신 이 견적의 부품 id를 그대로 퍼머링크로 인코딩해 이동시킨다.
@@ -229,8 +245,21 @@ export default function ResultPage() {
 
         {topResults.length === 0 ? (
           <SectionCard className="text-center">
-            <p className="text-xl font-semibold text-white">추천 결과가 없습니다.</p>
-            <p className="mt-3 text-white/50">빌드 단계를 완료한 후 다시 시도해 주세요.</p>
+            {isExactModeEmpty ? (
+              <>
+                <p className="text-xl font-semibold text-white">이 예산으로는 구성이 어려워요.</p>
+                <p className="mt-3 text-white/50">
+                  {cheapestViablePrice !== null
+                    ? `${formatManwonRoundedUp(cheapestViablePrice)} 이상을 권장해요.`
+                    : "입력하신 조건(보유 부품 등)으로는 구성 가능한 조합을 찾지 못했어요."}
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-xl font-semibold text-white">추천 결과가 없습니다.</p>
+                <p className="mt-3 text-white/50">빌드 단계를 완료한 후 다시 시도해 주세요.</p>
+              </>
+            )}
           </SectionCard>
         ) : (
           <>

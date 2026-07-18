@@ -105,6 +105,12 @@ function parseWattage(value: string) {
 // placeholder(0/음수/비정상) 가격 여부 — 동점자 비교에서 변별력을 잃지 않도록 판정한다.
 const isPlaceholderPrice = (p: number): boolean => !Number.isFinite(p) || p <= 0;
 
+// "정확한 금액 입력"(preferredBudgetTarget)이 주어졌을 때 TOP1/2/3 모두가 지켜야 하는 허용 오차 —
+// 위/아래 20만원. app/context/BuildContext.tsx의 setBudgetExact가 이 값으로 {min,max} range를
+// 만들어 budgetMin 하드 하한과도 정확히 맞물리게 한다(둘이 어긋나면 한쪽이 다른 쪽보다 느슨해져
+// 이 허용치보다 더 넓은/좁은 범위로 후보 풀 자체가 잘못 구성된다).
+export const EXACT_BUDGET_TOLERANCE = 200_000;
+
 // 예산 이내에서는 성능이 랭킹을 주도하되, 예산을 넘어서는 순간 급격히 깎이도록 만드는 배율.
 // 절대 원화 차액(diff/30000)이 아니라 "예산 대비 초과 비율"로 계산해야 예산 규모와 무관하게
 // 일관된 패널티가 걸린다(예: 30만원 초과가 100만원 예산에서는 치명적이지만 350만원 예산에서는 오차 수준).
@@ -685,6 +691,15 @@ function pickBestForStrategy(
 // 후보가 없으면(예산이 극단적으로 낮은 등) 안전망으로 예산 무관 최고성능으로 폴백한다.
 const PERFORMANCE_BUDGET_FACTOR_FLOOR = 0.5;
 
+// "정확한 금액 입력" 모드에서 세 전략(균형/가성비/최고성능) 모두가 지켜야 하는 하드 필터 —
+// target±EXACT_BUDGET_TOLERANCE 밖의 후보는 finalScore가 아무리 높아도 절대 뽑히지 않는다.
+// value/performance 전략은 원래 가격 상한을 신경 쓰지 않거나(가성비는 순수 점수/가격비만,
+// 최고성능은 훨씬 느슨한 PERFORMANCE_BUDGET_FACTOR_FLOOR만 봄) 느슨한 소프트 페널티만 거쳤던
+// 게 "정확한 금액"이라면서 실제로는 최대 76만원까지 벗어나는 결과를 냈던 원인이었다.
+function withinExactBudgetEnvelope(rc: RankedCandidate, preferredTarget: number): boolean {
+  return !isPlaceholderPrice(rc.candidate.totalPrice) && Math.abs(rc.candidate.totalPrice - preferredTarget) <= EXACT_BUDGET_TOLERANCE;
+}
+
 function selectTopByStrategy(pool: RankedCandidate[], budgetTarget: number | null, preferredTarget: number | null = null): RecommendationResult[] {
   const usedCpuIds = new Set<string>();
   const usedGpuIds = new Set<string>();
@@ -694,12 +709,21 @@ function selectTopByStrategy(pool: RankedCandidate[], budgetTarget: number | nul
   for (const strategy of STRATEGIES) {
     let picked: RankedCandidate | undefined;
 
-    if (strategy === "performance" && budgetTarget) {
-      const withinEnvelope = (rc: RankedCandidate) => computeBudgetFactor(rc.candidate.totalPrice, budgetTarget) >= PERFORMANCE_BUDGET_FACTOR_FLOOR;
-      picked = pickBestForStrategy(pool, strategy, usedCpuIds, usedGpuIds, usedBuildKeys, preferredTarget, withinEnvelope);
-    }
-    if (!picked) {
-      picked = pickBestForStrategy(pool, strategy, usedCpuIds, usedGpuIds, usedBuildKeys, preferredTarget);
+    if (preferredTarget !== null) {
+      // 예산 약속을 지키는 게 다양성/폴백보다 우선이라, 이 필터를 통과 못 하면 그 슬롯은 그냥
+      // 비운다 — 아래(무필터) 폴백으로 넘어가지 않는다. 넘어가면 이 기능이 고치려는 바로 그
+      // 버그(범위 밖 결과)가 재발한다.
+      picked = pickBestForStrategy(pool, strategy, usedCpuIds, usedGpuIds, usedBuildKeys, preferredTarget, (rc) =>
+        withinExactBudgetEnvelope(rc, preferredTarget)
+      );
+    } else {
+      if (strategy === "performance" && budgetTarget) {
+        const withinEnvelope = (rc: RankedCandidate) => computeBudgetFactor(rc.candidate.totalPrice, budgetTarget) >= PERFORMANCE_BUDGET_FACTOR_FLOOR;
+        picked = pickBestForStrategy(pool, strategy, usedCpuIds, usedGpuIds, usedBuildKeys, preferredTarget, withinEnvelope);
+      }
+      if (!picked) {
+        picked = pickBestForStrategy(pool, strategy, usedCpuIds, usedGpuIds, usedBuildKeys, preferredTarget);
+      }
     }
 
     if (!picked) continue;
@@ -873,8 +897,9 @@ export function recommend(
   // 듀얼 레인지 슬라이더(또는 프리셋에서 매핑된) {min,max} — 주어지면 answers[3] 문자열 파싱보다
   // 우선한다. max는 기존 budgetTarget과 동일하게 소프트 페널티 기준으로, min은 하드 하한으로 쓰인다.
   budgetRange?: BudgetRange | null,
-  // "정확한 금액 입력"이 ±10% range로 변환돼 위 budgetRange 경로를 타되, 균형(TOP1) 슬롯만큼은
-  // 종합점수 최댓값 대신 이 값과 가장 가까운 조합을 우선 채택하도록 한다.
+  // "정확한 금액 입력"이 target±EXACT_BUDGET_TOLERANCE range로 변환돼 위 budgetRange 경로를
+  // 타되, 세 전략(균형/가성비/최고성능) 모두 selectTopByStrategy의 withinExactBudgetEnvelope
+  // 하드 필터로 이 값과의 차이가 EXACT_BUDGET_TOLERANCE 이내인 후보만 채택한다.
   preferredBudgetTarget?: number | null
 ): RecommendationResult[] {
   const purpose = pickPurpose(answers, purposes);
@@ -899,6 +924,40 @@ export function recommend(
     preferredBudgetTarget ?? null,
     effectivePurposes
   );
+}
+
+// "정확한 금액 입력"의 target±EXACT_BUDGET_TOLERANCE 안에서 구성 가능한 조합이 하나도 없을 때
+// (recommend()가 빈 배열을 반환할 때), "OO만원 이상을 권장해요" 안내에 쓸 참고값을 찾는다.
+// 예산 제약을 완전히 걷어내고 같은 용도/보유부품/케이스 조건에서 만들 수 있는 가장 저렴한 유효
+// 조합의 총액을 반환한다 — 만들 수 있는 조합 자체가 없으면(예: 보유 부품끼리 호환 불가) null.
+export function findCheapestViableTotalPrice(
+  answers: Answers,
+  existingParts: ExistingPartsState,
+  caseOwnership: CaseOwnershipOption = "owned",
+  purposes?: PurposeType[]
+): number | null {
+  const purpose = pickPurpose(answers, purposes);
+  const effectivePurposes: Purpose[] = purposes && purposes.length > 0 ? purposes : [purpose];
+
+  const unconstrained = generateCandidates(
+    _cpus,
+    _gpus,
+    _rams,
+    _ssds,
+    _motherboards,
+    _psus,
+    purpose,
+    null, // budgetTarget
+    existingParts,
+    caseOwnership,
+    null, // budgetMin
+    null, // preferredBudgetTarget
+    effectivePurposes
+  );
+
+  const prices = unconstrained.map((r) => r.totalPrice).filter((p) => !isPlaceholderPrice(p));
+  if (prices.length === 0) return null;
+  return Math.min(...prices);
 }
 
 export { recommend as default };

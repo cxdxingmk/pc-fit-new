@@ -5,6 +5,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 import type { SavedEstimate } from "../types/recommend";
 import type { ExistingPartsState, CaseOwnershipOption, PurposeType, BudgetRange } from "../types/build";
 import { readJsonFromStorage, writeJsonToStorage } from "../lib/localStorageJson";
+import { EXACT_BUDGET_TOLERANCE } from "../lib/recommender";
 
 export type { BudgetRange };
 
@@ -237,12 +238,15 @@ export function BuildProvider({
     });
   };
 
-  /** "정확한 금액 입력" — 입력값을 ±10% range로 변환해 "범위로 선택"과 동일한 하한 강제 +
-   *  다양성 필터 경로를 타게 한다. exactValue는 별도로 남겨서(range와 다름) TOP1을 이 금액에
-   *  가장 가까운 조합으로 우선 배치하는 데 쓴다(recommender.ts의 preferredBudgetTarget). */
+  /** "정확한 금액 입력" — 입력값을 target±EXACT_BUDGET_TOLERANCE(20만원) range로 변환해 "범위로
+   *  선택"과 동일한 하한 강제 경로를 타게 한다. 이 range가 recommender.ts의
+   *  withinExactBudgetEnvelope 하드 필터와 같은 허용치를 쓰지 않으면(예: 예전처럼 ±10%) 한쪽이
+   *  다른 쪽보다 느슨해져 후보 풀 자체가 잘못 좁혀지거나 넓혀진다 — 반드시 같은 상수를 쓴다.
+   *  exactValue는 별도로 남겨서(range와 다름) 세 전략(균형/가성비/최고성능) 모두 이 금액과의
+   *  차이가 허용치 이내인 후보만 채택하게 한다(recommender.ts의 preferredBudgetTarget). */
   const setBudgetExact = (value: number | null) => {
     setBuildData((prev) => {
-      const range = value !== null ? { min: Math.round(value * 0.9), max: Math.round(value * 1.1) } : null;
+      const range = value !== null ? { min: Math.max(0, value - EXACT_BUDGET_TOLERANCE), max: value + EXACT_BUDGET_TOLERANCE } : null;
       return {
         ...prev,
         budget: { mode: "exact", preset: null, exactValue: value, range },

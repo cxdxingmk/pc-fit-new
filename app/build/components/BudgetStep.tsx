@@ -130,6 +130,9 @@ export default function BudgetStep({ mode, selectedBudget, exactValue, range, on
             />
             <span className="inline-flex items-center rounded-3xl border border-white/10 bg-slate-800 px-4 text-sm text-slate-300">원</span>
           </div>
+          <p className="mt-3 text-xs text-slate-400">
+            입력하신 금액에 정확히 맞추기보다, 해당 금액을 기준으로 위아래 20만원 범위 안에서 최적의 조합을 찾아드려요.
+          </p>
           {exactOutOfRange ? (
             <p className="mt-3 text-sm font-semibold text-rose-400">
               {formatWon(BUDGET_SLIDER_MIN)} ~ {formatWon(BUDGET_SLIDER_MAX)} 사이 금액만 입력할 수 있습니다.
