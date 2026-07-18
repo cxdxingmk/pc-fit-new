@@ -27,6 +27,7 @@
   "dependencies": {
     "@supabase/ssr": "^0.12.3",
     "@supabase/supabase-js": "^2.110.6",
+    "@vercel/analytics": "^2.0.1",
     "discord.js": "^14.26.4",
     "dotenv": "^17.4.2",
     "html2canvas": "^1.4.1",

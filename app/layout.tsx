@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 
 import Header from "../components/Header";
 import Footer from "../components/Footer";
+import GoogleAnalytics from "../components/GoogleAnalytics";
 import { BuildProvider } from "./context/BuildContext";
 import { AuthProvider } from "./context/AuthContext";
 import { getServerAuthUser } from "./lib/supabase/getServerAuthUser";
@@ -57,6 +59,7 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const initialUser = await getServerAuthUser();
+  const gaMeasurementId = process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID;
 
   return (
     <html
@@ -72,6 +75,8 @@ export default async function RootLayout({
         />
       </head>
       <body className="min-h-screen overflow-x-clip bg-ink text-white antialiased selection:bg-brand/30">
+        {gaMeasurementId ? <GoogleAnalytics gaId={gaMeasurementId} /> : null}
+        <Analytics />
         <div
           aria-hidden="true"
           className="pointer-events-none fixed inset-x-0 top-[-200px] mx-auto h-[480px] w-[720px] rounded-full bg-brand/10 blur-[120px]"
