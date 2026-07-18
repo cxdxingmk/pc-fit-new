@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildAdditionalCpus, buildAdditionalGpus } from "./hardwareScoring";
+import { buildAdditionalCpus, buildAdditionalGpus, isWorkstationGpuModel } from "./hardwareScoring";
 import { cpus as mergedCpus } from "../database/cpu";
 import { gpus as mergedGpus } from "../database/gpu";
 import { motherboards } from "../database/motherboard";
@@ -193,5 +193,82 @@ describe("merged app/database catalogs (real data regression check)", () => {
 
     const gpuIds = mergedGpus.map((gpu) => gpu.id);
     expect(new Set(gpuIds).size).toBe(gpuIds.length);
+  });
+});
+
+describe("isWorkstationGpuModel — 전문가용(워크스테이션) GPU 판정", () => {
+  it("Arc Pro/Quadro/RTX A시리즈/Radeon Pro 이름을 워크스테이션 카드로 인식한다", () => {
+    expect(isWorkstationGpuModel("Intel Arc Pro B50")).toBe(true);
+    expect(isWorkstationGpuModel("NVIDIA Quadro RTX 4000")).toBe(true);
+    expect(isWorkstationGpuModel("NVIDIA RTX A4000")).toBe(true);
+    expect(isWorkstationGpuModel("AMD Radeon Pro W7800")).toBe(true);
+  });
+
+  it("일반 게이밍 카드는 워크스테이션 카드로 오인하지 않는다", () => {
+    expect(isWorkstationGpuModel("GeForce RTX 4070")).toBe(false);
+    expect(isWorkstationGpuModel("Radeon RX 7800 XT")).toBe(false);
+    expect(isWorkstationGpuModel("Intel Arc A770")).toBe(false); // "Pro"가 없는 일반 Arc 라인
+  });
+});
+
+describe("buildAdditionalGpus — 워크스테이션 GPU의 gameScore 감점", () => {
+  // 신고된 버그: "Intel Arc Pro B50"이 VRAM/TGP만 보는 회귀식 때문에 게이밍 카드와 비슷한
+  // gameScore(81)를 받아 게임 용도 TOP1에 올랐다 — 실제로는 게임 최적화 드라이버도, 게임
+  // 검증도 없는 전문가용 카드다. workScore/aiScore는 전문가용 카드가 실제로 강점을 보일 수
+  // 있는 영역이라 감점하지 않는다.
+  const anchors: GPU[] = [
+    {
+      id: "anchor-1",
+      name: "GeForce RTX 4060",
+      brand: "NVIDIA",
+      vram: 8,
+      memoryType: "GDDR6",
+      tgp: 115,
+      dlss: true,
+      fsr: false,
+      xess: false,
+      rayTracing: true,
+      pcie: "4.0",
+      releaseYear: 2023,
+      gameScore: 75,
+      workScore: 70,
+      aiScore: 72,
+      priceTier: "budget",
+    },
+    {
+      id: "anchor-2",
+      name: "GeForce RTX 4090",
+      brand: "NVIDIA",
+      vram: 24,
+      memoryType: "GDDR6X",
+      tgp: 450,
+      dlss: true,
+      fsr: false,
+      xess: true,
+      rayTracing: true,
+      pcie: "4.0",
+      releaseYear: 2022,
+      gameScore: 100,
+      workScore: 99,
+      aiScore: 99,
+      priceTier: "enthusiast",
+    },
+  ];
+
+  it("전문가용 카드는 같은 스펙의 일반 게이밍 카드보다 gameScore가 낮게 나온다(workScore는 그대로)", () => {
+    const gamingCard: GPUData = { model: "NVIDIA RTX 4070 Gaming Twin", manufacturer: "NVIDIA", cudaOrStreamCores: 5888, vramGb: 16, releaseYear: 2023 };
+    const workstationCard: GPUData = { model: "NVIDIA RTX A4000 Pro", manufacturer: "NVIDIA", cudaOrStreamCores: 5888, vramGb: 16, releaseYear: 2023 };
+
+    const [gamingEntry] = buildAdditionalGpus(anchors, [gamingCard]);
+    const [proEntry] = buildAdditionalGpus(anchors, [workstationCard]);
+
+    expect(proEntry.gameScore).toBeLessThan(gamingEntry.gameScore);
+    expect(proEntry.workScore).toBe(gamingEntry.workScore); // 동일 스펙이면 workScore는 감점 없이 동일해야 한다
+  });
+
+  it("감점 후에도 gameScore는 1 미만으로 내려가지 않는다(clampScore 하한 유지)", () => {
+    const weakProCard: GPUData = { model: "Some Pro GPU", manufacturer: "NVIDIA", cudaOrStreamCores: 512, vramGb: 2, releaseYear: 2015 };
+    const [entry] = buildAdditionalGpus(anchors, [weakProCard]);
+    expect(entry.gameScore).toBeGreaterThanOrEqual(1);
   });
 });

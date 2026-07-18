@@ -2,6 +2,7 @@ import { compatibilityScore, recencyBoost, CPU_GPU_GAP_LARGE } from "./compatibi
 import { getCpuBenchmark } from "../../database/mapping/cpuMap";
 import { getGpuBenchmark } from "../../database/mapping/gpuMap";
 import { resolveOwnedParts, buildOwnedPsuRepresentative, type ResolvedOwnedParts } from "./ownedParts";
+import { isWorkstationGpuModel } from "./hardwareScoring";
 
 // synchronous local DB imports for backward-compatible recommend()
 import { cpus as _cpus } from "../database/cpu";
@@ -420,6 +421,19 @@ function selectGpuPoolForOwnedCpu(cpu: CPU, genEligibleGpus: GPU[], purpose: Pur
   return selectDiversePool(candidates, purpose, GPU_POOL_PER_TIER);
 }
 
+/**
+ * 위 selectGpuPoolForOwnedCpu의 대칭 케이스 — GPU가 보유 부품으로 고정된 경우, 그 GPU와
+ * 병목이 나는 CPU는 신규 구매 후보에서 배제한다. 이 대칭 케이스가 없으면(GPU 보유 고정 + CPU
+ * 자유 선택 상태에서), CPU 풀은 순수 목적 적합도로만 뽑혀 병목 걱정 없이 최고 성능 CPU를
+ * 골라버린다 — 특히 gameScore가 낮은 GPU(예: 전문가용 GPU를 보유 부품으로 지정한 경우)와
+ * 짝지어지면 compatibilityScore가 <70으로 떨어져 결과가 통째로 사라지는 문제로 실제 이어졌다.
+ */
+function selectCpuPoolForOwnedGpu(gpu: GPU, genEligibleCpus: CPU[], purposes: Purpose[]): CPU[] {
+  const withinBottleneckMargin = genEligibleCpus.filter((cpu) => Math.abs(cpu.gameScore - gpu.gameScore) <= CPU_GPU_GAP_LARGE);
+  const candidates = withinBottleneckMargin.length > 0 ? withinBottleneckMargin : genEligibleCpus;
+  return selectDiverseCpuPool(candidates, purposes, CPU_POOL_PER_TIER);
+}
+
 function groupRamsByDdr(rams: RAM[]): Map<string, RAM[]> {
   const map = new Map<string, RAM[]>();
   for (const ram of rams) {
@@ -497,9 +511,22 @@ export function generateCandidates(
   // 신규 구매 후보군에서만 구형 세대를 제외한다(보유 부품 고정 경로는 resolveOwnedParts가
   // 전 세대 카탈로그를 그대로 검색하므로 이 필터와 무관하게 계속 인식된다).
   const cpuGenEligible = cpus.filter(isNewPurchaseEligibleCpu);
-  const gpuGenEligible = gpus.filter(isNewPurchaseEligibleGpu);
+  let gpuGenEligible = gpus.filter(isNewPurchaseEligibleGpu);
 
-  const cpuPool = owned.cpu ? [owned.cpu] : selectDiverseCpuPool(cpuGenEligible, purposes, CPU_POOL_PER_TIER);
+  // 게임 용도 신규 구매 후보에서는 전문가용(워크스테이션) GPU를 아예 배제한다 — VRAM/TGP가
+  // 넉넉해도 게임 최적화 드라이버·게임 검증이 없는 제품이라 gameScore를 아무리 정확히
+  // 추정해도(hardwareScoring.ts의 워크스테이션 감점 참고) "게임용으로 설계·검증된 제품"이라는
+  // 사실 자체는 숫자 하나로 완전히 대체되지 않는다. CAD/영상/AI 등 다른 용도에서는 오히려
+  // 전문가용 카드가 강점이 될 수 있어 배제하지 않는다 — 게임 용도에서만 적용한다.
+  if (purpose === "gaming") {
+    gpuGenEligible = gpuGenEligible.filter((gpu) => !isWorkstationGpuModel(gpu.name));
+  }
+
+  const cpuPool = owned.cpu
+    ? [owned.cpu]
+    : owned.gpu
+      ? selectCpuPoolForOwnedGpu(owned.gpu, cpuGenEligible, purposes)
+      : selectDiverseCpuPool(cpuGenEligible, purposes, CPU_POOL_PER_TIER);
   const gpuPool = owned.gpu
     ? [owned.gpu]
     : owned.cpu

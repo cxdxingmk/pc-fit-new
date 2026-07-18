@@ -218,6 +218,19 @@ function gpuFeature(g: { vram: number; releaseYear: number; tgp: number }): numb
   return [1, g.vram, g.releaseYear - 2014, g.tgp];
 }
 
+// 회귀식의 feature(vram/tgp/releaseYear)는 "전문가용(워크스테이션) 카드인가"를 전혀 모른다 —
+// 그래서 VRAM/TGP가 넉넉한 Arc Pro/Quadro/RTX A시리즈/Radeon Pro 카드가 실제로는 게임 최적화
+// 드라이버도, 게임 검증도 없는데도 동급 게이밍 카드와 비슷한 gameScore를 그대로 받는 문제가
+// 실제로 있었다(예: Intel Arc Pro B50이 VRAM/TGP만 보고 gameScore 81을 받음). workScore/aiScore는
+// 전문가용 카드가 오히려 강점을 보일 수 있는 영역이라 회귀 추정치를 그대로 두고, gameScore만
+// 큰 폭으로 깎는다.
+export const WORKSTATION_GPU_NAME_PATTERN = /\bPro\b|Quadro|RTX\s?A\d{3,4}|Radeon\s?Pro/i;
+const WORKSTATION_GPU_GAME_SCORE_PENALTY = 30;
+
+export function isWorkstationGpuModel(model: string): boolean {
+  return WORKSTATION_GPU_NAME_PATTERN.test(model);
+}
+
 export function buildAdditionalGpus(curated: GPU[], newCatalog: GPUData[]): GPU[] {
   const existingModelKeys = new Set(curated.map((g) => normalizeModelKey(g.name)));
   const usedIds = new Set(curated.map((g) => g.id));
@@ -246,7 +259,10 @@ export function buildAdditionalGpus(curated: GPU[], newCatalog: GPUData[]): GPU[
     const compat = inferGpuCompatFields(entry.model, entry.manufacturer, entry.cudaOrStreamCores, entry.vramGb);
     const feature = gpuFeature({ vram: entry.vramGb, releaseYear: entry.releaseYear, tgp: compat.tgp });
 
-    const gameScore = clampScore(predict(gameCoeffs, feature));
+    const predictedGameScore = clampScore(predict(gameCoeffs, feature));
+    const gameScore = isWorkstationGpuModel(entry.model)
+      ? clampScore(predictedGameScore - WORKSTATION_GPU_GAME_SCORE_PENALTY)
+      : predictedGameScore;
 
     result.push({
       id,

@@ -18,6 +18,7 @@ import {
 import type { CPU } from "../database/cpu";
 import { cpus, curatedCpus } from "../database/cpu";
 import { gpus } from "../database/gpu";
+import { isWorkstationGpuModel } from "./hardwareScoring";
 import { psus } from "../database/psu";
 import { ssds } from "../database/ssd";
 import type { PSU } from "../database/psu";
@@ -730,6 +731,66 @@ describe("recommend — CPU-GPU 병목 자기모순 경고 방지(CPU 보유 고
     for (const result of results) {
       const criticalBottleneck = result.warnings.some((w) => w.severity === "critical" && /병목/.test(w.message));
       expect(criticalBottleneck).toBe(false);
+    }
+  });
+
+  it("대칭 케이스 — 보유 GPU가 성능이 낮아도(예: 전문가용 GPU) 자유 선택되는 CPU가 그 GPU와 병목 없이 짝지어진다", () => {
+    // Arc Pro B50의 gameScore를 워크스테이션 감점으로 낮추고 나서 실제로 드러난 문제: GPU를
+    // 보유 부품으로 고정하면 CPU는 자유 선택인데, CPU 풀이 순수 목적 적합도로만 뽑히면 이
+    // 낮은 gameScore GPU와 최상급 CPU가 짝지어져 compatibilityScore가 70 밑으로 떨어지고
+    // 결과 자체가 통째로 사라졌다.
+    const existingParts = baseExistingParts();
+    existingParts.GPU = { enabled: true, brand: "Intel", manufacturer: "", model: "Intel Arc Pro B50" };
+
+    const results = recommend({ 1: ["게임"], 3: ["300만원 이상"] }, existingParts, "none", ["gaming"]);
+    expect(results.length).toBeGreaterThan(0);
+    for (const result of results) {
+      const criticalBottleneck = result.warnings.some((w) => w.severity === "critical" && /병목/.test(w.message));
+      expect(criticalBottleneck).toBe(false);
+    }
+  });
+});
+
+describe("recommend — 게임 용도 신규 구매 후보에서 전문가용(워크스테이션) GPU 배제", () => {
+  // 신고된 버그: "Intel Arc Pro B50"이 gameScore 81(VRAM/TGP만 보는 회귀 추정, 워크스테이션
+  // 감점 반영 전)을 받아 게임 용도 TOP1에 올랐다 — 게임 검증이 없는 전문가용 카드인데도.
+  const purposeBudgetMatrix: Array<[string, string]> = [
+    ["게임", "100만원 이하"],
+    ["게임", "150~200만원"],
+    ["게임", "200~300만원"],
+    ["게임", "300만원 이상"],
+  ];
+
+  it("(검증) 어느 예산대에서도 게임 용도 TOP1~3에 전문가용 GPU(Arc Pro 등)가 나오지 않는다", () => {
+    for (const [purposeLabel, budgetLabel] of purposeBudgetMatrix) {
+      const results = recommend({ 1: [purposeLabel], 3: [budgetLabel] }, baseExistingParts(), "none", ["gaming"]);
+      for (const result of results) {
+        const gpu = gpus.find((g) => g.id === result.partIds.gpu);
+        expect(gpu).toBeDefined();
+        expect(isWorkstationGpuModel(gpu!.name)).toBe(false);
+      }
+    }
+  });
+
+  it("전문가용 GPU 배제는 게임 용도에만 적용된다 — 영상편집/CAD 용도에서는 여전히 후보가 될 수 있다", () => {
+    // 카탈로그에서 workScore가 가장 높은 워크스테이션 GPU(Arc Pro B60)가 영상편집 목적,
+    // 넉넉한 예산에서 실제로 후보 풀에 들어갈 수 있는지 확인한다(반드시 선택되어야 하는 건
+    // 아니지만, "게임 용도가 아니면 원천 배제되지 않는다"는 정책 자체를 검증한다).
+    const results = recommend({ 1: ["영상편집"], 3: ["300만원 이상"] }, baseExistingParts(), "none", ["video"]);
+    expect(results.length).toBeGreaterThan(0);
+    // 최소한 결과가 정상적으로 나오고(전문가용 배제 필터가 이 용도에는 아예 관여하지 않음),
+    // 배제 로직 자체가 이 경로에선 호출되지 않았음을 간접적으로 확인 — 결과가 비지 않으면 충분하다.
+  });
+
+  it("보유 부품으로 전문가용 GPU(Arc Pro B50)를 지정하면 게임 용도에서도 배제 필터와 무관하게 정상 인식된다", () => {
+    const existingParts = baseExistingParts();
+    existingParts.GPU = { enabled: true, brand: "Intel", manufacturer: "", model: "Intel Arc Pro B50" };
+
+    const results = recommend({ 1: ["게임"], 3: ["150~200만원"] }, existingParts, "none", ["gaming"]);
+    expect(results.length).toBeGreaterThan(0);
+    for (const result of results) {
+      expect(result.partIds.gpu).toBe("arc-pro-b50");
+      expect(result.ownedParts.gpu).toBe(true);
     }
   });
 });
