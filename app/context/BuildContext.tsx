@@ -8,10 +8,10 @@ import { readJsonFromStorage, writeJsonToStorage } from "../lib/localStorageJson
 
 export type { BudgetRange };
 
-/** 듀얼 레인지 슬라이더("범위로 선택")와 "정확한 금액 입력" 둘 다 이 하한/상한을 공유한다. */
+/** 예산 범위 슬라이더("범위로 선택")와 "정확한 금액 입력" 둘 다 이 하한/상한을 공유한다.
+ *  슬라이더 자체의 구간별 step은 components/ui/budgetRangeScale.ts가 담당한다(전 구간 균일하지 않음). */
 export const BUDGET_SLIDER_MIN = 500_000;
 export const BUDGET_SLIDER_MAX = 10_000_000;
-export const BUDGET_SLIDER_STEP = 100_000;
 
 /** 고정 구간 버튼도 결과적으로 슬라이더와 동일한 {min,max} 형태로 귀결시켜, 추천 로직에
  *  전달되는 데이터 형식을 하나로 통일한다. */

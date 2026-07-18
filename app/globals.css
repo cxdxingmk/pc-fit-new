@@ -81,58 +81,6 @@ select option:hover {
   background-color: var(--color-surface-raise);
 }
 
-/* 듀얼 레인지 슬라이더(DualRangeSlider) — input[type=range] 두 개를 겹쳐 그리는 방식이라
-   트랙 중간을 클릭했을 때 엉뚱한 손잡이가 잡히지 않도록 input 자체는 pointer-events:none으로
-   투명하게 두고, 실제 손잡이(원형 thumb)만 pointer-events:auto로 열어둔다. */
-.dual-range-input {
-  pointer-events: none;
-  height: 2rem;
-  margin: 0;
-}
-
-.dual-range-input::-webkit-slider-runnable-track {
-  background: transparent;
-}
-
-.dual-range-input::-moz-range-track {
-  background: transparent;
-}
-
-.dual-range-input::-webkit-slider-thumb {
-  pointer-events: auto;
-  appearance: none;
-  width: 20px;
-  height: 20px;
-  border-radius: 9999px;
-  background: var(--color-brand);
-  border: 3px solid white;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
-  cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-}
-
-.dual-range-input::-moz-range-thumb {
-  pointer-events: auto;
-  width: 20px;
-  height: 20px;
-  border-radius: 9999px;
-  background: var(--color-brand);
-  border: 3px solid white;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
-  cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-}
-
-.dual-range-input:hover::-webkit-slider-thumb,
-.dual-range-input:focus-visible::-webkit-slider-thumb {
-  transform: scale(1.15);
-}
-
-.dual-range-input:hover::-moz-range-thumb,
-.dual-range-input:focus-visible::-moz-range-thumb {
-  transform: scale(1.15);
-}
-
 .dual-range-input:focus-visible::-webkit-slider-thumb {
   box-shadow: 0 0 0 4px var(--color-brand-dim);
 }

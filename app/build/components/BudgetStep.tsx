@@ -1,8 +1,8 @@
 "use client";
 
 import { ChangeEvent, useState } from "react";
-import DualRangeSlider from "../../../components/ui/DualRangeSlider";
-import { BUDGET_SLIDER_MAX, BUDGET_SLIDER_MIN, BUDGET_SLIDER_STEP } from "../../context/BuildContext";
+import BudgetRangeSlider from "../../../components/ui/BudgetRangeSlider";
+import { BUDGET_SLIDER_MAX, BUDGET_SLIDER_MIN } from "../../context/BuildContext";
 import type { BudgetMode, BudgetOption, BudgetRange } from "../../context/BuildContext";
 
 type Props = {
@@ -148,13 +148,11 @@ export default function BudgetStep({ mode, selectedBudget, exactValue, range, on
         <div className="mt-6 rounded-3xl border border-cyan-500/30 bg-cyan-500/10 p-6">
           <label className="block text-sm font-semibold text-slate-100">예산 범위 지정</label>
           <p className="mt-1 text-xs text-slate-300">
-            {formatWon(BUDGET_SLIDER_MIN)} ~ {formatWon(BUDGET_SLIDER_MAX)} 사이에서 {formatWon(BUDGET_SLIDER_STEP)} 단위로 조정할 수 있습니다.
+            {formatWon(BUDGET_SLIDER_MIN)} ~ {formatWon(BUDGET_SLIDER_MAX)} 사이에서 조정할 수 있습니다. 500만원 미만은 10만원 단위, 500만원
+            이상은 50만원 단위로 움직입니다.
           </p>
           <div className="mt-5">
-            <DualRangeSlider
-              min={BUDGET_SLIDER_MIN}
-              max={BUDGET_SLIDER_MAX}
-              step={BUDGET_SLIDER_STEP}
+            <BudgetRangeSlider
               valueMin={range?.min ?? 1_500_000}
               valueMax={range?.max ?? 2_500_000}
               onChange={onRangeChange}
