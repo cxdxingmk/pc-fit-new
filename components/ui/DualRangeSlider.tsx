@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { cn } from "./cn";
 
 interface DualRangeSliderProps {
@@ -41,6 +41,17 @@ export default function DualRangeSlider({
   const percentMax = ((valueMax - min) / (max - min)) * 100;
   const format = formatValue ?? ((v: number) => v.toLocaleString());
 
+  // step 간격마다 눈금을 하나씩 찍는다 — 드래그 전에도 어느 지점이 어느 값인지 가늠할 수 있게.
+  // 10칸마다(예: 10만원 step이면 100만원마다) 눈금을 더 굵고 진하게 표시해 촘촘한 눈금 사이에서
+  // 큰 단위를 바로 읽을 수 있게 한다.
+  const ticks = useMemo(() => {
+    const count = Math.round((max - min) / step);
+    return Array.from({ length: count + 1 }, (_, i) => {
+      const value = min + i * step;
+      return { value, percent: ((value - min) / (max - min)) * 100, major: i % 10 === 0 };
+    });
+  }, [min, max, step]);
+
   const handleMinChange = (raw: number) => {
     const next = Math.min(raw, valueMax - step);
     onChange({ min: Math.max(min, next), max: valueMax });
@@ -67,6 +78,20 @@ export default function DualRangeSlider({
           className="pointer-events-none absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-brand"
           style={{ left: `calc(${percentMin}% * 0.01 * (100% - 8px) + 4px)`, width: `calc((${percentMax}% - ${percentMin}%) * 0.01 * (100% - 8px))` }}
         />
+        {/* step 간격 눈금 — 드래그 전에도 어느 지점이 얼마인지 가늠할 수 있게. 10칸마다(큰 단위)
+            더 굵고 진하게 표시한다. */}
+        <div aria-hidden="true" className="pointer-events-none absolute left-1 right-1 top-1/2 h-1.5 -translate-y-1/2">
+          {ticks.map((tick) => (
+            <span
+              key={tick.value}
+              className={cn(
+                "absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/25",
+                tick.major ? "h-2.5 w-[2px] bg-white/40" : "h-1 w-px"
+              )}
+              style={{ left: `${tick.percent}%` }}
+            />
+          ))}
+        </div>
 
         <input
           id={minId}
