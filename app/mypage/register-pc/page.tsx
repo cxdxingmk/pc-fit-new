@@ -1045,16 +1045,6 @@ export default function RegisterPcPage() {
                       </div>
                     </div>
                   </div>
-
-                  <label className="flex min-h-11 items-center gap-3 rounded-xl bg-white/[0.03] px-3 py-2 text-sm text-white/70 ring-1 ring-line">
-                    <input
-                      type="checkbox"
-                      checked={hasCase}
-                      onChange={() => setHasCase((value) => !value)}
-                      className="h-4 w-4 rounded border-white/20 bg-white/[0.04] accent-brand"
-                    />
-                    케이스 보유 여부
-                  </label>
                 </div>
               </AccordionSection>
 
