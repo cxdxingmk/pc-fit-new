@@ -14,6 +14,7 @@ import type { SSD } from "../database/ssd";
 import type { MotherBoard } from "../database/motherboard";
 import { getMyPcScore, getGrade, getMyPcWorkloadScores, buildThreeLineSummary } from "../lib/myPc";
 import { evaluateAllGames, type Resolution as DisplayResolution, type RefreshRate } from "../lib/displayMatch";
+import { snapToNearestRefreshRate, type RefreshRateStep } from "../lib/refreshRateSteps";
 import type { UserSavedPc } from "../types/hardware";
 import { simulatePcPerformance } from "../lib/simulator";
 import { derivePartSeries } from "../lib/derivePartSeries";
@@ -45,8 +46,12 @@ import {
 
 const SPEC_STORAGE_KEY = "user_pc_spec";
 const REFRESH_RATE_OPTIONS: RefreshRate[] = [60, 144, 240];
-const MONITOR_OPTIONS = ["FHD · 60Hz", "FHD · 144Hz", "QHD · 144Hz", "QHD · 240Hz", "4K · 60Hz", "4K · 144Hz"];
-const CASE_OPTIONS = ["미들타워", "빅타워", "미니 ITX", "슬림형"];
+
+// register-pc와 같은 11단계 전체 목록에서 고른 주사율을, 성능 시뮬레이션 엔진이 실제로 지원하는
+// 3종(60/144/240)으로 맞춰준다 — REFRESH_RATE_OPTIONS 자체가 이미 그 3종이라 재사용한다.
+function snapToEngineRefreshRate(hz: number): RefreshRate {
+  return REFRESH_RATE_OPTIONS.reduce((nearest, step) => (Math.abs(step - hz) < Math.abs(nearest - hz) ? step : nearest), REFRESH_RATE_OPTIONS[0]);
+}
 
 const MONITOR_BOTTLENECK_LABEL: Record<string, string> = {
   NONE: "병목 없음",
@@ -81,13 +86,35 @@ export default function MyPcClient() {
   // 내 모니터 기준(등록 화면에서 저장한 값이 있으면 그 값을 기본값으로 사용)
   const [monitorRes, setMonitorRes] = useState<DisplayResolution>("QHD");
   const [monitorHz, setMonitorHz] = useState<RefreshRate>(144);
+  // 상단 "직접 선택" 드롭다운용 정밀 주사율(11단계) — 하단 시뮬레이션 엔진은 3단계(monitorHz)만
+  // 지원하므로, 이 값이 바뀌면 monitorHz는 가장 가까운 3단계 값으로 스냅한다.
+  const [monitorHzPrecise, setMonitorHzPrecise] = useState<RefreshRateStep>(144);
 
   useEffect(() => {
     const saved = readJsonFromStorage<{ monitorResolution?: DisplayResolution; monitorRefreshRate?: number }>(SPEC_STORAGE_KEY);
     if (saved?.monitorResolution) setMonitorRes(saved.monitorResolution);
-    if (saved?.monitorRefreshRate && REFRESH_RATE_OPTIONS.includes(saved.monitorRefreshRate as RefreshRate)) {
-      setMonitorHz(saved.monitorRefreshRate as RefreshRate);
+    if (saved?.monitorRefreshRate) {
+      setMonitorHzPrecise(snapToNearestRefreshRate(saved.monitorRefreshRate));
+      if (REFRESH_RATE_OPTIONS.includes(saved.monitorRefreshRate as RefreshRate)) {
+        setMonitorHz(saved.monitorRefreshRate as RefreshRate);
+      } else {
+        setMonitorHz(snapToEngineRefreshRate(saved.monitorRefreshRate));
+      }
     }
+  }, []);
+
+  // 하단 "내 모니터 기준으로 보기" 섹션(3단계 버튼)에서 바뀌면 — 60/144/240은 모두 11단계 집합의
+  // 원소이므로 스냅 없이 그대로 정밀 상태에도 반영한다.
+  const handleMonitorHzChange = useCallback((hz: RefreshRate) => {
+    setMonitorHz(hz);
+    setMonitorHzPrecise(hz);
+  }, []);
+
+  // 상단 "직접 선택" 드롭다운(11단계)에서 바뀌면 — 엔진이 지원하는 가장 가까운 3단계로 스냅해
+  // 하단 섹션과 동기화한다.
+  const handleMonitorHzPreciseChange = useCallback((hz: RefreshRateStep) => {
+    setMonitorHzPrecise(hz);
+    setMonitorHz(snapToEngineRefreshRate(hz));
   }, []);
 
   const [isSpecEditOpen, setIsSpecEditOpen] = useState(false);
@@ -475,8 +502,10 @@ export default function MyPcClient() {
         userName={user?.name}
         parts={quoteParts}
         performance={performanceScores}
-        monitorOptions={MONITOR_OPTIONS}
-        caseOptions={CASE_OPTIONS}
+        monitorResolution={monitorRes}
+        onMonitorResolutionChange={setMonitorRes}
+        monitorRefreshRate={monitorHzPrecise}
+        onMonitorRefreshRateChange={handleMonitorHzPreciseChange}
         saving={isSavingShareImage}
         onSave={handleQuoteSave}
         summaryLines={summaryLines}
@@ -490,7 +519,7 @@ export default function MyPcClient() {
           <h2 className="text-sm font-bold text-white/60">내 모니터 기준으로 보기</h2>
           <Badge tone={toneFromScore(score.totalScore)}>{getGrade(score.totalScore)}</Badge>
         </div>
-        <DisplayControls res={monitorRes} hz={monitorHz} onRes={setMonitorRes} onHz={setMonitorHz} />
+        <DisplayControls res={monitorRes} hz={monitorHz} onRes={setMonitorRes} onHz={handleMonitorHzChange} />
       </section>
 
       <p className="text-xs text-white/35">예상치는 통계 모델 기반 추정으로 실제 성능과 다를 수 있어요.</p>

@@ -10,9 +10,10 @@
  *  [3] 다나와/컴퓨존식 정돈된 그리드 테이블 (분류 | 제품명 | 상태 3열 구조)
  *  [4] 필수 6부품(CPU/GPU/메인보드/RAM/SSD/파워) 상시 노출,
  *      HDD는 선택 항목 — 미선택 시 '선택 안 함'으로 안전 처리 (에러 없음)
- *  [5] 모니터/케이스는 사용자가 직접 선택하는 셀렉트 UX + 마이크로 카피 안내
- *  [6] 부품/조립 사진 업로드 + 미리보기 (인메모리 처리, 최대 4장)
- *  [7] '파워' 행 하단에 PsuInlineGuide 한 곳에서만 권장 파워 안내(과거엔 모니터/케이스
+ *  [5] 모니터 해상도/주사율은 상위(MyPcClient)의 "내 모니터 기준으로 보기" 상태를 그대로
+ *      controlled prop으로 받는다 — 케이스 선택과 사진 첨부는 실제로 쓰이지 않아 제거했다
+ *      (과거엔 로컬 상태로만 떠 있어 하단 섹션과 전혀 연동되지 않았다).
+ *  [6] '파워' 행 하단에 PsuInlineGuide 한 곳에서만 권장 파워 안내(과거엔 모니터/케이스
  *      문구 아래에도 같은 경고를 배너로 중복 노출했으나 제거하고 통합)
  *      (app/lib/psuRecommendation.ts 계산 결과를 표시만 담당)
  *
@@ -21,10 +22,12 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { PsuInlineGuide, usePsuGuide } from "@/components/ui/PsuGuide";
 import DarkSelect from "@/components/ui/DarkSelect";
 import Callout from "@/components/ui/Callout";
+import type { Resolution } from "@/app/lib/displayMatch";
+import { REFRESH_RATE_STEPS, type RefreshRateStep } from "@/app/lib/refreshRateSteps";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 타입 정의 — 기존 데이터 구조에 맞춰 필드명만 매핑해서 사용하세요
@@ -55,12 +58,18 @@ export interface QuoteReportProps {
   reportDate?: string;
   parts: QuoteParts;
   performance: PerformanceScores;
-  monitorOptions: string[];
-  caseOptions: string[];
+  /** "내 모니터 기준으로 보기" 섹션과 값을 공유하는 controlled prop — 이 안에서 바꾸면 그 섹션도,
+   *  그 섹션에서 바꾸면 여기도 함께 갱신된다(상위 MyPcClient가 단일 출처로 관리). */
+  monitorResolution: Resolution;
+  onMonitorResolutionChange: (value: Resolution) => void;
+  /** register-pc와 동일한 11단계 전체(60~540Hz) — "내 모니터 기준으로 보기" 섹션은 성능 시뮬레이션
+   *  엔진 제약으로 60/144/240 3종만 지원해, 그 사이 값은 상위에서 가장 가까운 값으로 맞춰 반영된다. */
+  monitorRefreshRate: RefreshRateStep;
+  onMonitorRefreshRateChange: (value: RefreshRateStep) => void;
   /** 저장 중 상태 — 버튼 비활성화/라벨 전환용 (선택) */
   saving?: boolean;
   /** 저장 시 상위 비즈니스 로직으로 전달 — 기존 저장 스크립트 연결 지점 */
-  onSave?: (payload: { monitor: string | null; caseName: string | null; images: File[] }) => void;
+  onSave?: () => void;
   /** 종합 성능 배지 바로 아래 노출할 3줄 요약(한줄평/병목 요인/추천 용도) — 없으면 섹션 자체를 숨긴다 */
   summaryLines?: [string, string, string];
   /** "결과 링크 복사" 클릭 시 호출 — 실제 클립보드 쓰기는 상위(퍼머링크를 아는 쪽)에서 담당 */
@@ -70,7 +79,6 @@ export interface QuoteReportProps {
 // ═══════════════════════════════════════════════════════════════════════════
 // 상수 & 유틸 (로직/스타일 분리)
 // ═══════════════════════════════════════════════════════════════════════════
-const MAX_IMAGES = 4;
 
 /** 필수 6부품 — 이 배열 순서 그대로 테이블에 상시 노출 */
 const REQUIRED_PART_ROWS: ReadonlyArray<{
@@ -138,17 +146,15 @@ export default function QuoteReport({
   reportDate,
   parts,
   performance,
-  monitorOptions,
-  caseOptions,
+  monitorResolution,
+  onMonitorResolutionChange,
+  monitorRefreshRate,
+  onMonitorRefreshRateChange,
   saving = false,
   onSave,
   summaryLines,
   onCopyLink,
 }: QuoteReportProps) {
-  // ── 모니터/케이스 직접 선택 상태 ──
-  const [monitor, setMonitor] = useState<string>("");
-  const [caseName, setCaseName] = useState<string>("");
-
   // 리포트 날짜 — new Date()를 렌더 중에 바로 쓰면(예전엔 reportDate 기본값이 그랬다) /my-pc가
   // 정적 렌더 페이지라 빌드 시점에 고정된 서버 값과 실제 방문 시점의 클라이언트 값이 달라져
   // React #418(하이드레이션 실패)이 난다. 첫 렌더는 빈 문자열로 서버와 맞추고 마운트 후에만 채운다.
@@ -167,31 +173,12 @@ export default function QuoteReport({
     window.setTimeout(() => setShowCopyToast(false), 2000);
   }, [onCopyLink]);
 
-  // ── 이미지 업로드 상태 (인메모리 — localStorage 미사용) ──
-  const [images, setImages] = useState<File[]>([]);
-  const previews = useMemo(() => images.map((f) => ({ name: f.name, url: URL.createObjectURL(f) })), [images]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
   // 파워 권장 용량 계산 — 표시만 담당, 계산은 app/lib/psuRecommendation.ts 순수 함수가 처리
   const psu = usePsuGuide(parts.cpu, parts.gpu, parts.psu);
 
-  const handleImageChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
-    const selected = Array.from(e.target.files ?? []).filter((f) => f.type.startsWith("image/"));
-    setImages((prev) => [...prev, ...selected].slice(0, MAX_IMAGES));
-    e.target.value = ""; // 같은 파일 재선택 허용
-  }, []);
-
-  const removeImage = useCallback((index: number) => {
-    setImages((prev) => prev.filter((_, i) => i !== index));
-  }, []);
-
   const handleSave = useCallback(() => {
-    onSave?.({
-      monitor: monitor || null,
-      caseName: caseName || null,
-      images,
-    });
-  }, [onSave, monitor, caseName, images]);
+    onSave?.();
+  }, [onSave]);
 
   // HDD 선택적 처리 — 값이 없어도 절대 에러 없이 '선택 안 함'
   const hddDisplay = parts.hdd?.trim() ? parts.hdd : "선택 안 함";
@@ -290,27 +277,31 @@ export default function QuoteReport({
         </div>
       </section>
 
-      {/* ══ 모니터 & 케이스 직접 선택 + 마이크로 카피 ══ */}
-      <section aria-label="모니터 및 케이스 선택" className="space-y-3 rounded-xl bg-surface p-5 ring-1 ring-line">
+      {/* ══ 모니터 해상도/주사율 — "내 모니터 기준으로 보기" 섹션과 공유하는 controlled 값 ══ */}
+      <section aria-label="모니터 설정" className="space-y-3 rounded-xl bg-surface p-5 ring-1 ring-line">
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block">
             <span className="mb-1.5 block text-center text-xs font-medium text-white/40">모니터 (직접 선택)</span>
-            <DarkSelect value={monitor} onChange={(e) => setMonitor(e.target.value)} className="text-center">
-              <option value="">선택 안 함</option>
-              {monitorOptions.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt}
-                </option>
-              ))}
+            <DarkSelect
+              value={monitorResolution}
+              onChange={(e) => onMonitorResolutionChange(e.target.value as Resolution)}
+              className="text-center"
+            >
+              <option value="FHD">FHD</option>
+              <option value="QHD">QHD</option>
+              <option value="4K">4K</option>
             </DarkSelect>
           </label>
           <label className="block">
-            <span className="mb-1.5 block text-center text-xs font-medium text-white/40">케이스 (직접 선택)</span>
-            <DarkSelect value={caseName} onChange={(e) => setCaseName(e.target.value)} className="text-center">
-              <option value="">선택 안 함</option>
-              {caseOptions.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt}
+            <span className="mb-1.5 block text-center text-xs font-medium text-white/40">모니터 주사율 (직접 선택)</span>
+            <DarkSelect
+              value={monitorRefreshRate}
+              onChange={(e) => onMonitorRefreshRateChange(Number(e.target.value) as RefreshRateStep)}
+              className="text-center"
+            >
+              {REFRESH_RATE_STEPS.map((hz) => (
+                <option key={hz} value={hz}>
+                  {hz}Hz
                 </option>
               ))}
             </DarkSelect>
@@ -318,48 +309,8 @@ export default function QuoteReport({
         </div>
         {/* 마이크로 카피 */}
         <Callout variant="warning" className="justify-center text-center">
-          모니터와 케이스는 본체 연산 성능(FPS, 병목)에 직접적인 영향을 주지 않습니다.
+          모니터 설정은 본체 연산 성능(FPS, 병목)에 직접적인 영향을 주지 않습니다.
         </Callout>
-      </section>
-
-      {/* ══ 사진 첨부 (업로드 + 미리보기) ══ */}
-      <section aria-label="사진 첨부" className="space-y-3 rounded-xl bg-surface p-5 ring-1 ring-line">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-white">부품/조립 사진 첨부</h2>
-          <span className="text-xs text-white/40">
-            {images.length}/{MAX_IMAGES}장
-          </span>
-        </div>
-
-        <div className="grid grid-cols-4 gap-2">
-          {previews.map((p, i) => (
-            <div key={p.url} className="group relative aspect-square overflow-hidden rounded-lg ring-1 ring-line">
-              {/* eslint-disable-next-line @next/next/no-img-element -- 로컬 blob 미리보기 용도 */}
-              <img src={p.url} alt={`첨부 이미지 ${i + 1}: ${p.name}`} className="h-full w-full object-cover" />
-              <button
-                type="button"
-                onClick={() => removeImage(i)}
-                aria-label={`${p.name} 삭제`}
-                className={`absolute right-1 top-1 h-6 w-6 rounded-full bg-black/70 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 ${cellCenter}`}
-              >
-                ✕
-              </button>
-            </div>
-          ))}
-
-          {images.length < MAX_IMAGES && (
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className={`aspect-square flex-col gap-1 rounded-lg border-2 border-dashed border-line text-white/40 transition-colors hover:border-brand hover:text-brand-soft ${cellCenter}`}
-            >
-              <span className="text-xl leading-none">＋</span>
-              <span className="text-[11px]">사진 추가</span>
-            </button>
-          )}
-        </div>
-
-        <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleImageChange} className="hidden" />
       </section>
 
       {/* ══ 저장 버튼 — 기존 저장 로직(onSave)으로 위임 + 결과 링크 복사(퍼머링크) ══ */}
