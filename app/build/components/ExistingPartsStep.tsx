@@ -6,6 +6,7 @@ import { gpus } from "../../database/gpu";
 import { motherboards } from "../../database/motherboard";
 import { getAllRams, getAllSsds, searchRamsByKeyword, searchSsdsByKeyword } from "../../../src/utils/hardwareLookup";
 import type { ExistingPartsState, CaseOwnershipOption } from "../../types/build";
+import { sortModelsByNumber } from "../../../components/ui/useCascadingPartSelect";
 
 type Props = {
   existingParts: ExistingPartsState;
@@ -54,9 +55,10 @@ export default function ExistingPartsStep({
 
   const partOptions = useMemo(() => {
     const cpuModelsByBrand = cpuBrandOptions.reduce((acc, brand) => {
-      acc[brand] = cpus
-        .filter((cpu) => cpu.brand === brand)
-        .map((cpu) => cpu.name);
+      acc[brand] = sortModelsByNumber(
+        cpus.filter((cpu) => cpu.brand === brand),
+        (cpu) => cpu.name
+      ).map((cpu) => cpu.name);
       return acc;
     }, {} as Record<string, readonly string[]>);
 
@@ -71,10 +73,15 @@ export default function ExistingPartsStep({
 
     const gpuBrands = Array.from(new Set(gpus.map((gpu) => gpu.brand)));
     const gpuModelsByBrand = gpuBrands.reduce((acc, brand) => {
-      acc[brand] = gpus
-        .filter((gpu) => gpu.brand === brand)
-        .sort((a, b) => b.releaseYear - a.releaseYear)
-        .map((gpu) => gpu.name);
+      // 이 화면은 브랜드→모델 2단계라 시리즈로 먼저 묶지 않는다 — 그런데 이 카탈로그의 모델
+      // 번호는 세대가 올라갈수록 값도 커지도록 매겨져 있어(GTX 900대→1000번대→RTX 20/30/40/
+      // 50번대, RX 500→5000→6000→7000→9000번대) 번호 오름차순 정렬 하나만으로 세대별 묶임과
+      // 숫자 순서가 동시에 맞아떨어진다. releaseYear 내림차순 정렬은 "5090, 5080, 5070,
+      // 5050, 5060..."처럼 뒤섞이고 동일 연도 안에서도 세대가 묶이지 않는 문제가 있었다.
+      acc[brand] = sortModelsByNumber(
+        gpus.filter((gpu) => gpu.brand === brand),
+        (gpu) => gpu.name
+      ).map((gpu) => gpu.name);
       return acc;
     }, {} as Record<string, readonly string[]>);
 

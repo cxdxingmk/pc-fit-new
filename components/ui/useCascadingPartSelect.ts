@@ -85,22 +85,44 @@ export interface ModelSortKey {
   capacityGb: number;
 }
 
+// /build의 "보유 부품" 화면(브랜드→모델, 시리즈 단계 없이 그 브랜드의 전 세대를 한 번에 보여줌)은
+// 자동 추정 카탈로그에 섞여 있는 "GeForce RTX 3070 Ti 8 GB GA102"처럼 다이 코드네임(GA102,
+// AD104 등)이 뒤에 붙은 이름까지 그대로 정렬 대상이 된다 — "마지막 3자리 이상 숫자"만 보면
+// "GA102"의 "102"를 모델 번호로 잘못 집어(코드네임은 항상 글자+숫자가 공백 없이 붙어 있다)
+// 목록 맨 앞에 튀어나오는 버그가 있었다. RTX/GTX/GT/RX 뒤에 바로 오는 숫자가 있으면 그걸
+// 최우선으로 쓴다(코드네임은 이 키워드 뒤에 오지 않으므로 안전) — 이런 키워드가 없는 이름
+// (CPU, Intel Arc의 "A770" 등)에서만 "3자리 이상 숫자 중 마지막 것" 방식으로 폴백한다.
+const SERIES_NUMBER_PATTERN = /(?:RTX|GTX|GT|RX)\s?(\d{3,5})/i;
+
 /**
  * "GeForce RTX 5060 Ti 16GB", "Radeon RX 9070 XT", "Ryzen 7 9800X3D", "Core Ultra 9 285K"처럼
- * 브랜드/제품군이 섞인 모델명에서 (모델 번호, 접미사 등급, 용량) 정렬 키를 뽑는다. 모델 번호는
- * "3자리 이상 숫자 중 마지막 것"으로 잡는다 — CPU 이름 앞쪽의 "Ryzen 9"/"Core Ultra 9"/"Core i5"
- * 같은 한 자리 등급 숫자와 실제 모델 번호를 구분하기 위함이다(항상 모델 번호가 뒤에 옴).
+ * 브랜드/제품군이 섞인 모델명에서 (모델 번호, 접미사 등급, 용량) 정렬 키를 뽑는다.
  */
 export function parseModelSortKey(name: string): ModelSortKey {
-  const digitRuns = name.match(/\d+/g) ?? [];
-  const candidates = digitRuns.filter((run) => run.length >= 3);
-  const baseNumberStr = candidates[candidates.length - 1];
+  const seriesMatch = name.match(SERIES_NUMBER_PATTERN);
+
+  let baseNumberStr: string | undefined;
+  let numberIndex = -1;
+
+  if (seriesMatch) {
+    baseNumberStr = seriesMatch[1];
+    numberIndex = seriesMatch.index! + seriesMatch[0].length - baseNumberStr.length;
+  } else {
+    // RTX/GTX/GT/RX 접두가 없는 이름(CPU, Intel Arc 등) — "3자리 이상 숫자 중 마지막 것"을
+    // 모델 번호로 본다. CPU 이름 앞쪽의 "Ryzen 9"/"Core Ultra 9"/"Core i5" 같은 한 자리 등급
+    // 숫자와 실제 모델 번호를 구분하기 위함이다(항상 모델 번호가 뒤에 옴).
+    const digitRuns = [...name.matchAll(/\d+/g)].filter((m) => m[0].length >= 3);
+    const last = digitRuns[digitRuns.length - 1];
+    if (last) {
+      baseNumberStr = last[0];
+      numberIndex = last.index!;
+    }
+  }
 
   if (!baseNumberStr) {
     return { baseNumber: Number.POSITIVE_INFINITY, suffixRank: 0, capacityGb: 0 };
   }
 
-  const numberIndex = name.lastIndexOf(baseNumberStr);
   const trailing = name.slice(numberIndex + baseNumberStr.length);
   const suffix = trailing.replace(/\d+\s*GB\b/i, "").trim();
 
