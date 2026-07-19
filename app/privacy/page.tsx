@@ -49,6 +49,7 @@ export default function PrivacyPage() {
           rows={[
             ["Supabase", "회원정보 및 서비스 데이터 저장·인증", "싱가포르"],
             ["Vercel", "웹사이트 호스팅", "해외(미국 등)"],
+            ["Google", "웹사이트 방문 통계 분석", "미국"],
           ]}
         />
       </LegalSection>
