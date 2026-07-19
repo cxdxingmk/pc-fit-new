@@ -46,6 +46,32 @@ export interface CPU {
 // 아래 additionalCpus는 이 배열을 학습 앵커로 삼아 점수를 추정한다.
 const curatedCpus: CPU[] = [
   {
+    // 3D V-Cache 듀얼 CCD 플래그십 — 실제 공식 스펙(16코어/32스레드, TDP 170W, 128MB L3) 기준.
+    // 비-X3D 9950X 대비 부스트클럭이 근소하게 낮아 싱글/멀티코어는 살짝 낮게, 게이밍은 대형
+    // 3D V-Cache 덕에 카탈로그 최고점으로 잡는다(실측 리뷰에서 게이밍 1위권으로 나오는 경향 반영).
+    id: "r9-9950x3d",
+    name: "Ryzen 9 9950X3D",
+    brand: "AMD",
+    socket: "AM5",
+    cores: 16,
+    threads: 32,
+    baseClock: 4.3,
+    boostClock: 5.7,
+    cache: 128,
+    tdp: 170,
+    igpu: true,
+    ddr: "DDR5",
+    pcie: "5.0",
+    releaseYear: 2025,
+    gameScore: 100,
+    workScore: 99,
+    aiScore: 99,
+    singleCoreScore: 96,
+    multiCoreScore: 99,
+    efficiencyScore: 58,
+    priceTier: "enthusiast",
+  },
+  {
     id: "r9-9950x",
     name: "Ryzen 9 9950X",
     brand: "AMD",

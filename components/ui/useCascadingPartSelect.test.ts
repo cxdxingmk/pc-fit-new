@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import { useCascadingPartSelect, type CascadeItem } from "./useCascadingPartSelect";
+import { useCascadingPartSelect, sortModelsByNumber, type CascadeItem } from "./useCascadingPartSelect";
 
 interface TestItem extends CascadeItem {
   series: string;
@@ -72,5 +72,85 @@ describe("useCascadingPartSelect — selectModel 브랜드/그룹 재동기화",
     });
     expect(result.current.modelId).toBe("");
     expect(result.current.modelOptions.map((i) => i.id)).toEqual(["amd-9070xt"]);
+  });
+});
+
+// 회귀 가드: "직접 입력" 모델 드롭다운이 "5080, 5070, 5050, 5060..."처럼 뒤섞여 있던 문제 —
+// modelOptions는 필터만 하고 정렬은 안 했었다.
+describe("sortModelsByNumber — 같은 그룹 안 모델 번호 오름차순 정렬", () => {
+  it("GeForce RTX 50 시리즈: 뒤섞인 입력도 50→60→70→80→90 오름차순으로 정렬된다", () => {
+    const names = ["GeForce RTX 5080", "GeForce RTX 5050", "GeForce RTX 5090", "GeForce RTX 5070", "GeForce RTX 5060"];
+    const sorted = sortModelsByNumber(names, (n) => n);
+    expect(sorted).toEqual(["GeForce RTX 5050", "GeForce RTX 5060", "GeForce RTX 5070", "GeForce RTX 5080", "GeForce RTX 5090"]);
+  });
+
+  it("같은 번호대에서 접미사 없는 베이스 모델이 Ti/SUPER 변형보다 먼저 온다", () => {
+    const names = ["GeForce RTX 5060 Ti", "GeForce RTX 5060", "GeForce RTX 4070 Ti SUPER", "GeForce RTX 4070 SUPER", "GeForce RTX 4070 Ti", "GeForce RTX 4070"];
+    const sorted = sortModelsByNumber(names, (n) => n);
+    expect(sorted).toEqual([
+      "GeForce RTX 4070",
+      "GeForce RTX 4070 SUPER",
+      "GeForce RTX 4070 Ti",
+      "GeForce RTX 4070 Ti SUPER",
+      "GeForce RTX 5060",
+      "GeForce RTX 5060 Ti",
+    ]);
+  });
+
+  it("예시 순서(50, 60, 60 Ti, 70, 70 Ti, 80, 80 SUPER, 90, 90 D)를 정확히 재현한다", () => {
+    const names = [
+      "GeForce RTX 5090 D",
+      "GeForce RTX 5080 SUPER",
+      "GeForce RTX 5070 Ti",
+      "GeForce RTX 5060 Ti",
+      "GeForce RTX 5090",
+      "GeForce RTX 5080",
+      "GeForce RTX 5070",
+      "GeForce RTX 5060",
+      "GeForce RTX 5050",
+    ];
+    const sorted = sortModelsByNumber(names, (n) => n);
+    expect(sorted).toEqual([
+      "GeForce RTX 5050",
+      "GeForce RTX 5060",
+      "GeForce RTX 5060 Ti",
+      "GeForce RTX 5070",
+      "GeForce RTX 5070 Ti",
+      "GeForce RTX 5080",
+      "GeForce RTX 5080 SUPER",
+      "GeForce RTX 5090",
+      "GeForce RTX 5090 D",
+    ]);
+  });
+
+  it("'D V2'처럼 'D' 뒤에 버전 토큰이 더 붙는 중국 시장 변형도 base/D와 같은 최하위 순위로 취급된다(실제 버그: 'D V2'가 'D'보다 앞에 옴)", () => {
+    const names = ["GeForce RTX 5090 D V2", "GeForce RTX 5090", "GeForce RTX 5090 D"];
+    const sorted = sortModelsByNumber(names, (n) => n);
+    expect(sorted[0]).toBe("GeForce RTX 5090");
+    expect(sorted.slice(1)).toEqual(expect.arrayContaining(["GeForce RTX 5090 D", "GeForce RTX 5090 D V2"]));
+  });
+
+  it("같은 모델·접미사 안에서는 VRAM 용량 오름차순으로 정렬된다", () => {
+    const names = ["GeForce RTX 5060 Ti 16GB", "GeForce RTX 5060 Ti 8GB"];
+    const sorted = sortModelsByNumber(names, (n) => n);
+    expect(sorted).toEqual(["GeForce RTX 5060 Ti 8GB", "GeForce RTX 5060 Ti 16GB"]);
+  });
+
+  it("AMD Radeon 계열에도 같은 원칙이 적용된다(XT가 베이스보다 뒤)", () => {
+    const names = ["Radeon RX 9070 XT", "Radeon RX 9060 XT", "Radeon RX 9070", "Radeon RX 9060"];
+    const sorted = sortModelsByNumber(names, (n) => n);
+    expect(sorted).toEqual(["Radeon RX 9060", "Radeon RX 9060 XT", "Radeon RX 9070", "Radeon RX 9070 XT"]);
+  });
+
+  it("CPU 목록에도 동일한 함수를 재사용할 수 있다(Ryzen 9000 시리즈 번호 오름차순)", () => {
+    const names = ["Ryzen 9 9950X", "Ryzen 5 9600X", "Ryzen 7 9800X3D", "Ryzen 7 9700X"];
+    const sorted = sortModelsByNumber(names, (n) => n);
+    expect(sorted).toEqual(["Ryzen 5 9600X", "Ryzen 7 9700X", "Ryzen 7 9800X3D", "Ryzen 9 9950X"]);
+  });
+
+  it("Ryzen 9 9800 앞의 한 자리 등급 숫자(9)를 모델 번호로 착각하지 않는다", () => {
+    const names = ["Core Ultra 9 285K", "Core Ultra 7 265K"];
+    const sorted = sortModelsByNumber(names, (n) => n);
+    expect(sorted).toEqual(["Core Ultra 7 265K", "Core Ultra 9 285K"]);
   });
 });

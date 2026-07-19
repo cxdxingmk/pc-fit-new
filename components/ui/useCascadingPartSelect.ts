@@ -44,6 +44,85 @@ function sortByGeneration(labels: string[]): string[] {
   return [...labels].sort((a, b) => extractLeadingNumber(a) - extractLeadingNumber(b));
 }
 
+// 같은 그룹(시리즈/세대) 안에서 모델을 번호 오름차순으로 정렬할 때 쓰는 접미사 우선순위 —
+// 같은 번호대에서 "베이스 모델"이 항상 먼저 오고, 그 다음 변형이 성능/등급 순으로 이어지게 한다
+// (예: 5060 -> 5060 Ti, 4070 -> 4070 SUPER -> 4070 Ti -> 4070 Ti SUPER). "D"(중국 시장向 컷다운
+// 변형, 예: RTX 5090 D)는 같은 번호의 다른 변형보다 항상 뒤로 보낸다 — 실제로 더 낮은 사양이다.
+const SUFFIX_RANK: Record<string, number> = {
+  "": 0,
+  SUPER: 1,
+  X: 1,
+  K: 1,
+  F: 1,
+  TI: 2,
+  XT: 2,
+  X3D: 2,
+  KF: 3,
+  "TI SUPER": 3,
+  XTX: 3,
+  D: 9,
+};
+
+function suffixRank(suffix: string): number {
+  const key = suffix.trim().toUpperCase().replace(/\s+/g, " ");
+  if (key in SUFFIX_RANK) return SUFFIX_RANK[key];
+  // "D V2"처럼 "D" 뒤에 추가 버전 토큰이 붙는 중국 시장 변형 계열은 정확히 "D"와 일치하지
+  // 않아도 같은(항상 맨 뒤) 취급을 받아야 한다.
+  if (/^D(\s|$)/.test(key)) return SUFFIX_RANK.D;
+  return 5;
+}
+
+/** 이름 문자열에 박힌 용량(예: "16GB", "16 GB")을 추출한다 — 같은 모델/접미사 안에서 용량
+ *  변형(예: "RTX 5060 Ti 8GB" vs "RTX 5060 Ti 16GB")을 오름차순으로 가르는 3순위 키로 쓴다. */
+function extractCapacityGb(label: string): number {
+  const match = label.match(/(\d+)\s*GB\b/i);
+  return match ? Number(match[1]) : 0;
+}
+
+export interface ModelSortKey {
+  baseNumber: number;
+  suffixRank: number;
+  capacityGb: number;
+}
+
+/**
+ * "GeForce RTX 5060 Ti 16GB", "Radeon RX 9070 XT", "Ryzen 7 9800X3D", "Core Ultra 9 285K"처럼
+ * 브랜드/제품군이 섞인 모델명에서 (모델 번호, 접미사 등급, 용량) 정렬 키를 뽑는다. 모델 번호는
+ * "3자리 이상 숫자 중 마지막 것"으로 잡는다 — CPU 이름 앞쪽의 "Ryzen 9"/"Core Ultra 9"/"Core i5"
+ * 같은 한 자리 등급 숫자와 실제 모델 번호를 구분하기 위함이다(항상 모델 번호가 뒤에 옴).
+ */
+export function parseModelSortKey(name: string): ModelSortKey {
+  const digitRuns = name.match(/\d+/g) ?? [];
+  const candidates = digitRuns.filter((run) => run.length >= 3);
+  const baseNumberStr = candidates[candidates.length - 1];
+
+  if (!baseNumberStr) {
+    return { baseNumber: Number.POSITIVE_INFINITY, suffixRank: 0, capacityGb: 0 };
+  }
+
+  const numberIndex = name.lastIndexOf(baseNumberStr);
+  const trailing = name.slice(numberIndex + baseNumberStr.length);
+  const suffix = trailing.replace(/\d+\s*GB\b/i, "").trim();
+
+  return {
+    baseNumber: Number(baseNumberStr),
+    suffixRank: suffixRank(suffix),
+    capacityGb: extractCapacityGb(trailing),
+  };
+}
+
+/** CPU/GPU 공용 — 같은 브랜드·그룹(시리즈) 안에서 모델을 번호 → 접미사 등급 → 용량 순으로
+ *  오름차순 정렬한다. 드롭다운이 "5080, 5070, 5050, 5060..." 처럼 뒤섞여 보이던 문제를 고친다. */
+export function sortModelsByNumber<T>(items: T[], getName: (item: T) => string): T[] {
+  return [...items].sort((a, b) => {
+    const keyA = parseModelSortKey(getName(a));
+    const keyB = parseModelSortKey(getName(b));
+    if (keyA.baseNumber !== keyB.baseNumber) return keyA.baseNumber - keyB.baseNumber;
+    if (keyA.suffixRank !== keyB.suffixRank) return keyA.suffixRank - keyB.suffixRank;
+    return keyA.capacityGb - keyB.capacityGb;
+  });
+}
+
 /**
  * 브랜드 -> 그룹(시리즈/칩셋) -> 모델 3단 계층 선택 상태를 관리한다.
  * getGroupLabel을 무엇으로 넘기느냐에 따라 CPU/GPU(시리즈 파싱)와 메인보드(chipset 필드)
@@ -69,7 +148,8 @@ export function useCascadingPartSelect<T extends CascadeItem>(
 
   const modelOptions = useMemo(() => {
     if (!brand || !group) return [];
-    return items.filter((item) => item.brand === brand && getGroupLabel(item) === group);
+    const filtered = items.filter((item) => item.brand === brand && getGroupLabel(item) === group);
+    return sortModelsByNumber(filtered, (item) => item.name);
   }, [items, brand, group, getGroupLabel]);
 
   const selectBrand = (nextBrand: string) => {

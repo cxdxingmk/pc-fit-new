@@ -3,7 +3,7 @@
 import { useId, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useBuild } from "../context/BuildContext";
-import { recommend, findCheapestViableTotalPrice } from "../lib/recommender";
+import { recommend, findCheapestViableTotalPrice, findMostExpensiveViableTotalPrice } from "../lib/recommender";
 import { encodeSpec } from "../lib/specPermalink";
 import { buildPerformanceSpec } from "../lib/estimatePermalink";
 import { trackEvent } from "../lib/analytics";
@@ -30,6 +30,13 @@ const SUMMARY_PART_LABELS: Record<(typeof SUMMARY_PART_KEYS)[number], string> = 
 function formatManwonRoundedUp(won: number): string {
   const roundedUp = Math.ceil(won / 100_000) * 100_000;
   return `${Math.round(roundedUp / 10_000).toLocaleString()}만원`;
+}
+
+// "OO만원 이하로 낮춰보세요" 안내용 — 10만원 단위로 내림해, 안내한 금액으로 다시 시도했을 때도
+// 확실히 구성 가능한 값이 되게 한다(올림하면 여전히 카탈로그 최고가를 넘어설 수 있음).
+function formatManwonRoundedDown(won: number): string {
+  const roundedDown = Math.floor(won / 100_000) * 100_000;
+  return `${Math.round(roundedDown / 10_000).toLocaleString()}만원`;
 }
 
 /** TOP1~3 세트를 서로 비교해 "왜 이 견적이 다른가"를 보여주는 diff 플래그를 계산한다.
@@ -222,6 +229,18 @@ export default function ResultPage() {
     if (!isExactModeEmpty) return null;
     return findCheapestViableTotalPrice(buildData.answers, buildData.existingParts, buildData.caseOwnership, buildData.purposes);
   }, [isExactModeEmpty, buildData.answers, buildData.existingParts, buildData.caseOwnership, buildData.purposes]);
+  // 목표가가 최저 구성가보다 낮아서 못 만드는 건지, 카탈로그 최고 구성가보다 높아서 못 만드는
+  // 건지에 따라 정반대 안내(더 올리기 vs 더 낮추기)가 필요하다 — 이 최고가도 하드코딩이 아니라
+  // 매번 새로 계산한다(카탈로그가 커지면 자동으로 따라간다).
+  const mostExpensiveViablePrice = useMemo(() => {
+    if (!isExactModeEmpty) return null;
+    return findMostExpensiveViableTotalPrice(buildData.answers, buildData.existingParts, buildData.caseOwnership, buildData.purposes);
+  }, [isExactModeEmpty, buildData.answers, buildData.existingParts, buildData.caseOwnership, buildData.purposes]);
+  const isTooHighTarget =
+    isExactModeEmpty &&
+    buildData.budget.exactValue !== null &&
+    mostExpensiveViablePrice !== null &&
+    buildData.budget.exactValue > mostExpensiveViablePrice;
 
   // /my-pc는 로그인/DB 저장 없이도 ?spec= 퍼머링크만으로 사양을 복원해 보여주는 페이지다
   // (/build 자체가 비로그인으로 시작 가능하니, 그 결과 조회도 로그인을 요구하면 안 된다).
@@ -249,9 +268,11 @@ export default function ResultPage() {
               <>
                 <p className="text-xl font-semibold text-white">이 예산으로는 구성이 어려워요.</p>
                 <p className="mt-3 text-white/50">
-                  {cheapestViablePrice !== null
-                    ? `${formatManwonRoundedUp(cheapestViablePrice)} 이상을 권장해요.`
-                    : "입력하신 조건(보유 부품 등)으로는 구성 가능한 조합을 찾지 못했어요."}
+                  {isTooHighTarget && mostExpensiveViablePrice !== null
+                    ? `${formatManwonRoundedDown(mostExpensiveViablePrice)} 이하로 낮춰보세요.`
+                    : cheapestViablePrice !== null
+                      ? `${formatManwonRoundedUp(cheapestViablePrice)} 이상을 권장해요.`
+                      : "입력하신 조건(보유 부품 등)으로는 구성 가능한 조합을 찾지 못했어요."}
                 </p>
               </>
             ) : (

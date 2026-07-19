@@ -34,6 +34,7 @@ const priceTierToPrice: Record<"budget" | "mid" | "high" | "enthusiast", number>
   enthusiast: 1200000,
 };
 
+
 const BUDGET_TARGETS: Record<string, number> = {
   "100만원 이하": 1000000,
   "100~150만원": 1250000,
@@ -300,7 +301,18 @@ function deriveAmdGpuSeries(name: string): number | null {
   return null;
 }
 
+// 중국 내수 시장 전용 수출규제 컷다운 변형(예: "RTX 5090 D", "RTX 5090 D V2" — 코어를 깎은 버전).
+// 세대 필터는 정상 통과하지만 국내 유통이 없어 "신규 구매" 추천으로 부적절하고, 자동 추정
+// 파이프라인(estimateTgp)이 이례적으로 많은 코어 수를 선형식에 그대로 대입해 TGP를 비현실적으로
+// 부풀리는 문제까지 겹친다(예: RTX 5090 D V2가 추정 TGP 1085W를 받아 PSU 추천이 터무니없이
+// 커짐) — 신규 구매 후보에서 아예 제외한다.
+function isChinaRestrictedGpuVariant(name: string): boolean {
+  return /\bD(\s+V\d+)?$/i.test(name.trim());
+}
+
 export function isNewPurchaseEligibleGpu(gpu: GPU): boolean {
+  if (isChinaRestrictedGpuVariant(gpu.name)) return false;
+
   const nvidiaSeries = deriveNvidiaGpuSeries(gpu.name);
   if (nvidiaSeries !== null) return nvidiaSeries >= MIN_NVIDIA_RTX_SERIES;
 
@@ -489,7 +501,12 @@ export function compareCandidates(a: RankedCandidate, b: RankedCandidate): numbe
   return a.candidate.id.localeCompare(b.candidate.id);
 }
 
-export function generateCandidates(
+// generateCandidates의 후보 풀 구성 로직 — findCheapestViableTotalPrice/
+// findMostExpensiveViableTotalPrice가 전략 선택(selectTopByStrategy, 다양성 위주 TOP3 추출)을
+// 거치지 않고 "실제로 만들 수 있는 조합 전체"의 가격 범위를 직접 스캔할 수 있도록 분리했다.
+// 전략 선택 경유 방식은 "value"/"performance" 전략이 가격을 직접 최적화하지 않아 진짜 최저/
+// 최고가를 놓칠 수 있었다(예: 최고가를 360만원으로 잘못 보고한 적 있음 — 실제로는 700만원대까지 가능).
+function buildRankedPool(
   cpus: CPU[],
   gpus: GPU[],
   rams: RAM[],
@@ -500,13 +517,9 @@ export function generateCandidates(
   budgetTarget: number | null,
   existingParts: ExistingPartsState,
   caseOwnership: CaseOwnershipOption,
-  budgetMin: number | null = null,
-  preferredBudgetTarget: number | null = null,
-  // 동시에 선택된 모든 용도(BuildContext의 purposes[]) — CPU 후보 선별/정렬에서만 purpose(대표
-  // 목적 하나) 대신 이 배열 전체의 가중 평균(cpuPurposeFitScore)을 쓴다. 주어지지 않으면 대표
-  // 목적 하나짜리 배열로 취급해 기존 동작과 동일하게 폴백한다.
-  purposes: Purpose[] = [purpose]
-): RecommendationResult[] {
+  budgetMin: number | null,
+  purposes: Purpose[]
+): RankedCandidate[] {
   // /build 2단계에서 "보유 중"으로 체크하고 모델까지 지정한 부품은 새로 사는 후보군에서
   // 완전히 자유롭게 재최적화하는 대신 이 값 하나로 고정한다 — 후보 풀 자체를 [보유 부품]
   // 싱글턴으로 좁히면, 아래 기존 소켓/DDR 호환성 캐스케이드(mbsBySocketDdr/ramsByDdr)가
@@ -517,7 +530,7 @@ export function generateCandidates(
   // 신규 구매 후보군에서만 구형 세대를 제외한다(보유 부품 고정 경로는 resolveOwnedParts가
   // 전 세대 카탈로그를 그대로 검색하므로 이 필터와 무관하게 계속 인식된다).
   const cpuGenEligible = cpus.filter(isNewPurchaseEligibleCpu);
-  let gpuGenEligible = gpus.filter(isNewPurchaseEligibleGpu);
+  let gpuGenEligible: GPU[] = gpus.filter(isNewPurchaseEligibleGpu);
 
   // 게임 용도 신규 구매 후보에서는 전문가용(워크스테이션) GPU를 아예 배제한다 — VRAM/TGP가
   // 넉넉해도 게임 최적화 드라이버·게임 검증이 없는 제품이라 gameScore를 아무리 정확히
@@ -615,6 +628,28 @@ export function generateCandidates(
     }
   }
 
+  return pool;
+}
+
+export function generateCandidates(
+  cpus: CPU[],
+  gpus: GPU[],
+  rams: RAM[],
+  ssds: SSD[],
+  mbs: MotherBoard[],
+  psus: PSU[],
+  purpose: Purpose,
+  budgetTarget: number | null,
+  existingParts: ExistingPartsState,
+  caseOwnership: CaseOwnershipOption,
+  budgetMin: number | null = null,
+  preferredBudgetTarget: number | null = null,
+  // 동시에 선택된 모든 용도(BuildContext의 purposes[]) — CPU 후보 선별/정렬에서만 purpose(대표
+  // 목적 하나) 대신 이 배열 전체의 가중 평균(cpuPurposeFitScore)을 쓴다. 주어지지 않으면 대표
+  // 목적 하나짜리 배열로 취급해 기존 동작과 동일하게 폴백한다.
+  purposes: Purpose[] = [purpose]
+): RecommendationResult[] {
+  const pool = buildRankedPool(cpus, gpus, rams, ssds, mbs, psus, purpose, budgetTarget, existingParts, caseOwnership, budgetMin, purposes);
   return selectTopByStrategy(pool, budgetTarget, preferredBudgetTarget);
 }
 
@@ -809,7 +844,12 @@ function buildCandidate(
   const isOwnedPsu = owned.psuWattage !== null;
 
   const cpuPrice = isOwnedCpu ? 0 : priceTierToPrice[cpu.priceTier] ?? 0;
-  const gpuPrice = isOwnedGpu ? 0 : priceTierToPrice[gpu.priceTier] ?? 0;
+  // motherboard.ts/psu.ts와 같은 패턴 — gpu.price가 있으면(현재 enthusiast 티어 4장만 hand-curate)
+  // priceTier 고정가 대신 그 실거래가를 쓴다. "enthusiast" 한 티어에 고정가 하나만 쓰면(예: RTX
+  // 4070 Ti SUPER ~110만원부터 RTX 5090 ~420만원까지) 가격을 낮게 잡으면 500만원대 이상이 전부
+  // "구성 불가"가 되고, 높게 잡으면 그 값 바로 아래(약 380만~480만원)에 achievable price gap이
+  // 생겨 그 사이 목표가가 전부 "구성 불가"가 되는 문제가 있었다 — 회귀 테스트로 둘 다 확인.
+  const gpuPrice = isOwnedGpu ? 0 : gpu.price ?? priceTierToPrice[gpu.priceTier] ?? 0;
   // RAM은 모든 카탈로그 항목에 실거래가(price)가 있으므로 그걸 그대로 쓴다 — priceTier 폴백을
   // 쓰면 8GB든 64GB든 같은 티어면 같은 가격이 나오는 문제가 있었다(예: 32GB DDR5가 50만원).
   const ramPrice = isOwnedRam ? 0 : ram.price;
@@ -926,6 +966,25 @@ export function recommend(
   );
 }
 
+// 예산 제약 없이(budgetTarget/budgetMin 전부 null) 같은 용도/보유부품/케이스 조건에서 실제로
+// 만들 수 있는 조합 전체를 훑어 가격 목록을 뽑는다. buildRankedPool을 직접 쓰는 이유 —
+// generateCandidates(→selectTopByStrategy)를 거치면 "value"/"performance" 등 다양성 위주 TOP3
+// 추출 전략이 가격 자체를 최적화하지 않아 진짜 최저/최고가를 놓칠 수 있다(실제로 최고가를
+// 360만원으로 잘못 보고한 적이 있었다 — 실제로는 700만원대까지 가능했다).
+function collectViableTotalPrices(
+  answers: Answers,
+  existingParts: ExistingPartsState,
+  caseOwnership: CaseOwnershipOption,
+  purposes?: PurposeType[]
+): number[] {
+  const purpose = pickPurpose(answers, purposes);
+  const effectivePurposes: Purpose[] = purposes && purposes.length > 0 ? purposes : [purpose];
+
+  const pool = buildRankedPool(_cpus, _gpus, _rams, _ssds, _motherboards, _psus, purpose, null, existingParts, caseOwnership, null, effectivePurposes);
+
+  return pool.map((rc) => rc.candidate.totalPrice).filter((p) => !isPlaceholderPrice(p));
+}
+
 // "정확한 금액 입력"의 target±EXACT_BUDGET_TOLERANCE 안에서 구성 가능한 조합이 하나도 없을 때
 // (recommend()가 빈 배열을 반환할 때), "OO만원 이상을 권장해요" 안내에 쓸 참고값을 찾는다.
 // 예산 제약을 완전히 걷어내고 같은 용도/보유부품/케이스 조건에서 만들 수 있는 가장 저렴한 유효
@@ -936,28 +995,25 @@ export function findCheapestViableTotalPrice(
   caseOwnership: CaseOwnershipOption = "owned",
   purposes?: PurposeType[]
 ): number | null {
-  const purpose = pickPurpose(answers, purposes);
-  const effectivePurposes: Purpose[] = purposes && purposes.length > 0 ? purposes : [purpose];
-
-  const unconstrained = generateCandidates(
-    _cpus,
-    _gpus,
-    _rams,
-    _ssds,
-    _motherboards,
-    _psus,
-    purpose,
-    null, // budgetTarget
-    existingParts,
-    caseOwnership,
-    null, // budgetMin
-    null, // preferredBudgetTarget
-    effectivePurposes
-  );
-
-  const prices = unconstrained.map((r) => r.totalPrice).filter((p) => !isPlaceholderPrice(p));
+  const prices = collectViableTotalPrices(answers, existingParts, caseOwnership, purposes);
   if (prices.length === 0) return null;
   return Math.min(...prices);
+}
+
+// "정확한 금액 입력"의 target±EXACT_BUDGET_TOLERANCE 안에 구성 가능한 조합이 없을 때, 목표가가
+// 너무 낮은 경우(findCheapestViableTotalPrice)뿐 아니라 너무 높은 경우(카탈로그로 도저히 채울 수
+// 없는 금액 — 예: RTX 5090 기준 최고가를 훨씬 웃도는 값)도 있을 수 있다. "OO만원 이상을
+// 권장해요"는 후자에는 정반대로 안 맞는 안내라, 카탈로그가 실제로 도달 가능한 최고가를 찾아
+// "OO만원 이하로 낮춰보세요" 안내에 쓴다 — 이 값도 하드코딩이 아니라 매번 새로 계산한다.
+export function findMostExpensiveViableTotalPrice(
+  answers: Answers,
+  existingParts: ExistingPartsState,
+  caseOwnership: CaseOwnershipOption = "owned",
+  purposes?: PurposeType[]
+): number | null {
+  const prices = collectViableTotalPrices(answers, existingParts, caseOwnership, purposes);
+  if (prices.length === 0) return null;
+  return Math.max(...prices);
 }
 
 export { recommend as default };

@@ -27,11 +27,41 @@ export interface GPU {
   aiScore: number;
 
   priceTier: "budget" | "mid" | "high" | "enthusiast";
+
+  /** motherboard.ts/psu.ts와 같은 패턴 — 있으면 priceTier 고정가 대신 이 실거래가를 쓴다.
+   *  "enthusiast" 한 티어 안에서도 RTX 4070 Ti SUPER(~110만원)부터 RTX 5090(~420만원)까지
+   *  실제 가격 폭이 매우 넓어서(티어 하나에 고정가 하나로는 500만원+ 예산을 만들 방법이 없거나,
+   *  반대로 그 가격을 올리면 낮은 예산대에 achievable price gap이 생긴다), 이 티어의 카드들만
+   *  개별 실거래가를 둔다. */
+  price?: number;
 }
 
 // 수작업으로 큐레이션된 앵커 데이터. gameScore/workScore/aiScore/priceTier는 여기서만 수동 유지하고,
 // 아래 additionalGpus는 이 배열을 학습 앵커로 삼아 점수를 추정한다.
 const curatedGpus: GPU[] = [
+  {
+    // 실제 공식 스펙(21,760 CUDA 코어, 32GB GDDR7, TGP 575W)을 그대로 hand-curate했다 — 자동
+    // 추정(buildAdditionalGpus/estimateTgp)이 이 카드를 만나면 코어 수에 선형 비례하는 식 때문에
+    // TGP를 1117W로 잘못 추정해(estimateTgp(21760,32) = round(21760/22+32*4) = 1117) PSU 추천이
+    // 터무니없이 커지는 문제가 있었다 — curated 항목은 이 추정 경로를 아예 타지 않는다.
+    id: "rtx5090",
+    name: "GeForce RTX 5090",
+    brand: "NVIDIA",
+    vram: 32,
+    memoryType: "GDDR7",
+    tgp: 575,
+    dlss: true,
+    fsr: false,
+    xess: false,
+    rayTracing: true,
+    pcie: "5.0",
+    releaseYear: 2025,
+    gameScore: 100,
+    workScore: 100,
+    aiScore: 100,
+    priceTier: "enthusiast",
+    price: 4_200_000,
+  },
   {
     id: "rtx5080",
     name: "GeForce RTX 5080",
@@ -49,6 +79,7 @@ const curatedGpus: GPU[] = [
     workScore: 97,
     aiScore: 98,
     priceTier: "enthusiast",
+    price: 1_900_000,
   },
   {
     id: "rtx5070",
@@ -139,6 +170,7 @@ const curatedGpus: GPU[] = [
     workScore: 95,
     aiScore: 96,
     priceTier: "enthusiast",
+    price: 1_100_000,
   },
   {
     id: "rtx4070-super",
@@ -373,6 +405,7 @@ const curatedGpus: GPU[] = [
     workScore: 99,
     aiScore: 99,
     priceTier: "enthusiast",
+    price: 2_700_000,
   },
   {
     id: "rx7900xtx",

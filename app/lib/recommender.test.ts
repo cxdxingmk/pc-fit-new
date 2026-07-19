@@ -16,10 +16,11 @@ import {
   MIN_NEW_PURCHASE_GPU_RELEASE_YEAR,
   EXACT_BUDGET_TOLERANCE,
   findCheapestViableTotalPrice,
+  findMostExpensiveViableTotalPrice,
 } from "./recommender";
 import type { CPU } from "../database/cpu";
 import { cpus, curatedCpus } from "../database/cpu";
-import { gpus } from "../database/gpu";
+import { gpus, curatedGpus } from "../database/gpu";
 import { isWorkstationGpuModel } from "./hardwareScoring";
 import { psus } from "../database/psu";
 import { ssds } from "../database/ssd";
@@ -819,11 +820,33 @@ describe("recommend — 정확한 금액 입력(exact mode) 편차 범위 제한
     }
   });
 
-  // CPU/GPU가 4단계 가격 티어(budget/mid/high/enthusiast, 각각 고정가)로만 책정돼 있어 이
-  // 카탈로그가 실제로 만들 수 있는 견적 총액엔 현실적인 상한이 있다(대략 420만원대) — 500만원은
-  // 이 카탈로그에서 애초에 도달 불가능한 목표가라 400만원으로 "고예산" 케이스를 검증한다.
   it("target=400만원(게임 용도)일 때 TOP1~3 총액이 모두 target±20만원 범위 안에 들어온다", () => {
     const target = 4_000_000;
+    const results = recommend({ 1: ["게임"], 3: [String(target)] }, existingParts, "none", ["gaming"], exactBudgetRange(target), target);
+
+    expect(results.length).toBeGreaterThan(0);
+    for (const result of results) {
+      expect(Math.abs(result.totalPrice - target)).toBeLessThanOrEqual(EXACT_BUDGET_TOLERANCE);
+    }
+  });
+
+  // 회귀 가드: CPU/GPU가 4단계 가격 티어(고정가)로만 책정돼 있던 시절엔 카탈로그가 만들 수 있는
+  // 견적 총액이 대략 420만원대에서 막혀 500만원 이상은 전부 "구성 불가"였다(신고된 버그). RTX
+  // 5090/Ryzen 9 9950X3D를 enthusiast 티어에 hand-curate하고 GPU enthusiast 티어 가격을
+  // 실제 시세 수준(400만원)으로 올려 카탈로그 최고가를 끌어올린 뒤에는 500만원/700만원도
+  // 정상적으로 TOP1~3을 채운다.
+  it("target=500만원(게임 용도)일 때도 '구성 불가' 없이 TOP1~3 총액이 모두 target±20만원 범위 안에 들어온다", () => {
+    const target = 5_000_000;
+    const results = recommend({ 1: ["게임"], 3: [String(target)] }, existingParts, "none", ["gaming"], exactBudgetRange(target), target);
+
+    expect(results.length).toBeGreaterThan(0);
+    for (const result of results) {
+      expect(Math.abs(result.totalPrice - target)).toBeLessThanOrEqual(EXACT_BUDGET_TOLERANCE);
+    }
+  });
+
+  it("target=700만원(게임 용도)일 때도 '구성 불가' 없이 TOP1~3 총액이 모두 target±20만원 범위 안에 들어온다", () => {
+    const target = 7_000_000;
     const results = recommend({ 1: ["게임"], 3: [String(target)] }, existingParts, "none", ["gaming"], exactBudgetRange(target), target);
 
     expect(results.length).toBeGreaterThan(0);
@@ -875,5 +898,104 @@ describe("recommend — 정확한 금액 입력(exact mode) 편차 범위 제한
     // preferredBudgetTarget이 없을 때는 범위 필터 자체가 적용되지 않으므로, 결과가 20만원 편차
     // 안에 딱 들어맞을 필요가 없다(범위 폭 자체가 100만원이라 자연히 넓게 퍼질 수 있음) — 그저
     // "정상적으로 결과가 나온다"만 확인해 exact 모드 전용 필터가 range 모드를 침범하지 않았음을 본다.
+  });
+
+  it("findMostExpensiveViableTotalPrice — 카탈로그로 도저히 못 만드는 초고예산(3000만원)에서도 실제 최고 구성가를 찾아 target보다 훨씬 낮은 값을 반환한다", () => {
+    const target = 30_000_000;
+    const mostExpensive = findMostExpensiveViableTotalPrice({ 1: ["게임"] }, existingParts, "none", ["gaming"]);
+
+    expect(mostExpensive).not.toBeNull();
+    expect(mostExpensive!).toBeLessThan(target);
+    // 500/700만원 테스트가 이미 통과했으니, 카탈로그 최고가는 최소한 700만원+허용치보다는 커야
+    // "700만원도 구성 가능"과 앞뒤가 맞는다.
+    expect(mostExpensive!).toBeGreaterThan(7_000_000 - EXACT_BUDGET_TOLERANCE);
+  });
+
+  it("초고예산(3000만원)은 range로 줘도 구성 불가(빈 배열) — 무한정 비싼 조합을 억지로 만들어내지 않는다", () => {
+    const target = 30_000_000;
+    const results = recommend(
+      { 1: ["게임"], 3: [String(target)] },
+      existingParts,
+      "none",
+      ["gaming"],
+      { min: target - EXACT_BUDGET_TOLERANCE, max: target + EXACT_BUDGET_TOLERANCE },
+      target
+    );
+    expect(results).toEqual([]);
+  });
+});
+
+describe("신규 플래그십 CPU/GPU 카탈로그 확장 회귀", () => {
+  it("RTX 5090이 curatedGpus에 정확히 1개만 있고(자동 추정 경로와 중복되지 않음), 실제 공식 스펙(TGP 575W)을 갖는다", () => {
+    const matches = curatedGpus.filter((g) => /^GeForce RTX 5090$/.test(g.name));
+    expect(matches.length).toBe(1);
+    expect(matches[0].tgp).toBe(575);
+    expect(matches[0].vram).toBe(32);
+    expect(matches[0].priceTier).toBe("enthusiast");
+  });
+
+  it("gpus(추천 엔진 후보 풀) 전체에도 'GeForce RTX 5090'(공식 스펙)이 정확히 1개만 있다 — buildAdditionalGpus가 중복 추가하지 않는다", () => {
+    const matches = gpus.filter((g) => g.name === "GeForce RTX 5090");
+    expect(matches.length).toBe(1);
+    expect(matches[0].tgp).toBe(575);
+  });
+
+  it("Ryzen 9 9950X3D가 curatedCpus에 있고 신규 구매 세대 필터(isNewPurchaseEligibleCpu)를 통과한다", () => {
+    const x3d = curatedCpus.find((c) => c.name === "Ryzen 9 9950X3D");
+    expect(x3d).toBeDefined();
+    expect(isNewPurchaseEligibleCpu(x3d!)).toBe(true);
+    expect(x3d!.priceTier).toBe("enthusiast");
+  });
+
+  it("RTX 5090이 신규 구매 세대 필터(isNewPurchaseEligibleGpu)를 통과한다", () => {
+    const rtx5090 = curatedGpus.find((g) => g.name === "GeForce RTX 5090");
+    expect(rtx5090).toBeDefined();
+    expect(isNewPurchaseEligibleGpu(rtx5090!)).toBe(true);
+  });
+
+  it("최상위 티어(enthusiast) CPU/GPU가 하위 티어보다 성능 점수가 낮지 않다(티어 순서 정합성)", () => {
+    const enthusiastCpus = curatedCpus.filter((c) => c.priceTier === "enthusiast");
+    const budgetCpus = curatedCpus.filter((c) => c.priceTier === "budget");
+    const minEnthusiastScore = Math.min(...enthusiastCpus.map((c) => c.gameScore));
+    const maxBudgetScore = Math.max(...budgetCpus.map((c) => c.gameScore));
+    expect(minEnthusiastScore).toBeGreaterThanOrEqual(maxBudgetScore);
+
+    const enthusiastGpus = curatedGpus.filter((g) => g.priceTier === "enthusiast");
+    const budgetGpus = curatedGpus.filter((g) => g.priceTier === "budget");
+    const minEnthusiastGpuScore = Math.min(...enthusiastGpus.map((g) => g.gameScore));
+    const maxBudgetGpuScore = Math.max(...budgetGpus.map((g) => g.gameScore));
+    expect(minEnthusiastGpuScore).toBeGreaterThanOrEqual(maxBudgetGpuScore);
+  });
+
+  it("중국 내수 시장 전용 컷다운 변형(RTX 5090 D, RTX 5090 D V2)은 신규 구매 후보에서 제외된다", () => {
+    const chinaVariants = gpus.filter((g) => /5090 D(\s+V\d+)?$/i.test(g.name));
+    expect(chinaVariants.length).toBeGreaterThan(0); // 자동 추정 경로로 카탈로그엔 여전히 존재해야(제외 로직 자체를 테스트하려면)
+    for (const variant of chinaVariants) {
+      expect(isNewPurchaseEligibleGpu(variant), `${variant.name}이 신규 구매 후보에서 제외되지 않음`).toBe(false);
+    }
+  });
+
+  it("findMostExpensiveViableTotalPrice — 700만원 exact 테스트가 통과할 만큼(700만원+허용치 이상) 실제 최고 구성가를 정확히 찾는다", () => {
+    // buildRankedPool을 직접 스캔하기 전에는(선택 전략 경유) 최고가를 360만원으로 잘못 보고해
+    // 700만원이 실제로는 achievable한데도 "구성 불가"로 잘못 안내하는 회귀가 있었다.
+    const mostExpensive = findMostExpensiveViableTotalPrice({ 1: ["게임"] }, baseExistingParts(), "none", ["gaming"]);
+    expect(mostExpensive).not.toBeNull();
+    expect(mostExpensive!).toBeGreaterThanOrEqual(7_000_000 - EXACT_BUDGET_TOLERANCE);
+  });
+
+  it("GPU enthusiast 티어 안에서도 hand-curate된 모델별 실거래가가 다르다(RTX 5090 > RTX 4090 > RTX 5080 > RTX 4070 Ti SUPER) — 티어 하나에 고정가 하나면 500만원+ 예산을 achievable/gap-free 둘 다 만족시킬 수 없었다", () => {
+    const rtx5090 = curatedGpus.find((g) => g.name === "GeForce RTX 5090")!;
+    const rtx4090 = curatedGpus.find((g) => g.name === "GeForce RTX 4090")!;
+    const rtx5080 = curatedGpus.find((g) => g.name === "GeForce RTX 5080")!;
+    const rtx4070tisuper = curatedGpus.find((g) => g.name === "GeForce RTX 4070 Ti SUPER")!;
+
+    for (const gpu of [rtx5090, rtx4090, rtx5080, rtx4070tisuper]) {
+      expect(gpu.priceTier).toBe("enthusiast");
+      expect(gpu.price, `${gpu.name}에 개별 실거래가(price)가 없음`).toBeGreaterThan(0);
+    }
+
+    expect(rtx5090.price!).toBeGreaterThan(rtx4090.price!);
+    expect(rtx4090.price!).toBeGreaterThan(rtx5080.price!);
+    expect(rtx5080.price!).toBeGreaterThan(rtx4070tisuper.price!);
   });
 });
