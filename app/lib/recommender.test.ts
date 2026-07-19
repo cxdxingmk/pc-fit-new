@@ -12,7 +12,6 @@ import {
   selectFixedSsd,
   isNewPurchaseEligibleCpu,
   isNewPurchaseEligibleGpu,
-  MIN_NEW_PURCHASE_CPU_RELEASE_YEAR,
   MIN_NEW_PURCHASE_GPU_RELEASE_YEAR,
   EXACT_BUDGET_TOLERANCE,
   findCheapestViableTotalPrice,

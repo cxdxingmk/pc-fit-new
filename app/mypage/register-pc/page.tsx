@@ -14,7 +14,7 @@ import { parseSpecOutput, powerShellScanCommand, legacyWmicScanCommand, type Par
 import { getSavedPcSpec, upsertSavedPcSpec, type SavedPcSpec, type UpsertSavedPcSpecInput } from "../../lib/pcSpecs";
 import { savePendingScanSpec, readPendingScanSpec, clearPendingScanSpec } from "../../lib/pendingScanSpec";
 import { REFRESH_RATE_STEPS, snapToNearestRefreshRate } from "../../lib/refreshRateSteps";
-import { parseRamCapacityToGb, totalRamGb } from "../../lib/ramCapacity";
+import { totalRamGb } from "../../lib/ramCapacity";
 import { derivePartSeries } from "../../lib/derivePartSeries";
 import MyPageTabs from "../components/MyPageTabs";
 import Card from "../../../components/ui/Card";
