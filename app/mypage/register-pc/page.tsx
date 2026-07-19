@@ -693,13 +693,18 @@ export default function RegisterPcPage() {
             </p>
 
             <Card className="p-4" muted>
-              <button
-                type="button"
-                onClick={handleVideoGuideClick}
-                className="inline-flex h-10 items-center rounded-xl bg-white/[0.04] px-4 text-sm font-medium text-white/75 ring-1 ring-line transition hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
-              >
-                영상으로 쉽게 배우기 🎬
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleVideoGuideClick}
+                  className="inline-flex h-10 items-center rounded-xl bg-white/[0.04] px-4 text-sm font-medium text-white/75 ring-1 ring-line transition hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                >
+                  영상으로 쉽게 따라하기 🎬
+                </button>
+                <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-warn/10 px-2.5 py-1 text-xs font-semibold text-warn ring-1 ring-warn/25">
+                  영상 가이드는 준비 중입니다
+                </span>
+              </div>
 
               <div className="mt-3 space-y-3 text-sm text-white/60">
                 <Card className="p-3">
