@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { LegalDocument, LegalSection, LegalP, LegalList, LegalPlaceholder } from "@/components/legal/LegalDocument";
+import { LegalDocument, LegalSection, LegalP, LegalList } from "@/components/legal/LegalDocument";
 
 export const metadata: Metadata = {
   title: "이용약관",
@@ -51,9 +51,7 @@ export default function TermsPage() {
       </LegalSection>
 
       <LegalSection heading="부칙">
-        <LegalP>
-          본 약관은 <LegalPlaceholder>시행일자</LegalPlaceholder>부터 시행합니다.
-        </LegalP>
+        <LegalP>본 약관은 2026년 7월 20일부터 시행합니다.</LegalP>
       </LegalSection>
     </LegalDocument>
   );

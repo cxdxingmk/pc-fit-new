@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { LegalDocument, LegalSection, LegalP, LegalList, LegalTable, LegalPlaceholder } from "@/components/legal/LegalDocument";
+import { LegalDocument, LegalSection, LegalP, LegalList, LegalTable } from "@/components/legal/LegalDocument";
 
 export const metadata: Metadata = {
   title: "개인정보처리방침",
@@ -72,17 +72,12 @@ export default function PrivacyPage() {
 
       <LegalSection heading="8. 개인정보 보호책임자">
         <LegalList
-          items={[
-            <>성명: <LegalPlaceholder>담당자 이름</LegalPlaceholder></>,
-            <>이메일: <LegalPlaceholder>연락처 이메일</LegalPlaceholder></>,
-          ]}
+          items={["성명: PC FIT 운영자", "이메일: 9ucci01@naver.com"]}
         />
       </LegalSection>
 
       <LegalSection heading="9. 고지의 의무">
-        <LegalP>
-          본 방침은 <LegalPlaceholder>시행일자</LegalPlaceholder>부터 적용되며, 내용 변경 시 변경 사항을 시행 전에 공지합니다.
-        </LegalP>
+        <LegalP>본 방침은 2026년 7월 20일부터 적용되며, 내용 변경 시 변경 사항을 시행 전에 공지합니다.</LegalP>
       </LegalSection>
     </LegalDocument>
   );
