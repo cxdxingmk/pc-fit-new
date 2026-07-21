@@ -7,6 +7,13 @@ export interface SavedPcSpec extends UserSavedPc {
   ramProductName: string;
   ssdDetailedInputEnabled: boolean;
   ssdProductName: string;
+  /** 선택 항목 — HDD 미보유 시 빈 문자열("선택 안 함"). ssdCapacity와 같은 모양(항상 string)을
+   *  유지해야 UpsertSavedPcSpecInput과 구조적으로 호환된다(applySpecToForm이 SavedPcSpec을
+   *  그대로 넘겨받는 호출부가 있음). */
+  hddCapacity: string;
+  hddDetail?: string;
+  hddDetailedInputEnabled: boolean;
+  hddProductName: string;
   mbBrand: string;
   mbSeries: string;
   mbDetail: string;
@@ -27,6 +34,9 @@ interface PcSpecRow {
   ssd_capacity: string;
   ssd_detail_enabled: boolean;
   ssd_detail: string | null;
+  hdd_capacity: string | null;
+  hdd_detail_enabled: boolean;
+  hdd_detail: string | null;
   mb_brand: string | null;
   mb_series: string | null;
   mb_detail: string | null;
@@ -52,6 +62,10 @@ function mapRowToSavedPcSpec(row: PcSpecRow): SavedPcSpec {
     ssdDetailedInputEnabled: row.ssd_detail_enabled,
     ssdProductName: row.ssd_detail ?? "",
     ssdDetail: row.ssd_detail_enabled ? (row.ssd_detail ?? undefined) : undefined,
+    hddCapacity: row.hdd_capacity ?? "",
+    hddDetailedInputEnabled: row.hdd_detail_enabled,
+    hddProductName: row.hdd_detail ?? "",
+    hddDetail: row.hdd_detail_enabled ? (row.hdd_detail ?? undefined) : undefined,
     mbBrand: row.mb_brand ?? "",
     mbSeries: row.mb_series ?? "",
     mbDetail: row.mb_detail ?? "",
@@ -87,6 +101,10 @@ export interface UpsertSavedPcSpecInput {
   ssdCapacity: string;
   ssdDetailedInputEnabled: boolean;
   ssdProductName: string;
+  /** 선택 항목 — HDD 미보유 시 빈 문자열("선택 안 함"). DB에는 null로 저장된다. */
+  hddCapacity: string;
+  hddDetailedInputEnabled: boolean;
+  hddProductName: string;
   mbBrand: string;
   mbSeries: string;
   mbDetail: string;
@@ -117,6 +135,9 @@ export async function upsertSavedPcSpec(input: UpsertSavedPcSpecInput): Promise<
       ssd_capacity: input.ssdCapacity,
       ssd_detail_enabled: input.ssdDetailedInputEnabled,
       ssd_detail: input.ssdProductName,
+      hdd_capacity: input.hddCapacity || null,
+      hdd_detail_enabled: input.hddDetailedInputEnabled,
+      hdd_detail: input.hddProductName,
       mb_brand: input.mbBrand,
       mb_series: input.mbSeries,
       mb_detail: input.mbDetail,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseSpecOutput, powerShellScanCommand, legacyWmicScanCommand } from "./scanParser";
+import { parseSpecOutput, powerShellScanCommand, cmdWrappedScanCommand, legacyWmicScanCommand } from "./scanParser";
 
 const POWERSHELL_SAMPLE = `Name
 ----
@@ -264,6 +264,100 @@ describe("parseSpecOutput — 새 포맷(CPU:/SSD:/RAM: 헤더, GPU 미포함)",
   });
 });
 
+describe("parseSpecOutput — 새 포맷(DISK: 헤더, Get-PhysicalDisk 기반 SSD/HDD 구분)", () => {
+  it("(1) SSD만 감지되면 SSD 필드만 채워지고 HDD 필드는 절대 건드려지지 않는다(둘 다 null)", () => {
+    const sample = "CPU:\nAMD Ryzen 5 5600\n\nDISK:\nSSD|Samsung 970 EVO Plus|500GB\n\nRAM:\nTotal 16 GB (8GB x 2ea / DDR4 3200MHz / Samsung)";
+    const result = parseSpecOutput(sample);
+
+    expect(result.ssdCapacity).toBe("512GB");
+    expect(result.ssdDetail).toBe("Samsung 970 EVO Plus");
+    expect(result.hddCapacity).toBeNull();
+    expect(result.hddDetail).toBeNull();
+  });
+
+  it("(2) HDD만 감지되면 HDD 필드만 채워지고 SSD 필드는 절대 건드려지지 않는다(둘 다 null)", () => {
+    const sample = "CPU:\nAMD Ryzen 5 5600\n\nDISK:\nHDD|WDC WD10EZEX|1000GB\n\nRAM:\nTotal 16 GB (8GB x 2ea / DDR4 3200MHz / Samsung)";
+    const result = parseSpecOutput(sample);
+
+    expect(result.hddCapacity).toBe("1TB");
+    expect(result.hddDetail).toBe("WDC WD10EZEX");
+    expect(result.ssdCapacity).toBeNull();
+    expect(result.ssdDetail).toBeNull();
+  });
+
+  it("(3) SSD와 HDD가 둘 다 감지되면 둘 다 정확히 채워진다", () => {
+    const sample =
+      "CPU:\nAMD Ryzen 5 5600\n\nDISK:\nSSD|Samsung 970 EVO Plus|500GB\nHDD|WDC WD10EZEX|1000GB\n\nRAM:\nTotal 16 GB (8GB x 2ea / DDR4 3200MHz / Samsung)";
+    const result = parseSpecOutput(sample);
+
+    expect(result.ssdCapacity).toBe("512GB");
+    expect(result.ssdDetail).toBe("Samsung 970 EVO Plus");
+    expect(result.hddCapacity).toBe("1TB");
+    expect(result.hddDetail).toBe("WDC WD10EZEX");
+  });
+
+  it("(4) 레거시 'SSD:' 단독 헤더 형식도 여전히 지원한다(하위 호환) — HDD는 이 포맷에 없으므로 항상 null", () => {
+    const sample = "CPU:\nAMD Ryzen 5 5600\n\nSSD:\nSamsung SSD 970 EVO Plus 500GB\n\nRAM:\nTotal 16 GB (8GB x 2ea / DDR4 3200MHz / Samsung)";
+    const result = parseSpecOutput(sample);
+
+    expect(result.ssdCapacity).toBe("512GB");
+    expect(result.ssdDetail).toBe("Samsung SSD 970 EVO Plus 500GB");
+    expect(result.hddCapacity).toBeNull();
+    expect(result.hddDetail).toBeNull();
+  });
+
+  it("(5) MediaType이 Unspecified인 드라이브는 SSD/HDD 어느 쪽에도 강제 분류되지 않고 raw로만 보존된다", () => {
+    const sample = "CPU:\nAMD Ryzen 5 5600\n\nDISK:\nUnspecified|Virtual Disk|256GB\n\nRAM:\nTotal 16 GB (8GB x 2ea / DDR4 3200MHz / Samsung)";
+    const result = parseSpecOutput(sample);
+
+    expect(result.ssdCapacity).toBeNull();
+    expect(result.ssdDetail).toBeNull();
+    expect(result.hddCapacity).toBeNull();
+    expect(result.hddDetail).toBeNull();
+    expect(result.unspecifiedDiskDetail).toContain("Virtual Disk");
+    expect(result.unspecifiedDiskDetail).toContain("256GB");
+  });
+
+  it("(6) SSD가 여러 개면 가장 큰 용량을 대표로 채택하고, 나머지는 참고용 텍스트(ssdAdditionalDetail)로만 남는다", () => {
+    const sample =
+      "CPU:\nAMD Ryzen 5 5600\n\nDISK:\nSSD|Samsung 970 EVO Plus|500GB\nSSD|WD Black SN770|1000GB\n\nRAM:\nTotal 16 GB (8GB x 2ea / DDR4 3200MHz / Samsung)";
+    const result = parseSpecOutput(sample);
+
+    expect(result.ssdCapacity).toBe("1TB");
+    expect(result.ssdDetail).toBe("WD Black SN770");
+    expect(result.ssdAdditionalDetail).toContain("Samsung 970 EVO Plus");
+    expect(result.ssdAdditionalDetail).toContain("500GB");
+  });
+
+  it("(7) HDD가 여러 개일 때도 SSD와 독립적으로 같은 규칙(최대 용량 대표 채택)이 적용된다", () => {
+    const sample =
+      "CPU:\nAMD Ryzen 5 5600\n\nDISK:\nHDD|WDC WD10EZEX|1000GB\nHDD|Seagate ST4000DM004|4000GB\n\nRAM:\nTotal 16 GB (8GB x 2ea / DDR4 3200MHz / Samsung)";
+    const result = parseSpecOutput(sample);
+
+    expect(result.hddCapacity).toBe("4TB");
+    expect(result.hddDetail).toBe("Seagate ST4000DM004");
+    expect(result.hddAdditionalDetail).toContain("WDC WD10EZEX");
+  });
+
+  it("(8) 용량이 동률이면 먼저 감지된(원문에서 먼저 나온) 항목이 대표로 채택된다", () => {
+    const sample =
+      "CPU:\nAMD Ryzen 5 5600\n\nDISK:\nSSD|First Drive|500GB\nSSD|Second Drive|500GB\n\nRAM:\nTotal 16 GB (8GB x 2ea / DDR4 3200MHz / Samsung)";
+    const result = parseSpecOutput(sample);
+
+    expect(result.ssdDetail).toBe("First Drive");
+    expect(result.ssdAdditionalDetail).toContain("Second Drive");
+  });
+
+  it("(9) DISK: 헤더는 있지만 물리 디스크가 하나도 없으면(빈 결과) SSD/HDD 모두 null — 억지로 '없음' 문구를 만들지 않는다", () => {
+    const sample = "CPU:\nAMD Ryzen 5 5600\n\nDISK:\n\nRAM:\nTotal 16 GB (8GB x 2ea / DDR4 3200MHz / Samsung)";
+    const result = parseSpecOutput(sample);
+
+    expect(result.ssdCapacity).toBeNull();
+    expect(result.hddCapacity).toBeNull();
+    expect(result.cpuId).toBe("r5-5600"); // 디스크가 없어도 다른 필드 인식엔 영향 없음
+  });
+});
+
 describe("parseSpecOutput — 백틱+n 이스케이프 미해석 회귀", () => {
   // 신고된 버그: powerShellScanCommand 안의 '`nSSD:'/'`nRAM:'이 작은따옴표 문자열이라
   // PowerShell 버전과 무관하게 절대 줄바꿈으로 해석되지 않고, 실제 유저 PC(PowerShell 5.1
@@ -291,7 +385,7 @@ describe("parseSpecOutput — 백틱+n 이스케이프 미해석 회귀", () => 
   it("powerShellScanCommand는 더 이상 작은따옴표 문자열 안에 `n 이스케이프를 쓰지 않는다(회귀 방지)", () => {
     expect(powerShellScanCommand).not.toMatch(/`n/);
     // 대신 헤더마다 별도의 Write-Host 문으로 나눠, 이스케이프 해석 여부와 무관하게 줄바꿈된다.
-    expect(powerShellScanCommand).toMatch(/Write-Host 'SSD:'/);
+    expect(powerShellScanCommand).toMatch(/Write-Host 'DISK:'/);
     expect(powerShellScanCommand).toMatch(/Write-Host 'RAM:'/);
   });
 });
@@ -342,15 +436,32 @@ describe("명령어 상수", () => {
     expect(powerShellScanCommand.toLowerCase()).not.toContain("wmic");
   });
 
-  it("PowerShell 안내 명령은 CPU/SSD/RAM만 조회하고 GPU/메인보드는 조회하지 않는다(GPU는 브라우저가 자동감지)", () => {
+  it("PowerShell 안내 명령은 CPU/DISK/RAM만 조회하고 GPU/메인보드는 조회하지 않는다(GPU는 브라우저가 자동감지)", () => {
     expect(powerShellScanCommand).toContain("Win32_Processor");
-    expect(powerShellScanCommand).toContain("Win32_DiskDrive");
+    expect(powerShellScanCommand).toContain("Get-PhysicalDisk");
     expect(powerShellScanCommand).toContain("Win32_PhysicalMemory");
     expect(powerShellScanCommand).not.toContain("Win32_VideoController");
     expect(powerShellScanCommand).not.toContain("Win32_BaseBoard");
   });
 
+  it("PowerShell 안내 명령은 Win32_DiskDrive(SSD/HDD 구분 불가) 대신 Get-PhysicalDisk(MediaType 포함)를 쓴다", () => {
+    expect(powerShellScanCommand).not.toContain("Win32_DiskDrive");
+    expect(powerShellScanCommand).toContain("MediaType");
+  });
+
   it("구버전 명령은 wmic 기반으로 그대로 남아있다", () => {
     expect(legacyWmicScanCommand).toContain("wmic");
+  });
+
+  it("CMD 창용으로 감싼 명령은 powerShellScanCommand 전체를 powershell -Command \"...\"로 감싼다", () => {
+    expect(cmdWrappedScanCommand).toContain("powershell");
+    expect(cmdWrappedScanCommand).toContain("-NoProfile");
+    expect(cmdWrappedScanCommand).toContain(powerShellScanCommand);
+    expect(cmdWrappedScanCommand.startsWith('powershell -NoProfile -Command "')).toBe(true);
+    expect(cmdWrappedScanCommand.endsWith('"')).toBe(true);
+  });
+
+  it("powerShellScanCommand 내부에는 큰따옴표가 하나도 없다(CMD 래핑용 큰따옴표와 충돌 방지)", () => {
+    expect(powerShellScanCommand).not.toContain('"');
   });
 });

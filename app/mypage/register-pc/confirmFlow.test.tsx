@@ -62,7 +62,7 @@ function renderPage() {
 }
 
 async function pasteAndParse() {
-  const textarea = screen.getByLabelText("CMD 결과 붙여넣기") as HTMLTextAreaElement;
+  const textarea = screen.getByLabelText("PowerShell/CMD 결과 붙여넣기") as HTMLTextAreaElement;
   fireEvent.change(textarea, { target: { value: CPU_RAM_SSD_SAMPLE } });
   fireEvent.click(screen.getByRole("button", { name: "사양 확인하기" }));
   await waitFor(() => expect(screen.getByText("이 사양으로 내 PC 등록할까요?")).toBeTruthy());

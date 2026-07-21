@@ -10,7 +10,13 @@ import { motherboards } from "../../database/motherboard";
 import { useAuth } from "../../context/AuthContext";
 import { useBuild } from "../../context/BuildContext";
 import { HARDWARE_MASTER } from "../../data/hardwareMaster";
-import { parseSpecOutput, powerShellScanCommand, legacyWmicScanCommand, type ParseCommandOutputResult } from "../../lib/scanParser";
+import {
+  parseSpecOutput,
+  powerShellScanCommand,
+  cmdWrappedScanCommand,
+  legacyWmicScanCommand,
+  type ParseCommandOutputResult,
+} from "../../lib/scanParser";
 import { getSavedPcSpec, upsertSavedPcSpec, type SavedPcSpec, type UpsertSavedPcSpecInput } from "../../lib/pcSpecs";
 import { savePendingScanSpec, readPendingScanSpec, clearPendingScanSpec } from "../../lib/pendingScanSpec";
 import { REFRESH_RATE_STEPS, snapToNearestRefreshRate } from "../../lib/refreshRateSteps";
@@ -26,6 +32,9 @@ import GpuAutoDetect from "../../../components/GpuAutoDetect";
 
 const ramCapacityOptions = ["8GB", "16GB", "32GB", "64GB"] as const;
 const ssdCapacityOptions = ["256GB", "512GB", "1TB", "2TB"] as const;
+// HDD는 SSD와 달리 선택 항목이라("선택 안 함"이 유효한 상태) 이 배열엔 그 값이 없다 —
+// 드롭다운 맨 위에 별도로 "선택 안 함"(value="") 옵션을 둔다.
+const hddCapacityOptions = ["500GB", "1TB", "2TB", "4TB"] as const;
 const monitorResolutionOptions = ["FHD", "QHD", "4K"] as const;
 
 // CPU/GPU/메인보드/파워는 사용자가 실제로 확인 없이 저장할 경우 잘못된 사양이 조용히 등록될
@@ -44,6 +53,9 @@ const initialSelection = {
   ssdCapacityOption: "1TB",
   ssdDetailedInputEnabled: false,
   ssdProductName: "",
+  hddCapacityOption: "",
+  hddDetailedInputEnabled: false,
+  hddProductName: "",
   psuWatt: "",
   hasCase: true,
   monitorResolution: "QHD" as const,
@@ -72,6 +84,10 @@ type ScanDerivedState = {
   ssdCapacityOption: string;
   ssdProductName: string;
   ssdDetailedInputEnabled: boolean;
+  /** 선택 항목 — "" 이면 "선택 안 함" */
+  hddCapacityOption: string;
+  hddProductName: string;
+  hddDetailedInputEnabled: boolean;
   mbSeries: string;
   mbDetail: string;
   monitorResolution: (typeof monitorResolutionOptions)[number];
@@ -140,6 +156,33 @@ function resolveScanUpdates(
     next.ssdProductName = result.ssdDetail;
   }
 
+  if (result.ssdAdditionalDetail) {
+    messages.push(`추가로 이런 SSD도 감지됐어요: ${result.ssdAdditionalDetail}`);
+  }
+
+  // HDD는 선택 항목 — 감지 못 했다고 해서 "없음"으로 채우거나 오류 취급하지 않는다. 감지된
+  // 경우에만 반영하므로, HDD가 없는 컴퓨터에서는 이 블록 전체가 그냥 스킵되고 next.hdd*는
+  // 호출부가 넘긴 현재 값(보통 "선택 안 함") 그대로 남는다.
+  if (result.hddCapacity) {
+    next.hddCapacityOption = result.hddCapacity;
+    messages.push(`HDD 자동 감지: ${result.hddCapacity}`);
+  }
+
+  if (result.hddDetail) {
+    next.hddDetailedInputEnabled = true;
+    next.hddProductName = result.hddDetail;
+  }
+
+  if (result.hddAdditionalDetail) {
+    messages.push(`추가로 이런 HDD도 감지됐어요: ${result.hddAdditionalDetail}`);
+  }
+
+  if (result.unspecifiedDiskDetail) {
+    messages.push(
+      `드라이브 종류를 확인할 수 없는 저장장치가 감지됐어요(${result.unspecifiedDiskDetail}) — SSD/HDD 여부를 "직접 입력"으로 알려주시면 더 정확해요.`
+    );
+  }
+
   if (result.monitorResolution) {
     next.monitorResolution = result.monitorResolution;
   }
@@ -188,6 +231,9 @@ export default function RegisterPcPage() {
   const [ssdCapacityOption, setSsdCapacityOption] = useState(initialSelection.ssdCapacityOption);
   const [ssdDetailedInputEnabled, setSsdDetailedInputEnabled] = useState(initialSelection.ssdDetailedInputEnabled);
   const [ssdProductName, setSsdProductName] = useState(initialSelection.ssdProductName);
+  const [hddCapacityOption, setHddCapacityOption] = useState(initialSelection.hddCapacityOption);
+  const [hddDetailedInputEnabled, setHddDetailedInputEnabled] = useState(initialSelection.hddDetailedInputEnabled);
+  const [hddProductName, setHddProductName] = useState(initialSelection.hddProductName);
   const [psuWatt, setPsuWatt] = useState(initialSelection.psuWatt);
   const [hasCase, setHasCase] = useState(initialSelection.hasCase);
   const [monitorResolution, setMonitorResolution] = useState<(typeof monitorResolutionOptions)[number]>(initialSelection.monitorResolution);
@@ -197,6 +243,9 @@ export default function RegisterPcPage() {
   const [openSection, setOpenSection] = useState<"spec" | "auto" | "manual" | null>("manual");
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
 
+  // PowerShell 창에 직접 실행할지, CMD 창에 붙여넣을 수 있게 감싼 버전을 보여줄지 — 명령어
+  // 텍스트/복사 버튼 하나를 공유하고 이 값에 따라 어느 쪽을 채울지만 바꾼다.
+  const [commandShellMode, setCommandShellMode] = useState<"powershell" | "cmd">("powershell");
   const [isCommandCopied, setIsCommandCopied] = useState(false);
   const [isLegacyCommandOpen, setIsLegacyCommandOpen] = useState(false);
   const [isLegacyCommandCopied, setIsLegacyCommandCopied] = useState(false);
@@ -292,6 +341,12 @@ export default function RegisterPcPage() {
     if (fields.ssdCapacity) setSsdCapacityOption(fields.ssdCapacity);
     setSsdDetailedInputEnabled(fields.ssdDetailedInputEnabled);
     if (fields.ssdProductName) setSsdProductName(fields.ssdProductName);
+    // HDD는 선택 항목이라 빈 값("선택 안 함")도 유효한 상태다 — ssdCapacity처럼 truthy 체크로
+    // 가드하면, 이미 뭔가 골라둔 상태에서 "HDD 없음"으로 저장된 스냅샷을 불러올 때 빈 값으로
+    // 되돌아가지 못하는 버그가 생긴다. 그대로 대입한다(hasCase와 동일한 처리 방식).
+    setHddCapacityOption(fields.hddCapacity);
+    setHddDetailedInputEnabled(fields.hddDetailedInputEnabled);
+    if (fields.hddProductName) setHddProductName(fields.hddProductName);
     if (fields.psuWatt) setPsuWatt(fields.psuWatt);
     setHasCase(fields.hasCase);
     if (fields.monitorResolution) setMonitorResolution(fields.monitorResolution as (typeof monitorResolutionOptions)[number]);
@@ -336,6 +391,7 @@ export default function RegisterPcPage() {
         id: "pc_spec",
         ramDetail: pending.ramDetailedInputEnabled ? pending.ramProductName.trim() : undefined,
         ssdDetail: pending.ssdDetailedInputEnabled ? pending.ssdProductName.trim() : undefined,
+        hddDetail: pending.hddDetailedInputEnabled ? pending.hddProductName.trim() : undefined,
         ...pending,
       });
       setSavedMessage("로그인 완료! 이전에 스캔한 사양이 자동으로 등록됐어요.");
@@ -399,6 +455,11 @@ export default function RegisterPcPage() {
     if (!savedSnapshot) return "미등록";
     return savedSnapshot.ssdDetail ? `${savedSnapshot.ssdCapacity} (${savedSnapshot.ssdDetail})` : savedSnapshot.ssdCapacity;
   }, [savedSnapshot]);
+  const snapshotHdd = useMemo(() => {
+    if (!savedSnapshot) return "미등록";
+    if (!savedSnapshot.hddCapacity) return "선택 안 함";
+    return savedSnapshot.hddDetail ? `${savedSnapshot.hddCapacity} (${savedSnapshot.hddDetail})` : savedSnapshot.hddCapacity;
+  }, [savedSnapshot]);
   const showToast = (message: string) => {
     setToastMessage(message);
     window.setTimeout(() => setToastMessage(""), 2000);
@@ -416,6 +477,9 @@ export default function RegisterPcPage() {
     ssdCapacity: next.ssdCapacityOption,
     ssdDetailedInputEnabled: next.ssdDetailedInputEnabled,
     ssdProductName: next.ssdProductName,
+    hddCapacity: next.hddCapacityOption,
+    hddDetailedInputEnabled: next.hddDetailedInputEnabled,
+    hddProductName: next.hddProductName,
     mbSeries: next.mbSeries,
     mbDetail: next.mbDetail,
     mbBrand,
@@ -438,6 +502,9 @@ export default function RegisterPcPage() {
       ssdCapacityOption,
       ssdProductName,
       ssdDetailedInputEnabled,
+      hddCapacityOption,
+      hddProductName,
+      hddDetailedInputEnabled,
       mbSeries,
       mbDetail,
       monitorResolution,
@@ -485,6 +552,7 @@ export default function RegisterPcPage() {
       id: savedSnapshot?.id ?? "pc_spec",
       ramDetail: input.ramDetailedInputEnabled ? input.ramProductName.trim() : undefined,
       ssdDetail: input.ssdDetailedInputEnabled ? input.ssdProductName.trim() : undefined,
+      hddDetail: input.hddDetailedInputEnabled ? input.hddProductName.trim() : undefined,
       ...input,
     });
     setSavedMessage("내 PC로 등록됐어요.");
@@ -531,6 +599,9 @@ export default function RegisterPcPage() {
       ssdCapacity: ssdCapacityOption,
       ssdDetailedInputEnabled,
       ssdProductName,
+      hddCapacity: hddCapacityOption,
+      hddDetailedInputEnabled,
+      hddProductName,
       mbSeries,
       mbDetail,
       mbBrand,
@@ -552,6 +623,7 @@ export default function RegisterPcPage() {
       id: savedSnapshot?.id ?? "pc_spec",
       ramDetail: input.ramDetailedInputEnabled ? input.ramProductName.trim() : undefined,
       ssdDetail: input.ssdDetailedInputEnabled ? input.ssdProductName.trim() : undefined,
+      hddDetail: input.hddDetailedInputEnabled ? input.hddProductName.trim() : undefined,
       ...input,
     });
 
@@ -561,7 +633,7 @@ export default function RegisterPcPage() {
 
   const handleCopyCommand = async () => {
     try {
-      await navigator.clipboard.writeText(powerShellScanCommand);
+      await navigator.clipboard.writeText(commandShellMode === "cmd" ? cmdWrappedScanCommand : powerShellScanCommand);
       setIsCommandCopied(true);
       showToast("명령어가 복사되었습니다.");
       window.setTimeout(() => setIsCommandCopied(false), 2000);
@@ -609,6 +681,9 @@ export default function RegisterPcPage() {
   // 확인 카드에 보여줄 값들 — pendingConfirm이 있을 때만 계산한다.
   const confirmCpuLabel = pendingConfirm ? (pendingConfirm.result.cpuLabel ?? pendingConfirm.result.cpuRaw ?? "인식하지 못했어요") : "";
   const confirmSsdLabel = pendingConfirm ? (pendingConfirm.result.ssdDetail ?? pendingConfirm.result.ssdCapacity ?? "인식하지 못했어요") : "";
+  // HDD는 선택 항목 — SSD처럼 "인식하지 못했어요"로 채우지 않는다. 감지된 게 없으면 그냥
+  // null로 두어 확인 카드에서 타일 자체를 숨긴다(아래 JSX에서 조건부 렌더).
+  const confirmHddLabel = pendingConfirm ? (pendingConfirm.result.hddDetail ?? pendingConfirm.result.hddCapacity ?? null) : null;
   const confirmGpuLabel = pendingConfirm ? (gpus.find((g) => g.id === pendingConfirm.next.gpu)?.name ?? "선택된 그래픽카드가 없어요") : "";
   const confirmRamLabel = pendingConfirm
     ? pendingConfirm.result.ramMismatch
@@ -659,6 +734,7 @@ export default function RegisterPcPage() {
                 <SpecTile emoji="🧩" label="메인보드" value={snapshotBoardName} />
                 <SpecTile emoji="⚡" label="RAM" value={snapshotRam} />
                 <SpecTile emoji="💾" label="SSD" value={snapshotSsd} />
+                <SpecTile emoji="🗄️" label="HDD" value={snapshotHdd} />
                 <SpecTile
                   emoji="🖥️"
                   label="모니터"
@@ -689,7 +765,8 @@ export default function RegisterPcPage() {
             )}
 
             <p className="mb-3 rounded-xl bg-white/[0.03] px-4 py-2.5 text-xs leading-relaxed text-white/50 ring-1 ring-line">
-              이 명령어는 CPU·그래픽카드·메모리·저장장치의 모델명만 확인하며, 개인 파일이나 다른 정보는 조회하지 않습니다.
+              이 명령어는 CPU·그래픽카드·메모리·저장장치의 모델명만 확인하며, 개인 파일이나 다른 정보는 조회하지 않습니다. PowerShell 또는 CMD,
+              둘 다 사용 가능합니다.
             </p>
 
             <Card className="p-4" muted>
@@ -708,15 +785,45 @@ export default function RegisterPcPage() {
 
               <div className="mt-3 space-y-3 text-sm text-white/60">
                 <Card className="p-3">
-                  <p className="font-semibold text-white/90">1단계: PowerShell 열기</p>
-                  <p className="mt-1 leading-6">키보드의 윈도우 키를 누른 채로 X를 누른 뒤, 나오는 목록에서 "Windows PowerShell" 또는 "터미널"을 클릭하세요. (파란색 또는 검은색 창이 켜집니다)</p>
+                  <p className="font-semibold text-white/90">1단계: PowerShell 또는 CMD 열기</p>
+                  <p className="mt-1 leading-6">
+                    PowerShell: 키보드의 윈도우 키를 누른 채로 X를 누른 뒤, 나오는 목록에서 "Windows PowerShell" 또는 "터미널"을
+                    클릭하세요. (파란색 또는 검은색 창이 켜집니다)
+                  </p>
+                  <p className="mt-2 leading-6">
+                    CMD: 윈도우 키를 누른 채로 R을 누른 뒤, 뜨는 창에 "cmd"를 입력하고 엔터를 치세요. (검은색 창이 켜집니다)
+                  </p>
                 </Card>
 
                 <Card className="p-3">
                   <p className="font-semibold text-white/90">2단계: 마법 주문 복사하기</p>
-                  <p className="mt-1 leading-6">아래 버튼을 누르면 CPU·메모리·저장장치를 찾아내는 명령어가 자동으로 복사됩니다(그래픽카드는 이미 위에서 자동으로 확인했어요).</p>
+                  <p className="mt-1 leading-6">
+                    아래 버튼을 누르면 CPU·메모리·저장장치를 찾아내는 명령어가 자동으로 복사됩니다(그래픽카드는 이미 위에서 자동으로
+                    확인했어요). 1단계에서 연 창에 맞게 PowerShell/CMD 중 골라주세요.
+                  </p>
+                  <div role="tablist" aria-label="명령어 종류" className="mt-2 flex w-fit rounded-xl bg-white/[0.04] p-1 ring-1 ring-line">
+                    {(
+                      [
+                        { key: "powershell", label: "PowerShell" },
+                        { key: "cmd", label: "CMD" },
+                      ] as const
+                    ).map((option) => (
+                      <button
+                        key={option.key}
+                        type="button"
+                        role="tab"
+                        aria-selected={commandShellMode === option.key}
+                        onClick={() => setCommandShellMode(option.key)}
+                        className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                          commandShellMode === option.key ? "bg-brand text-white" : "text-white/60 hover:text-white"
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
                   <div className="mt-2 overflow-x-auto rounded-xl bg-white/[0.03] px-3 py-2 text-xs text-brand-soft ring-1 ring-line">
-                    <code className="whitespace-nowrap">{powerShellScanCommand}</code>
+                    <code className="whitespace-nowrap">{commandShellMode === "cmd" ? cmdWrappedScanCommand : powerShellScanCommand}</code>
                   </div>
                   <button
                     type="button"
@@ -752,8 +859,8 @@ export default function RegisterPcPage() {
                 </Card>
 
                 <Card className="p-3">
-                  <p className="font-semibold text-white/90">3단계: PowerShell 창에 붙여넣고 엔터</p>
-                  <p className="mt-1 leading-6">켜진 창에 마우스 우클릭을 하거나 Ctrl + V를 눌러 붙여넣은 뒤, 엔터(Enter) 키를 탁 치세요.</p>
+                  <p className="font-semibold text-white/90">3단계: 켜둔 창에 붙여넣고 엔터</p>
+                  <p className="mt-1 leading-6">1단계에서 켜둔 PowerShell 또는 CMD 창에 마우스 우클릭을 하거나 Ctrl + V를 눌러 붙여넣은 뒤, 엔터(Enter) 키를 탁 치세요.</p>
                 </Card>
 
                 <Card className="p-3">
@@ -793,7 +900,7 @@ export default function RegisterPcPage() {
                           </button>
                         </div>
                         <pre className="mt-3 overflow-x-auto rounded-xl bg-white/[0.03] p-3 text-xs text-white/70 ring-1 ring-line">
-{`CPU:\nAMD Ryzen 5 5600 6-Core Processor\n\nSSD:\nSamsung SSD 970 EVO Plus 500GB\n\nRAM:\nTotal 32 GB (16GB x 2ea / DDR4 3200MHz / Samsung)`}
+{`CPU:\nAMD Ryzen 5 5600 6-Core Processor\n\nDISK:\nSSD|Samsung 970 EVO Plus 500GB|500GB\nHDD|WDC WD10EZEX|1000GB\n\nRAM:\nTotal 32 GB (16GB x 2ea / DDR4 3200MHz / Samsung)`}
                         </pre>
                       </div>
                     </div>
@@ -808,7 +915,7 @@ export default function RegisterPcPage() {
 
               <div className="mt-4">
                 <label htmlFor="scan-raw-text" className="text-sm font-medium text-white/60">
-                  CMD 결과 붙여넣기
+                  PowerShell/CMD 결과 붙여넣기
                 </label>
                 <textarea
                   id="scan-raw-text"
@@ -818,7 +925,7 @@ export default function RegisterPcPage() {
                     setScanErrorMessage("");
                   }}
                   onPaste={handleScanTextPaste}
-                  placeholder="PowerShell 실행 결과를 여기에 붙여넣어 주세요."
+                  placeholder="PowerShell 또는 CMD 실행 결과를 여기에 붙여넣어 주세요."
                   aria-invalid={scanErrorMessage ? true : undefined}
                   className="mt-2 h-40 w-full rounded-xl bg-white/[0.04] px-4 py-3 text-sm text-white placeholder:text-white/30 ring-1 ring-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
                 />
@@ -860,6 +967,9 @@ export default function RegisterPcPage() {
                       source={confirmRamLabel ? "방금 입력한 내용에서 인식" : "직접 입력해 주세요"}
                     />
                     <ConfirmSpecTile emoji="💾" label="SSD" value={confirmSsdLabel} source="방금 입력한 내용에서 인식" />
+                    {confirmHddLabel ? (
+                      <ConfirmSpecTile emoji="🗄️" label="HDD" value={confirmHddLabel} source="방금 입력한 내용에서 인식" />
+                    ) : null}
                   </div>
 
                   <p className="mt-4 text-sm font-medium text-white/85">이 사양으로 내 PC 등록할까요?</p>
@@ -973,6 +1083,40 @@ export default function RegisterPcPage() {
                         value={ssdProductName}
                         onChange={(event) => setSsdProductName(event.target.value)}
                         placeholder="예: SK하이닉스 Gold P31"
+                        className="mt-2 w-full rounded-xl bg-white/[0.04] px-4 py-3 text-sm text-white placeholder:text-white/30 ring-1 ring-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                      />
+                    ) : null}
+                  </div>
+
+                  <div>
+                    <span className="block text-sm font-medium text-white/70">HDD (선택)</span>
+                    <div className="mt-2">
+                      <DarkSelect aria-label="HDD 용량" value={hddCapacityOption} onChange={(event) => setHddCapacityOption(event.target.value)}>
+                        <option value="">선택 안 함</option>
+                        {hddCapacityOptions.map((hddOption) => (
+                          <option key={hddOption} value={hddOption}>
+                            {hddOption}
+                          </option>
+                        ))}
+                      </DarkSelect>
+                    </div>
+
+                    <label className="mt-3 flex min-h-11 items-center gap-3 rounded-xl bg-white/[0.03] px-3 py-2 text-xs text-white/70 ring-1 ring-line">
+                      <input
+                        type="checkbox"
+                        checked={hddDetailedInputEnabled}
+                        onChange={() => setHddDetailedInputEnabled((prev) => !prev)}
+                        className="h-4 w-4 rounded border-white/20 bg-white/[0.04] accent-brand"
+                      />
+                      + 상세 제품명 직접 입력 (더 정밀한 분석)
+                    </label>
+
+                    {hddDetailedInputEnabled ? (
+                      <input
+                        type="text"
+                        value={hddProductName}
+                        onChange={(event) => setHddProductName(event.target.value)}
+                        placeholder="예: WD Blue 1TB"
                         className="mt-2 w-full rounded-xl bg-white/[0.04] px-4 py-3 text-sm text-white placeholder:text-white/30 ring-1 ring-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
                       />
                     ) : null}

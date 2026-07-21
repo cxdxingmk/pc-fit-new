@@ -26,8 +26,19 @@ import { getAllSsds } from "../../src/utils/hardwareLookup";
 // 줄바꿈이 아니라 문자 그대로("`nSSD:") 출력돼 파서가 SSD/RAM 헤더를 못 찾았다. 이스케이프
 // 해석에 기대는 대신, 헤더마다 별도의 Write-Host 문으로 나눠 각 호출이 스스로 줄바꿈을
 // 내도록 했다 — 이 방식은 이스케이프 처리 여부와 무관하게 항상 동작한다.
+// SSD/HDD를 구분하기 위해 Win32_DiskDrive(모델명만 나옴) 대신 Get-PhysicalDisk를 쓴다 —
+// MediaType 속성이 "SSD"/"HDD"/"Unspecified"를 이미 사람이 읽을 수 있는 문자열로 내려주므로
+// (RAM 쪽 SMBIOSMemoryType처럼 별도 숫자 매핑이 필요 없음) 그대로 한 줄에 "TYPE|모델명|용량GB"
+// 형식으로 합쳐 출력한다. 파서(extractDiskSection)는 이 형식만 새로 처리하면 된다.
 export const powerShellScanCommand =
-  "Write-Host 'CPU:'; Get-CimInstance Win32_Processor | % Name; Write-Host ''; Write-Host 'SSD:'; Get-CimInstance Win32_DiskDrive | % Model; Write-Host ''; Write-Host 'RAM:'; $m = Get-CimInstance Win32_PhysicalMemory; $count = $m.Count; $cap = [Math]::Round(($m | Measure-Object Capacity -Sum).Sum / 1GB); $each = [Math]::Round($m[0].Capacity / 1GB); $speed = $m[0].ConfiguredClockSpeed; $mfg = $m[0].Manufacturer; $v = $m[0].SMBIOSMemoryType; $ddr = switch($v){26{'DDR4'} 34{'DDR5'} default{'DDR3 or Older'}}; Write-Host ('Total ' + $cap + ' GB (' + $each + 'GB x ' + $count + 'ea / ' + $ddr + ' ' + $speed + 'MHz / ' + $mfg + ')' )";
+  "Write-Host 'CPU:'; Get-CimInstance Win32_Processor | % Name; Write-Host ''; Write-Host 'DISK:'; Get-PhysicalDisk | % { Write-Host ($_.MediaType.ToString() + '|' + $_.FriendlyName + '|' + [Math]::Round($_.Size/1GB) + 'GB') }; Write-Host ''; Write-Host 'RAM:'; $m = Get-CimInstance Win32_PhysicalMemory; $count = $m.Count; $cap = [Math]::Round(($m | Measure-Object Capacity -Sum).Sum / 1GB); $each = [Math]::Round($m[0].Capacity / 1GB); $speed = $m[0].ConfiguredClockSpeed; $mfg = $m[0].Manufacturer; $v = $m[0].SMBIOSMemoryType; $ddr = switch($v){26{'DDR4'} 34{'DDR5'} default{'DDR3 or Older'}}; Write-Host ('Total ' + $cap + ' GB (' + $each + 'GB x ' + $count + 'ea / ' + $ddr + ' ' + $speed + 'MHz / ' + $mfg + ')' )";
+
+// CMD 창(cmd.exe)에 그대로 붙여넣을 수 있도록 powerShellScanCommand를 감싼 버전.
+// powerShellScanCommand 내부는 전부 작은따옴표만 쓰고 큰따옴표는 하나도 없어 이 큰따옴표
+// 래핑과 충돌하지 않는다 — .NET Process로 cmd.exe를 실제 실행해(대화형 프롬프트에 한 줄
+// 붙여넣는 것과 동일하게 CreateProcess 인자로 전달) 파이프(|)/따옴표 충돌 없이 CPU/DISK/RAM
+// 세 섹션이 전부 정상 출력되는 것까지 확인했다.
+export const cmdWrappedScanCommand = `powershell -NoProfile -Command "${powerShellScanCommand}"`;
 
 /** 구버전 Windows(wmic 제거 전)용 — "구버전 Windows는 이 명령" 접기 섹션에서만 노출. */
 export const legacyWmicScanCommand =
@@ -46,6 +57,15 @@ export interface ParseCommandOutputResult {
   ramModuleCount: number | null;
   ssdCapacity: "256GB" | "512GB" | "1TB" | "2TB" | null;
   ssdDetail: string | null;
+  /** SSD가 여러 개 감지됐을 때, 대표(가장 큰 용량 또는 첫 감지)로 채택되지 않은 나머지 참고용 텍스트 */
+  ssdAdditionalDetail: string | null;
+  /** HDD는 선택 항목 — 감지 안 되면 그냥 null(등록 폼의 HDD 필드는 "선택 안 함" 그대로 유지) */
+  hddCapacity: "500GB" | "1TB" | "2TB" | "4TB" | null;
+  hddDetail: string | null;
+  hddAdditionalDetail: string | null;
+  /** MediaType이 SSD/HDD 어느 쪽으로도 특정되지 않은(Unspecified 등) 드라이브의 원문 — "직접 입력"으로
+   *  수동 지정하라는 안내에 쓴다. 파서는 이 값을 SSD/HDD 어느 필드에도 강제로 넣지 않는다. */
+  unspecifiedDiskDetail: string | null;
   monitorResolution: "FHD" | "QHD" | "4K" | null;
   monitorRefreshRate: number | null;
   cpuLabel: string | null;
@@ -104,7 +124,10 @@ function extractNameSections(rawText: string): string[] {
 
 interface NewFormatSections {
   cpuLine: string | null;
+  /** 레거시 "SSD:" 단독 헤더(구버전 명령 출력) — 디스크 종류 구분 없이 전부 SSD로 취급 */
   ssdLines: string[];
+  /** 신버전 "DISK:" 헤더(Get-PhysicalDisk 기반) — "TYPE|모델명|용량GB" 형식 한 줄씩 */
+  diskLines: string[];
   ramLine: string | null;
 }
 
@@ -132,19 +155,117 @@ function extractNewFormatSections(rawText: string): NewFormatSections | null {
   if (cpuIdx === -1) return null;
 
   const ssdIdx = headerIndex("SSD:");
+  const diskIdx = headerIndex("DISK:");
   const ramIdx = headerIndex("RAM:");
 
   const cpuLine = lines.slice(cpuIdx + 1).find((line) => line !== "") ?? null;
 
-  let ssdLines: string[] = [];
-  if (ssdIdx !== -1) {
-    const end = ramIdx !== -1 && ramIdx > ssdIdx ? ramIdx : lines.length;
-    ssdLines = lines.slice(ssdIdx + 1, end).filter((line) => line !== "");
-  }
+  // 이 헤더 다음 줄부터, 뒤이어 나오는 다른 알려진 헤더(RAM:/SSD:/DISK: 중 자기 자신 제외) 직전까지만 자른다.
+  const sectionLines = (headerIdx: number): string[] => {
+    if (headerIdx === -1) return [];
+    const followingHeaderIdxs = [ramIdx, ssdIdx, diskIdx].filter((idx) => idx !== -1 && idx !== headerIdx && idx > headerIdx);
+    const end = followingHeaderIdxs.length > 0 ? Math.min(...followingHeaderIdxs) : lines.length;
+    return lines.slice(headerIdx + 1, end).filter((line) => line !== "");
+  };
+
+  const ssdLines = sectionLines(ssdIdx);
+  const diskLines = sectionLines(diskIdx);
 
   const ramLine = ramIdx !== -1 ? (lines.slice(ramIdx + 1).find((line) => line !== "") ?? null) : null;
 
-  return { cpuLine, ssdLines, ramLine };
+  return { cpuLine, ssdLines, diskLines, ramLine };
+}
+
+interface DiskEntry {
+  type: string;
+  model: string;
+  capacityGb: number;
+}
+
+/** "TYPE|모델명|용량GB" 형식 줄들을 구조화된 항목으로 분해한다. 형식이 안 맞는 줄(구분자 부족 등)은 건너뛴다. */
+function parseDiskLines(lines: string[]): DiskEntry[] {
+  const entries: DiskEntry[] = [];
+  for (const line of lines) {
+    const segments = line.split("|");
+    if (segments.length < 3) continue;
+    const type = segments[0].trim();
+    const model = segments[1].trim();
+    const capacityMatch = segments[2].match(/(\d+(?:\.\d+)?)/);
+    if (!model || !capacityMatch) continue;
+    entries.push({ type, model, capacityGb: Number(capacityMatch[1]) });
+  }
+  return entries;
+}
+
+/** 같은 타입(SSD 또는 HDD) 안에서 대표값을 고른다 — 가장 큰 용량, 동률이면 먼저 감지된 것(reduce는
+ *  엄격한 ">"만 교체하므로 동률에서 자연히 먼저 나온 항목이 남는다). */
+function pickRepresentativeDisk(entries: DiskEntry[]): DiskEntry | null {
+  return entries.reduce<DiskEntry | null>((best, current) => (!best || current.capacityGb > best.capacityGb ? current : best), null);
+}
+
+/** 대표로 채택되지 않은 나머지 항목들을 "모델명 (용량GB)" 형식으로 콤마 구분해 참고용 텍스트로 만든다. */
+function formatExtraDisks(entries: DiskEntry[], representative: DiskEntry | null): string | null {
+  const extras = entries.filter((entry) => entry !== representative);
+  if (extras.length === 0) return null;
+  return extras.map((entry) => `${entry.model} (${entry.capacityGb}GB)`).join(", ");
+}
+
+// 실제 SSD 정격 용량(256/512GB, 1/2TB)은 1000진법 표기라도 OS가 보고하는 GiB 값은 그보다 작게
+// 나온다(예: "1TB" 정격 SSD가 실제로는 약 931~953GB로 보고됨) — 넉넉한 하한선으로 버킷팅한다.
+function bucketSsdCapacityGb(gb: number): "256GB" | "512GB" | "1TB" | "2TB" | null {
+  if (gb >= 1800) return "2TB";
+  if (gb >= 900) return "1TB";
+  if (gb >= 450) return "512GB";
+  if (gb > 0) return "256GB";
+  return null;
+}
+
+// HDD도 같은 이유로 넉넉한 하한선을 쓴다(예: "4TB" 정격 HDD가 실제로는 약 3726GB로 보고됨).
+function bucketHddCapacityGb(gb: number): "500GB" | "1TB" | "2TB" | "4TB" | null {
+  if (gb >= 3500) return "4TB";
+  if (gb >= 1800) return "2TB";
+  if (gb >= 900) return "1TB";
+  if (gb > 0) return "500GB";
+  return null;
+}
+
+interface DiskSectionResult {
+  ssdCapacity: "256GB" | "512GB" | "1TB" | "2TB" | null;
+  ssdDetail: string | null;
+  ssdAdditionalDetail: string | null;
+  hddCapacity: "500GB" | "1TB" | "2TB" | "4TB" | null;
+  hddDetail: string | null;
+  hddAdditionalDetail: string | null;
+  unspecifiedDiskDetail: string | null;
+}
+
+/**
+ * "DISK:" 헤더(Get-PhysicalDisk 기반, "TYPE|모델명|용량GB" 형식) 아래 줄들을 SSD/HDD로 각각
+ * 독립적으로 분류한다. SSD가 없으면 SSD 관련 값은 그냥 전부 null(HDD도 마찬가지) — 호출부가
+ * "없음"을 억지로 채우지 않고 등록 폼의 해당 필드를 원래 상태 그대로 둔다. MediaType이 SSD/HDD
+ * 어느 쪽도 아니면(Unspecified 등) 어느 필드에도 강제로 넣지 않고 raw 텍스트만 보존한다.
+ */
+function parseDiskSection(diskLines: string[]): DiskSectionResult {
+  const entries = parseDiskLines(diskLines);
+  const ssdEntries = entries.filter((entry) => entry.type.toUpperCase() === "SSD");
+  const hddEntries = entries.filter((entry) => entry.type.toUpperCase() === "HDD");
+  const unspecifiedEntries = entries.filter((entry) => !["SSD", "HDD"].includes(entry.type.toUpperCase()));
+
+  const ssdRep = pickRepresentativeDisk(ssdEntries);
+  const hddRep = pickRepresentativeDisk(hddEntries);
+
+  return {
+    ssdCapacity: ssdRep ? bucketSsdCapacityGb(ssdRep.capacityGb) : null,
+    ssdDetail: ssdRep?.model ?? null,
+    ssdAdditionalDetail: formatExtraDisks(ssdEntries, ssdRep),
+    hddCapacity: hddRep ? bucketHddCapacityGb(hddRep.capacityGb) : null,
+    hddDetail: hddRep?.model ?? null,
+    hddAdditionalDetail: formatExtraDisks(hddEntries, hddRep),
+    unspecifiedDiskDetail:
+      unspecifiedEntries.length > 0
+        ? unspecifiedEntries.map((entry) => `${entry.type}: ${entry.model} (${entry.capacityGb}GB)`).join(", ")
+        : null,
+  };
 }
 
 function parseRamTotalLine(ramLine: string): ParsedRamSummary | null {
@@ -265,73 +386,91 @@ export function parseSpecOutput(rawTextInput: string): ParseCommandOutputResult 
       : `${parsedRamSummary.eachGb}GB x${parsedRamSummary.count} / ${parsedRamSummary.ddrLabel} ${parsedRamSummary.speed}MHz`
     : legacyRamDetail;
 
-  const preferredSsdLine = newFormatSections
-    ? pickPreferredSsdLine(newFormatSections.ssdLines)
-    : rawText
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .find((line) => /ssd|nvme|m\.2|samsung|western|wd|hynix|crucial|kingston|p41|sn770|990|kc3000|m480/i.test(line));
+  // "DISK:" 헤더(Get-PhysicalDisk 기반)가 있으면 SSD/HDD를 독립적으로 분류하는 새 경로를 쓰고,
+  // 없으면(레거시 "SSD:" 단독 헤더 또는 wmic 포맷) 디스크 종류 구분 없이 전부 SSD로 취급하던
+  // 기존 로직을 그대로 쓴다 — 하위 호환.
+  const diskSectionResult = newFormatSections && newFormatSections.diskLines.length > 0 ? parseDiskSection(newFormatSections.diskLines) : null;
 
-  const preferredSsdText = preferredSsdLine ?? rawText;
-  const normalizedPreferredSsdText = normalizeText(preferredSsdText);
-  // 브랜드명만 일치해도 "매칭"으로 치면(예: "Samsung SSD 970 EVO Plus 500GB") 카탈로그의 첫 번째
-  // Samsung 항목("990 Pro 1TB" 등 전혀 다른 모델)으로 잘못 확정되는 버그가 있었다 — 브랜드 뒤에
-  // "SSD"/"NVMe" 같은 단어가 끼어들어 모델 전체 문자열 매칭은 실패하면서도, 브랜드만으로는
-  // 통과되던 것. 이제 모델명 전체가 통으로 들어있거나(원래 로직), 브랜드+모델의 "브랜드를 뺀
-  // 나머지 식별 부분"(제품라인+용량)이 원문에 함께 들어있어야만 매칭으로 인정한다.
-  const matchedSsd = masterSsdCatalog.find((item) => {
-    const normalizedModel = normalizeText(item.model);
-    if (normalizedPreferredSsdText.includes(normalizedModel)) return true;
+  let parsedSsdCapacity: "256GB" | "512GB" | "1TB" | "2TB" | null;
+  let parsedSsdDetail: string | null;
+  const hddCapacity = diskSectionResult?.hddCapacity ?? null;
+  const hddDetail = diskSectionResult?.hddDetail ?? null;
+  const ssdAdditionalDetail = diskSectionResult?.ssdAdditionalDetail ?? null;
+  const hddAdditionalDetail = diskSectionResult?.hddAdditionalDetail ?? null;
+  const unspecifiedDiskDetail = diskSectionResult?.unspecifiedDiskDetail ?? null;
 
-    const normalizedBrand = normalizeText(item.manufacturer);
-    const modelTail = item.model.startsWith(item.manufacturer) ? item.model.slice(item.manufacturer.length).trim() : item.model;
-    const normalizedModelTail = normalizeText(modelTail);
-    return (
-      normalizedModelTail.length > 0 &&
-      normalizedPreferredSsdText.includes(normalizedBrand) &&
-      normalizedPreferredSsdText.includes(normalizedModelTail)
-    );
-  });
+  if (diskSectionResult) {
+    parsedSsdCapacity = diskSectionResult.ssdCapacity;
+    parsedSsdDetail = diskSectionResult.ssdDetail;
+  } else {
+    const preferredSsdLine = newFormatSections
+      ? pickPreferredSsdLine(newFormatSections.ssdLines)
+      : rawText
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .find((line) => /ssd|nvme|m\.2|samsung|western|wd|hynix|crucial|kingston|p41|sn770|990|kc3000|m480/i.test(line));
 
-  const diskSizes = [...rawText.matchAll(/\b(\d{11,14})\b/g)]
-    .map((match) => Number(match[1]))
-    .filter((value) => Number.isFinite(value) && value > 150_000_000_000);
-  const largestDiskBytes = diskSizes.length > 0 ? Math.max(...diskSizes) : 0;
+    const preferredSsdText = preferredSsdLine ?? rawText;
+    const normalizedPreferredSsdText = normalizeText(preferredSsdText);
+    // 브랜드명만 일치해도 "매칭"으로 치면(예: "Samsung SSD 970 EVO Plus 500GB") 카탈로그의 첫 번째
+    // Samsung 항목("990 Pro 1TB" 등 전혀 다른 모델)으로 잘못 확정되는 버그가 있었다 — 브랜드 뒤에
+    // "SSD"/"NVMe" 같은 단어가 끼어들어 모델 전체 문자열 매칭은 실패하면서도, 브랜드만으로는
+    // 통과되던 것. 이제 모델명 전체가 통으로 들어있거나(원래 로직), 브랜드+모델의 "브랜드를 뺀
+    // 나머지 식별 부분"(제품라인+용량)이 원문에 함께 들어있어야만 매칭으로 인정한다.
+    const matchedSsd = masterSsdCatalog.find((item) => {
+      const normalizedModel = normalizeText(item.model);
+      if (normalizedPreferredSsdText.includes(normalizedModel)) return true;
 
-  // 새 포맷의 SSD 모델명엔 용량이 바이트가 아니라 텍스트로 박혀 있다(예: "...970 EVO Plus 500GB") —
-  // 큐레이션 카탈로그에 없는 모델이어도 이 텍스트만으로 용량 등급을 추정할 수 있다.
-  const ssdLineSizeMatch = preferredSsdLine?.match(/(\d+(?:\.\d+)?)\s*(TB|GB)\b/i);
-  const ssdLineSizeGb = ssdLineSizeMatch
-    ? Number(ssdLineSizeMatch[1]) * (ssdLineSizeMatch[2].toUpperCase() === "TB" ? 1000 : 1)
-    : 0;
+      const normalizedBrand = normalizeText(item.manufacturer);
+      const modelTail = item.model.startsWith(item.manufacturer) ? item.model.slice(item.manufacturer.length).trim() : item.model;
+      const normalizedModelTail = normalizeText(modelTail);
+      return (
+        normalizedModelTail.length > 0 &&
+        normalizedPreferredSsdText.includes(normalizedBrand) &&
+        normalizedPreferredSsdText.includes(normalizedModelTail)
+      );
+    });
 
-  const parsedSsdCapacity = matchedSsd
-    ? matchedSsd.capacityGb >= 2000
-      ? "2TB"
-      : matchedSsd.capacityGb >= 1000
-        ? "1TB"
-        : matchedSsd.capacityGb >= 500
-          ? "512GB"
-          : "256GB"
-    : largestDiskBytes >= 1_800_000_000_000
-      ? "2TB"
-      : largestDiskBytes >= 900_000_000_000
-        ? "1TB"
-        : largestDiskBytes >= 450_000_000_000
-          ? "512GB"
-          : largestDiskBytes > 0
-            ? "256GB"
-            : ssdLineSizeGb >= 1800
-              ? "2TB"
-              : ssdLineSizeGb >= 900
-                ? "1TB"
-                : ssdLineSizeGb >= 450
-                  ? "512GB"
-                  : ssdLineSizeGb > 0
-                    ? "256GB"
-                    : null;
+    const diskSizes = [...rawText.matchAll(/\b(\d{11,14})\b/g)]
+      .map((match) => Number(match[1]))
+      .filter((value) => Number.isFinite(value) && value > 150_000_000_000);
+    const largestDiskBytes = diskSizes.length > 0 ? Math.max(...diskSizes) : 0;
 
-  const parsedSsdDetail = matchedSsd?.model ?? preferredSsdLine ?? null;
+    // 새 포맷의 SSD 모델명엔 용량이 바이트가 아니라 텍스트로 박혀 있다(예: "...970 EVO Plus 500GB") —
+    // 큐레이션 카탈로그에 없는 모델이어도 이 텍스트만으로 용량 등급을 추정할 수 있다.
+    const ssdLineSizeMatch = preferredSsdLine?.match(/(\d+(?:\.\d+)?)\s*(TB|GB)\b/i);
+    const ssdLineSizeGb = ssdLineSizeMatch
+      ? Number(ssdLineSizeMatch[1]) * (ssdLineSizeMatch[2].toUpperCase() === "TB" ? 1000 : 1)
+      : 0;
+
+    parsedSsdCapacity = matchedSsd
+      ? matchedSsd.capacityGb >= 2000
+        ? "2TB"
+        : matchedSsd.capacityGb >= 1000
+          ? "1TB"
+          : matchedSsd.capacityGb >= 500
+            ? "512GB"
+            : "256GB"
+      : largestDiskBytes >= 1_800_000_000_000
+        ? "2TB"
+        : largestDiskBytes >= 900_000_000_000
+          ? "1TB"
+          : largestDiskBytes >= 450_000_000_000
+            ? "512GB"
+            : largestDiskBytes > 0
+              ? "256GB"
+              : ssdLineSizeGb >= 1800
+                ? "2TB"
+                : ssdLineSizeGb >= 900
+                  ? "1TB"
+                  : ssdLineSizeGb >= 450
+                    ? "512GB"
+                    : ssdLineSizeGb > 0
+                      ? "256GB"
+                      : null;
+
+    parsedSsdDetail = matchedSsd?.model ?? preferredSsdLine ?? null;
+  }
 
   const resolutionMatch = rawText.match(/(3840\s*[xX]\s*2160|2560\s*[xX]\s*1440|1920\s*[xX]\s*1080)/i);
   const monitorResolution = resolutionMatch
@@ -362,6 +501,11 @@ export function parseSpecOutput(rawTextInput: string): ParseCommandOutputResult 
     ramModuleCount,
     ssdCapacity: parsedSsdCapacity,
     ssdDetail: parsedSsdDetail,
+    ssdAdditionalDetail,
+    hddCapacity,
+    hddDetail,
+    hddAdditionalDetail,
+    unspecifiedDiskDetail,
     monitorResolution,
     monitorRefreshRate,
     cpuLabel: cpuMatch.matched?.name ?? fallbackCpu?.label ?? null,
