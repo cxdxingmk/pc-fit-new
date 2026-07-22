@@ -20,6 +20,7 @@ import type { MotherBoard } from "../database/motherboard";
 import type { PSU } from "../database/psu";
 import type { ExistingPartsState, CaseOwnershipOption, PurposeType, BudgetRange } from "../types/build";
 import type { RecommendationResult } from "../types/recommend";
+import { resolveLivePrice, type PartPriceOverrides } from "./partPriceOverrides";
 
 type Answers = Record<number, string[]>;
 
@@ -518,7 +519,8 @@ function buildRankedPool(
   existingParts: ExistingPartsState,
   caseOwnership: CaseOwnershipOption,
   budgetMin: number | null,
-  purposes: Purpose[]
+  purposes: Purpose[],
+  priceOverrides: PartPriceOverrides = new Map()
 ): RankedCandidate[] {
   // /build 2단계에서 "보유 중"으로 체크하고 모델까지 지정한 부품은 새로 사는 후보군에서
   // 완전히 자유롭게 재최적화하는 대신 이 값 하나로 고정한다 — 후보 풀 자체를 [보유 부품]
@@ -611,7 +613,7 @@ function buildRankedPool(
           if (mb.ddr !== ram.ddr) continue;
           if (!owned.motherboard && typeof mb.qualityScore === "number" && mb.qualityScore < minBoardQuality) continue;
 
-          const built = buildCandidate(cpu, gpu, ram, ssd, mb, psu, purpose, budgetTarget, existingParts, caseOwnership, budgetMin, purposes, owned);
+          const built = buildCandidate(cpu, gpu, ram, ssd, mb, psu, purpose, budgetTarget, existingParts, caseOwnership, budgetMin, purposes, owned, priceOverrides);
           if (built) {
             pool.push({
               candidate: built.result,
@@ -647,9 +649,11 @@ export function generateCandidates(
   // 동시에 선택된 모든 용도(BuildContext의 purposes[]) — CPU 후보 선별/정렬에서만 purpose(대표
   // 목적 하나) 대신 이 배열 전체의 가중 평균(cpuPurposeFitScore)을 쓴다. 주어지지 않으면 대표
   // 목적 하나짜리 배열로 취급해 기존 동작과 동일하게 폴백한다.
-  purposes: Purpose[] = [purpose]
+  purposes: Purpose[] = [purpose],
+  // part_prices(네이버 쇼핑 실거래가) — 비어 있으면(기본값) 기존 정적 가격만으로 동작한다.
+  priceOverrides: PartPriceOverrides = new Map()
 ): RecommendationResult[] {
-  const pool = buildRankedPool(cpus, gpus, rams, ssds, mbs, psus, purpose, budgetTarget, existingParts, caseOwnership, budgetMin, purposes);
+  const pool = buildRankedPool(cpus, gpus, rams, ssds, mbs, psus, purpose, budgetTarget, existingParts, caseOwnership, budgetMin, purposes, priceOverrides);
   return selectTopByStrategy(pool, budgetTarget, preferredBudgetTarget);
 }
 
@@ -786,7 +790,10 @@ function buildCandidate(
   // 동시에 선택된 모든 용도 — CPU 항목(baseScore)에만 쓰인다(용도별 CPU 추천 후보군 로직).
   purposes: Purpose[] = [purpose],
   // 보유 부품으로 고정된 항목 — 가격을 0으로 제외하고 "보유 중" 표시를 붙이는 데 쓴다.
-  owned: ResolvedOwnedParts = { cpu: null, gpu: null, ram: null, ssd: null, motherboard: null, psuWattage: null }
+  owned: ResolvedOwnedParts = { cpu: null, gpu: null, ram: null, ssd: null, motherboard: null, psuWattage: null },
+  // part_prices(네이버 쇼핑 기반 실거래가) — 있으면 아래 정적 가격(priceTier/price 필드)보다
+  // 우선한다. 비어 있으면(기본값) 기존과 완전히 동일하게 동작한다.
+  priceOverrides: PartPriceOverrides = new Map()
 ): { result: RecommendationResult; normalizedBaseScore: number } | null {
   const { score: compatibilityScoreVal, warnings } = compatibilityScore(
     cpu,
@@ -843,20 +850,25 @@ function buildCandidate(
   const isOwnedMotherboard = owned.motherboard?.id === mb.id;
   const isOwnedPsu = owned.psuWattage !== null;
 
-  const cpuPrice = isOwnedCpu ? 0 : priceTierToPrice[cpu.priceTier] ?? 0;
+  // 우선순위: part_prices(네이버 쇼핑 실거래가, 신뢰도·최신성 검증된 것만) → 카탈로그 price 필드
+  // (있는 부품군만) → priceTier 고정가. resolveLivePrice가 null이면(캐시에 없음/표본 부족/7일
+  // 초과 등) 아래 기존 정적 가격 체인으로 그대로 폴백한다 — priceOverrides가 비어 있으면(기본값)
+  // 이 블록 전체가 기존 동작과 완전히 동일하다.
+  const cpuPrice = isOwnedCpu ? 0 : resolveLivePrice(priceOverrides, "cpu", cpu.id) ?? priceTierToPrice[cpu.priceTier] ?? 0;
   // motherboard.ts/psu.ts와 같은 패턴 — gpu.price가 있으면(현재 enthusiast 티어 4장만 hand-curate)
   // priceTier 고정가 대신 그 실거래가를 쓴다. "enthusiast" 한 티어에 고정가 하나만 쓰면(예: RTX
   // 4070 Ti SUPER ~110만원부터 RTX 5090 ~420만원까지) 가격을 낮게 잡으면 500만원대 이상이 전부
   // "구성 불가"가 되고, 높게 잡으면 그 값 바로 아래(약 380만~480만원)에 achievable price gap이
   // 생겨 그 사이 목표가가 전부 "구성 불가"가 되는 문제가 있었다 — 회귀 테스트로 둘 다 확인.
-  const gpuPrice = isOwnedGpu ? 0 : gpu.price ?? priceTierToPrice[gpu.priceTier] ?? 0;
+  const gpuPrice = isOwnedGpu ? 0 : resolveLivePrice(priceOverrides, "gpu", gpu.id) ?? gpu.price ?? priceTierToPrice[gpu.priceTier] ?? 0;
   // RAM은 모든 카탈로그 항목에 실거래가(price)가 있으므로 그걸 그대로 쓴다 — priceTier 폴백을
   // 쓰면 8GB든 64GB든 같은 티어면 같은 가격이 나오는 문제가 있었다(예: 32GB DDR5가 50만원).
-  const ramPrice = isOwnedRam ? 0 : ram.price;
-  const ssdPrice = isOwnedSsd ? 0 : priceTierToPrice[ssd.priceTier] ?? 0;
+  const ramPrice = isOwnedRam ? 0 : resolveLivePrice(priceOverrides, "ram", ram.id) ?? ram.price;
+  const ssdPrice = isOwnedSsd ? 0 : resolveLivePrice(priceOverrides, "ssd", ssd.id) ?? priceTierToPrice[ssd.priceTier] ?? 0;
   // hardwareSeed.ts 병합분은 priceTier 대신 실거래가(price)를 들고 있다 — 있으면 우선 사용.
-  const motherboardPrice = isOwnedMotherboard ? 0 : mb.price ?? (mb.priceTier ? priceTierToPrice[mb.priceTier] : 0) ?? 0;
-  const psuPrice = isOwnedPsu ? 0 : psu.price ?? (psu.priceTier ? priceTierToPrice[psu.priceTier] : 0) ?? 0;
+  const motherboardPrice =
+    isOwnedMotherboard ? 0 : resolveLivePrice(priceOverrides, "motherboard", mb.id) ?? mb.price ?? (mb.priceTier ? priceTierToPrice[mb.priceTier] : 0) ?? 0;
+  const psuPrice = isOwnedPsu ? 0 : resolveLivePrice(priceOverrides, "psu", psu.id) ?? psu.price ?? (psu.priceTier ? priceTierToPrice[psu.priceTier] : 0) ?? 0;
   const casePrice = caseOwnership === "owned" ? 0 : CASE_PRICE;
 
   const ownedTag = (isOwned: boolean, name: string) => (isOwned ? `${name} (보유 중)` : name);
@@ -940,7 +952,11 @@ export function recommend(
   // "정확한 금액 입력"이 target±EXACT_BUDGET_TOLERANCE range로 변환돼 위 budgetRange 경로를
   // 타되, 세 전략(균형/가성비/최고성능) 모두 selectTopByStrategy의 withinExactBudgetEnvelope
   // 하드 필터로 이 값과의 차이가 EXACT_BUDGET_TOLERANCE 이내인 후보만 채택한다.
-  preferredBudgetTarget?: number | null
+  preferredBudgetTarget?: number | null,
+  // part_prices(네이버 쇼핑 실거래가) — app/lib/partPriceOverrides.ts의 fetchPartPriceOverrides()로
+  // 상위(호출부, 예: result/page.tsx)에서 미리 가져와 넘긴다. 생략하면(기본값 빈 Map) 기존과
+  // 완전히 동일하게 정적 가격만으로 동작한다.
+  priceOverrides: PartPriceOverrides = new Map()
 ): RecommendationResult[] {
   const purpose = pickPurpose(answers, purposes);
   const budgetTarget = budgetRange ? budgetRange.max : pickBudgetTarget(answers);
@@ -962,7 +978,8 @@ export function recommend(
     caseOwnership,
     budgetMin,
     preferredBudgetTarget ?? null,
-    effectivePurposes
+    effectivePurposes,
+    priceOverrides
   );
 }
 
@@ -975,12 +992,27 @@ function collectViableTotalPrices(
   answers: Answers,
   existingParts: ExistingPartsState,
   caseOwnership: CaseOwnershipOption,
-  purposes?: PurposeType[]
+  purposes?: PurposeType[],
+  priceOverrides: PartPriceOverrides = new Map()
 ): number[] {
   const purpose = pickPurpose(answers, purposes);
   const effectivePurposes: Purpose[] = purposes && purposes.length > 0 ? purposes : [purpose];
 
-  const pool = buildRankedPool(_cpus, _gpus, _rams, _ssds, _motherboards, _psus, purpose, null, existingParts, caseOwnership, null, effectivePurposes);
+  const pool = buildRankedPool(
+    _cpus,
+    _gpus,
+    _rams,
+    _ssds,
+    _motherboards,
+    _psus,
+    purpose,
+    null,
+    existingParts,
+    caseOwnership,
+    null,
+    effectivePurposes,
+    priceOverrides
+  );
 
   return pool.map((rc) => rc.candidate.totalPrice).filter((p) => !isPlaceholderPrice(p));
 }
@@ -993,9 +1025,10 @@ export function findCheapestViableTotalPrice(
   answers: Answers,
   existingParts: ExistingPartsState,
   caseOwnership: CaseOwnershipOption = "owned",
-  purposes?: PurposeType[]
+  purposes?: PurposeType[],
+  priceOverrides: PartPriceOverrides = new Map()
 ): number | null {
-  const prices = collectViableTotalPrices(answers, existingParts, caseOwnership, purposes);
+  const prices = collectViableTotalPrices(answers, existingParts, caseOwnership, purposes, priceOverrides);
   if (prices.length === 0) return null;
   return Math.min(...prices);
 }
@@ -1009,9 +1042,10 @@ export function findMostExpensiveViableTotalPrice(
   answers: Answers,
   existingParts: ExistingPartsState,
   caseOwnership: CaseOwnershipOption = "owned",
-  purposes?: PurposeType[]
+  purposes?: PurposeType[],
+  priceOverrides: PartPriceOverrides = new Map()
 ): number | null {
-  const prices = collectViableTotalPrices(answers, existingParts, caseOwnership, purposes);
+  const prices = collectViableTotalPrices(answers, existingParts, caseOwnership, purposes, priceOverrides);
   if (prices.length === 0) return null;
   return Math.max(...prices);
 }

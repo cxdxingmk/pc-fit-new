@@ -313,6 +313,89 @@ describe("recommend (integration)", () => {
   });
 });
 
+describe("recommend — priceOverrides(part_prices 실거래가) 반영", () => {
+  const existingParts = {
+    CPU: { enabled: false, brand: "" as const, model: "" },
+    GPU: { enabled: false, brand: "" as const, manufacturer: "", model: "" },
+    RAM: { enabled: false, ddr: "" as const, capacity: "" as const, brand: "", model: "" },
+    SSD: { enabled: false, capacity: "" as const, brand: "", model: "" },
+    HDD: { enabled: false, capacity: "" as const },
+    Motherboard: { enabled: false, series: "", manufacturer: "", model: "" },
+    Power: { enabled: false, wattage: "" as const },
+  };
+
+  it("생략하면(기본값 빈 Map) 명시적으로 빈 Map을 넘긴 것과 결과가 완전히 동일하다(하위호환)", () => {
+    const withoutArg = recommend({ 1: ["게임"], 3: ["300만원 이상"] }, existingParts, "none", ["gaming"]);
+    const withEmptyMap = recommend({ 1: ["게임"], 3: ["300만원 이상"] }, existingParts, "none", ["gaming"], undefined, undefined, new Map());
+    expect(withEmptyMap).toEqual(withoutArg);
+  });
+
+  it("part_prices에 해당 catalog_id의 실거래가가 있으면 정적 가격 대신 그 값을 totalPrice/parts에 반영한다", () => {
+    const baseline = recommend({ 1: ["게임"], 3: ["300만원 이상"] }, existingParts, "none", ["gaming"]);
+    expect(baseline.length).toBeGreaterThan(0);
+
+    const topCpuId = baseline[0].partIds.cpu;
+    const staticCpuPrice = baseline[0].parts.find((p) => p.label === "CPU")!.price;
+    // 예산(300만원 이상) 대비 무시할 수 있는 소액 델타 — TOP1/2/3 선정 순위 자체는 안 흔들리고
+    // "실거래가가 실제로 반영됐는가"만 순수하게 검증할 수 있게 한다.
+    const liveCpuPrice = staticCpuPrice + 50_000;
+
+    const withOverride = recommend(
+      { 1: ["게임"], 3: ["300만원 이상"] },
+      existingParts,
+      "none",
+      ["gaming"],
+      undefined,
+      undefined,
+      new Map([[`cpu:${topCpuId}`, { priceKrw: liveCpuPrice, sampleCount: 5, updatedAt: new Date().toISOString() }]])
+    );
+
+    const matching = withOverride.find((r) => r.partIds.cpu === topCpuId);
+    expect(matching).toBeDefined();
+    expect(matching!.parts.find((p) => p.label === "CPU")!.price).toBe(liveCpuPrice);
+    expect(matching!.totalPrice).toBe(baseline[0].totalPrice - staticCpuPrice + liveCpuPrice);
+  });
+
+  it("표본 3개 미만인 행은 무시하고 정적 가격을 그대로 쓴다", () => {
+    const baseline = recommend({ 1: ["게임"], 3: ["300만원 이상"] }, existingParts, "none", ["gaming"]);
+    const topCpuId = baseline[0].partIds.cpu;
+    const staticCpuPrice = baseline[0].parts.find((p) => p.label === "CPU")!.price;
+
+    const withUnreliableOverride = recommend(
+      { 1: ["게임"], 3: ["300만원 이상"] },
+      existingParts,
+      "none",
+      ["gaming"],
+      undefined,
+      undefined,
+      new Map([[`cpu:${topCpuId}`, { priceKrw: staticCpuPrice + 999_999, sampleCount: 2, updatedAt: new Date().toISOString() }]])
+    );
+
+    const matching = withUnreliableOverride.find((r) => r.partIds.cpu === topCpuId);
+    expect(matching!.parts.find((p) => p.label === "CPU")!.price).toBe(staticCpuPrice);
+  });
+
+  it("7일보다 오래된 행은 무시하고 정적 가격을 그대로 쓴다", () => {
+    const baseline = recommend({ 1: ["게임"], 3: ["300만원 이상"] }, existingParts, "none", ["gaming"]);
+    const topCpuId = baseline[0].partIds.cpu;
+    const staticCpuPrice = baseline[0].parts.find((p) => p.label === "CPU")!.price;
+    const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
+
+    const withStaleOverride = recommend(
+      { 1: ["게임"], 3: ["300만원 이상"] },
+      existingParts,
+      "none",
+      ["gaming"],
+      undefined,
+      undefined,
+      new Map([[`cpu:${topCpuId}`, { priceKrw: staticCpuPrice + 999_999, sampleCount: 5, updatedAt: eightDaysAgo }]])
+    );
+
+    const matching = withStaleOverride.find((r) => r.partIds.cpu === topCpuId);
+    expect(matching!.parts.find((p) => p.label === "CPU")!.price).toBe(staticCpuPrice);
+  });
+});
+
 function baseExistingParts(): ExistingPartsState {
   return {
     CPU: { enabled: false, brand: "", model: "" },

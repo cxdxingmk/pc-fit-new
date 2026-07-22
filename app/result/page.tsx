@@ -1,9 +1,10 @@
 "use client";
 
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useBuild } from "../context/BuildContext";
 import { recommend, findCheapestViableTotalPrice, findMostExpensiveViableTotalPrice } from "../lib/recommender";
+import { fetchPartPriceOverrides, type PartPriceOverrides } from "../lib/partPriceOverrides";
 import { encodeSpec } from "../lib/specPermalink";
 import { buildPerformanceSpec } from "../lib/estimatePermalink";
 import { trackEvent } from "../lib/analytics";
@@ -13,6 +14,7 @@ import { RecommendationReasonsToggle, RecommendationReasonsPanel } from "../comp
 import CompatibilityCard from "./components/CompatibilityCard";
 import Container from "@/components/layout/Container";
 import IndependenceNotice from "@/components/ui/IndependenceNotice";
+import PriceSourceNotice from "@/components/ui/PriceSourceNotice";
 
 type ResultItem = ReturnType<typeof recommend>[number];
 
@@ -199,6 +201,21 @@ export default function ResultPage() {
     setOpenPanel((prev) => (prev && prev.index === index && prev.kind === kind ? null : { index, kind }));
   };
 
+  // 네이버 쇼핑 기반 실거래가(part_prices) — 마운트 시 1회 가져온다. 실패해도(RLS 미설정,
+  // 네트워크 오류 등) fetchPartPriceOverrides가 빈 Map을 반환하므로 아래 recommend() 등은
+  // 항상 정적 가격으로 안전하게 폴백한다. 응답이 오면 topResults가 실거래가 반영된 값으로
+  // 자동 재계산된다(의존성 배열에 priceOverrides 포함).
+  const [priceOverrides, setPriceOverrides] = useState<PartPriceOverrides>(() => new Map());
+  useEffect(() => {
+    let cancelled = false;
+    fetchPartPriceOverrides().then((overrides) => {
+      if (!cancelled) setPriceOverrides(overrides);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const topResults = useMemo(
     () =>
       recommend(
@@ -207,7 +224,8 @@ export default function ResultPage() {
         buildData.caseOwnership,
         buildData.purposes,
         buildData.budget.range,
-        buildData.budget.exactValue
+        buildData.budget.exactValue,
+        priceOverrides
       ),
     [
       buildData.answers,
@@ -216,6 +234,7 @@ export default function ResultPage() {
       buildData.purposes,
       buildData.budget.range,
       buildData.budget.exactValue,
+      priceOverrides,
     ]
   );
 
@@ -227,15 +246,15 @@ export default function ResultPage() {
   const isExactModeEmpty = buildData.budget.mode === "exact" && buildData.budget.exactValue !== null && topResults.length === 0;
   const cheapestViablePrice = useMemo(() => {
     if (!isExactModeEmpty) return null;
-    return findCheapestViableTotalPrice(buildData.answers, buildData.existingParts, buildData.caseOwnership, buildData.purposes);
-  }, [isExactModeEmpty, buildData.answers, buildData.existingParts, buildData.caseOwnership, buildData.purposes]);
+    return findCheapestViableTotalPrice(buildData.answers, buildData.existingParts, buildData.caseOwnership, buildData.purposes, priceOverrides);
+  }, [isExactModeEmpty, buildData.answers, buildData.existingParts, buildData.caseOwnership, buildData.purposes, priceOverrides]);
   // 목표가가 최저 구성가보다 낮아서 못 만드는 건지, 카탈로그 최고 구성가보다 높아서 못 만드는
   // 건지에 따라 정반대 안내(더 올리기 vs 더 낮추기)가 필요하다 — 이 최고가도 하드코딩이 아니라
   // 매번 새로 계산한다(카탈로그가 커지면 자동으로 따라간다).
   const mostExpensiveViablePrice = useMemo(() => {
     if (!isExactModeEmpty) return null;
-    return findMostExpensiveViableTotalPrice(buildData.answers, buildData.existingParts, buildData.caseOwnership, buildData.purposes);
-  }, [isExactModeEmpty, buildData.answers, buildData.existingParts, buildData.caseOwnership, buildData.purposes]);
+    return findMostExpensiveViableTotalPrice(buildData.answers, buildData.existingParts, buildData.caseOwnership, buildData.purposes, priceOverrides);
+  }, [isExactModeEmpty, buildData.answers, buildData.existingParts, buildData.caseOwnership, buildData.purposes, priceOverrides]);
   const isTooHighTarget =
     isExactModeEmpty &&
     buildData.budget.exactValue !== null &&
@@ -301,6 +320,7 @@ export default function ResultPage() {
             </div>
 
             <IndependenceNotice className="mt-8" />
+            <PriceSourceNotice className="mt-3" />
           </>
         )}
       </Container>
