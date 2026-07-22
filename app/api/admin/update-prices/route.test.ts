@@ -25,6 +25,18 @@ vi.mock("@/app/lib/supabase/serviceRole", () => ({
 }));
 
 import { POST } from "./route";
+import { buildPriceableCatalogEntries } from "@/app/lib/partPricing";
+
+// 실제 라우트가 각 항목의 staticAnchorPriceKrw(정적 카탈로그 가격)로 이상값을 걸러내므로
+// (computeFinalPrice의 앵커 안전장치), 목데이터도 항목마다 그 앵커 근처 가격을 내려줘야 "정상
+// 케이스"가 실제로 전부 update로 집계된다 — 모든 쿼리에 같은 고정가(예: 10~12만원)를 주면 GPU
+// 같은 고가 부품군은 앵커 대비 너무 낮아 오히려 스킵되어(의도된 안전장치 동작) 이 목데이터
+// 자체가 비현실적이었던 셈이다.
+const anchorByName = new Map(buildPriceableCatalogEntries().map((entry) => [entry.name, entry.staticAnchorPriceKrw]));
+function pricesNearAnchor(query: string): number[] {
+  const anchor = anchorByName.get(query) ?? 100_000;
+  return [Math.round(anchor * 0.9), anchor, Math.round(anchor * 1.1)];
+}
 
 function postRequest(headers: Record<string, string> = {}): Request {
   return new Request("http://localhost/api/admin/update-prices", { method: "POST", headers });
@@ -70,11 +82,9 @@ describe("POST /api/admin/update-prices", () => {
   });
 
   it("정상 케이스 — 관련 있는 결과가 충분한 항목은 전부 update로 집계된다", async () => {
-    searchNaverShoppingMock.mockImplementation(async (query: string) => [
-      { title: query, lprice: "100000" },
-      { title: query, lprice: "110000" },
-      { title: query, lprice: "120000" },
-    ]);
+    searchNaverShoppingMock.mockImplementation(async (query: string) =>
+      pricesNearAnchor(query).map((lprice) => ({ title: query, lprice: String(lprice) }))
+    );
 
     const response = await POST(postRequest({ "x-price-update-secret": "test-secret" }));
     expect(response.status).toBe(200);

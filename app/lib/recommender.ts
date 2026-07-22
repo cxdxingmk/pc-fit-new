@@ -34,7 +34,9 @@ type Answers = Record<number, string[]>;
 // answers[1]의 한글 라벨 문자열로 왕복하지 않고 이 타입을 그대로 쓰기 위해 별칭만 둔다.
 type Purpose = PurposeType;
 
-const priceTierToPrice: Record<"budget" | "mid" | "high" | "enthusiast", number> = {
+// partPricing.ts(가격 갱신 파이프라인)가 "정적 카탈로그 가격 앵커" 안전장치에 그대로 재사용한다
+// (같은 값을 두 곳에 따로 들고 있으면 한쪽만 바뀌었을 때 서로 어긋난다).
+export const priceTierToPrice: Record<"budget" | "mid" | "high" | "enthusiast", number> = {
   budget: 250000,
   mid: 500000,
   high: 850000,

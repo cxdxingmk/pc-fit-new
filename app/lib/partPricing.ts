@@ -7,6 +7,7 @@ import { hdds } from "../database/hdd";
 import { motherboards } from "../database/motherboard";
 import { psus } from "../database/psu";
 import type { NaverShoppingItem } from "./naverShopping";
+import { priceTierToPrice } from "./recommender";
 import {
   isNewPurchaseEligibleCpu,
   isNewPurchaseEligibleGpu,
@@ -23,6 +24,13 @@ export interface PriceableCatalogEntry {
   catalogId: string;
   /** 네이버 쇼핑 검색어로도, 관련성 필터의 필수 부분 문자열로도 그대로 쓰인다 */
   name: string;
+  /**
+   * recommender.ts가 실제로 쓰는 정적 가격(가능하면 카탈로그의 실거래가 price 필드, 없으면
+   * priceTier 고정가)과 정확히 같은 값 — computeFinalPrice의 "상식선 앵커" 안전장치에 쓰인다.
+   * HDD는 recommender.ts의 가격 계산 로직 자체에 연결돼 있지 않아(app/database/hdd.ts 참고)
+   * 비교 기준이 없으므로 null이다.
+   */
+  staticAnchorPriceKrw: number | null;
 }
 
 /**
@@ -39,15 +47,36 @@ export interface PriceableCatalogEntry {
  */
 export function buildPriceableCatalogEntries(): PriceableCatalogEntry[] {
   return [
-    ...curatedCpus.filter(isNewPurchaseEligibleCpu).map((item) => ({ partType: "cpu" as const, catalogId: item.id, name: item.name })),
-    ...curatedGpus.filter(isNewPurchaseEligibleGpu).map((item) => ({ partType: "gpu" as const, catalogId: item.id, name: item.name })),
-    ...rams.filter(isNewPurchaseEligibleRam).map((item) => ({ partType: "ram" as const, catalogId: item.id, name: item.name })),
-    ...ssds.filter(isNewPurchaseEligibleSsd).map((item) => ({ partType: "ssd" as const, catalogId: item.id, name: item.name })),
-    ...hdds.map((item) => ({ partType: "hdd" as const, catalogId: item.id, name: item.name })),
+    ...curatedCpus
+      .filter(isNewPurchaseEligibleCpu)
+      .map((item) => ({ partType: "cpu" as const, catalogId: item.id, name: item.name, staticAnchorPriceKrw: priceTierToPrice[item.priceTier] ?? null })),
+    ...curatedGpus
+      .filter(isNewPurchaseEligibleGpu)
+      .map((item) => ({ partType: "gpu" as const, catalogId: item.id, name: item.name, staticAnchorPriceKrw: item.price ?? priceTierToPrice[item.priceTier] ?? null })),
+    ...rams
+      .filter(isNewPurchaseEligibleRam)
+      .map((item) => ({ partType: "ram" as const, catalogId: item.id, name: item.name, staticAnchorPriceKrw: item.price ?? null })),
+    ...ssds
+      .filter(isNewPurchaseEligibleSsd)
+      .map((item) => ({ partType: "ssd" as const, catalogId: item.id, name: item.name, staticAnchorPriceKrw: priceTierToPrice[item.priceTier] ?? null })),
+    // HDD는 recommender.ts의 가격 계산 로직에 연결돼 있지 않아 앵커가 없다(위 인터페이스 설명 참고).
+    ...hdds.map((item) => ({ partType: "hdd" as const, catalogId: item.id, name: item.name, staticAnchorPriceKrw: null })),
     ...motherboards
       .filter(isNewPurchaseEligibleMotherboard)
-      .map((item) => ({ partType: "motherboard" as const, catalogId: item.id, name: item.name })),
-    ...psus.filter(isNewPurchaseEligiblePsu).map((item) => ({ partType: "psu" as const, catalogId: item.id, name: item.name })),
+      .map((item) => ({
+        partType: "motherboard" as const,
+        catalogId: item.id,
+        name: item.name,
+        staticAnchorPriceKrw: item.price ?? (item.priceTier ? priceTierToPrice[item.priceTier] : null) ?? null,
+      })),
+    ...psus
+      .filter(isNewPurchaseEligiblePsu)
+      .map((item) => ({
+        partType: "psu" as const,
+        catalogId: item.id,
+        name: item.name,
+        staticAnchorPriceKrw: item.price ?? (item.priceTier ? priceTierToPrice[item.priceTier] : null) ?? null,
+      })),
   ];
 }
 
@@ -72,22 +101,44 @@ const EXCLUDE_KEYWORDS = [
   "젠더",
   "케이블",
   "히트싱크",
+  "방열판", // "히트싱크"의 동의어 — 기존엔 빠져 있어 저가 액세서리가 표본에 섞여 들어왔다.
   "장식",
   "스킨",
   "보호필름",
+  // 조립컴퓨터/완제품 PC — 부품 단품이 아니라 그 부품을 포함한 완제품 전체 가격이라 단품 시세보다
+  // 훨씬 비싸게 잡힌다(예: RTX 5070 단품 100만원대인데 "RTX 5070 게이밍PC 풀세트"는 200만원대).
+  "조립컴퓨터",
+  "조립pc",
+  "완제품",
+  "데스크탑",
+  "풀세트",
+  "게이밍pc",
+  "본체",
+  // 중고/리퍼 — 신품 시세와 무관하게 낮게 잡혀 평균/중앙값을 왜곡한다.
+  "중고",
+  "리퍼",
+  "전시상품",
+  "하자",
 ];
+
+// 판매자 문구(제목)와 무관하게, 네이버가 자체 분류한 카테고리가 조립컴퓨터/완제품 계열이면
+// 배제한다 — 제목에 "조립컴퓨터" 같은 키워드가 없어도(예: 그냥 "게이밍 데스크탑 세트") 카테고리
+// 분류 자체가 부품이 아니라 완제품 PC임을 보여주는 경우를 잡기 위한 추가 신호.
+const BUNDLE_CATEGORY_PATTERN = /조립컴퓨터|완제품|데스크탑/;
 
 function normalize(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9가-힣]/g, "");
 }
 
-/** 제목(HTML 태그 제거 후)에 모델명이 실제로 포함되고, 제외 키워드가 없는 상품만 남긴다. */
+/** 제목(HTML 태그 제거 후)에 모델명이 실제로 포함되고, 제외 키워드/카테고리가 없는 상품만 남긴다. */
 export function filterRelevantListings(modelName: string, items: NaverShoppingItem[]): NaverShoppingItem[] {
   const normalizedModel = normalize(modelName);
   return items.filter((item) => {
     const title = stripHtmlTags(item.title);
-    if (EXCLUDE_KEYWORDS.some((keyword) => title.includes(keyword))) return false;
-    return normalize(title).includes(normalizedModel);
+    const normalizedTitle = normalize(title);
+    if (EXCLUDE_KEYWORDS.some((keyword) => normalizedTitle.includes(normalize(keyword)))) return false;
+    if (BUNDLE_CATEGORY_PATTERN.test(item.category3) || BUNDLE_CATEGORY_PATTERN.test(item.category4)) return false;
+    return normalizedTitle.includes(normalizedModel);
   });
 }
 
@@ -110,19 +161,36 @@ export interface FinalPriceResult {
 
 const MIN_VALID_RESULTS = 3;
 
+// 이상치 제거 후 최종가가 정적 카탈로그 가격(이미 사람이 curate한 값)에서 이 배수를 벗어나면
+// 실거래가 자체를 신뢰하지 않고 스킵한다(기존 가격 유지) — 번들/오염 매물이 관련성 필터를
+// 뚫고 다수를 차지해 median 자체가 잘못된 쪽으로 넘어간 경우(필터링만으론 못 잡는 극단값)에 대한
+// 마지막 안전망. 카탈로그에 이미 있는 데이터를 재사용하는 것이라 추가 비용이 들지 않는다.
+const ANCHOR_MIN_RATIO = 0.4;
+const ANCHOR_MAX_RATIO = 2.5;
+
 /**
  * 관련성 필터를 이미 통과한 목록을 받아 최종 가격을 계산한다. 유효 결과(필터 통과 개수)가
- * 3개 미만이면 null — 호출부는 기존 가격을 그대로 유지하고 갱신하지 않는다.
+ * 3개 미만이면 null — 호출부는 기존 가격을 그대로 유지하고 갱신하지 않는다. staticAnchorPriceKrw가
+ * 주어지면(정적 카탈로그 가격) 최종가가 그 값의 40%~250% 범위를 벗어날 때도 null을 반환한다.
  */
-export function computeFinalPrice(filteredItems: NaverShoppingItem[]): FinalPriceResult | null {
+export function computeFinalPrice(filteredItems: NaverShoppingItem[], staticAnchorPriceKrw?: number | null): FinalPriceResult | null {
   if (filteredItems.length < MIN_VALID_RESULTS) return null;
 
   const prices = filteredItems.map((item) => Number(item.lprice)).filter((price) => Number.isFinite(price) && price > 0);
   if (prices.length < MIN_VALID_RESULTS) return null;
 
   const withoutOutliers = excludeOutliers(prices);
-  if (withoutOutliers.length === 0) return null;
+  // 이상치 제거 "이전"에만 표본 수를 검증하면, 제거 이후 표본이 1~2개로 줄어도 그대로 저장돼
+  // "3개 이상"이라는 신뢰도 하한의 의미가 없어진다 — 제거 이후에도 다시 검증한다.
+  if (withoutOutliers.length < MIN_VALID_RESULTS) return null;
 
-  const average = Math.round(withoutOutliers.reduce((sum, price) => sum + price, 0) / withoutOutliers.length);
-  return { priceKrw: average, sampleCount: withoutOutliers.length };
+  // 평균 대신 중앙값을 최종가로 채택한다 — 잔여 표본에 왜곡(예: 관련성 필터를 통과한 소수의
+  // 번들/오염 매물)이 남아 있어도 평균보다 덜 흔들린다.
+  const finalPrice = Math.round(median(withoutOutliers));
+
+  if (staticAnchorPriceKrw && (finalPrice < staticAnchorPriceKrw * ANCHOR_MIN_RATIO || finalPrice > staticAnchorPriceKrw * ANCHOR_MAX_RATIO)) {
+    return null;
+  }
+
+  return { priceKrw: finalPrice, sampleCount: withoutOutliers.length };
 }

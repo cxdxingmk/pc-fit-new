@@ -45,8 +45,8 @@ async function processEntry(
   try {
     const rawItems = await searchNaverShopping(entry.name);
     const relevant = filterRelevantListings(entry.name, rawItems);
-    const result = computeFinalPrice(relevant);
-    if (!result) return "skipped"; // 유효 결과 3개 미만 — 기존 가격 유지, 갱신하지 않음
+    const result = computeFinalPrice(relevant, entry.staticAnchorPriceKrw);
+    if (!result) return "skipped"; // 유효 결과 3개 미만 또는 정적가 앵커 대비 이상값 — 기존 가격 유지, 갱신하지 않음
 
     const { error } = await supabase.from("part_prices").upsert(
       {
