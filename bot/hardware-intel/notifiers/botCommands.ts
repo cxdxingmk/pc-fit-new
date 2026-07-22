@@ -8,4 +8,6 @@ export interface BotCommands {
   onReject: (id: number, decidedBy: string, reason: string | null) => Promise<string>;
   onExportApproved: () => Promise<string>;
   onMarkApplied: (ids: number[], markedBy: string) => Promise<string>;
+  /** 네이버 쇼핑 기반 부품 가격 갱신 — 완료 시 Discord/Telegram 양쪽으로도 별도 브로드캐스트된다(broadcast() 참고). */
+  onPriceUpdate: () => Promise<string>;
 }

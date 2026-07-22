@@ -8,6 +8,10 @@ export interface AppConfig {
   telegramChatId: string;
   dbPath: string;
   feeds: FeedSource[];
+  /** /가격갱신 명령이 호출할 웹앱(Vercel)의 배포 주소 — 미설정이면 해당 명령은 안내 메시지만 반환하고 아무것도 호출하지 않는다. */
+  priceUpdateApiUrl: string;
+  /** 웹앱의 PRICE_UPDATE_API_SECRET과 동일한 값이어야 한다. */
+  priceUpdateApiSecret: string;
 }
 
 const FEEDS: FeedSource[] = [
@@ -26,5 +30,7 @@ export function loadConfig(): AppConfig {
     telegramChatId: (process.env.TELEGRAM_CHAT_ID ?? "").trim(),
     dbPath: (process.env.HARDWARE_INTEL_DB_PATH ?? "hardware_intel.db").trim(),
     feeds: FEEDS,
+    priceUpdateApiUrl: (process.env.PRICE_UPDATE_API_URL ?? "").trim(),
+    priceUpdateApiSecret: (process.env.PRICE_UPDATE_API_SECRET ?? "").trim(),
   };
 }

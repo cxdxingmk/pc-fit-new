@@ -110,6 +110,40 @@ export class Orchestrator {
       return this.formatter.formatMarkAppliedResult(results);
     };
 
+    const onPriceUpdate = async (): Promise<string> => {
+      if (!config.priceUpdateApiUrl || !config.priceUpdateApiSecret) {
+        return "PRICE_UPDATE_API_URL / PRICE_UPDATE_API_SECRET이 설정되지 않아 가격 갱신을 실행할 수 없습니다.";
+      }
+
+      let summary: string;
+      try {
+        const response = await fetch(new URL("/api/admin/update-prices", config.priceUpdateApiUrl), {
+          method: "POST",
+          headers: { "x-price-update-secret": config.priceUpdateApiSecret },
+        });
+        if (!response.ok) {
+          const body = await response.text().catch(() => "");
+          summary = `가격 갱신 요청 실패(HTTP ${response.status}): ${body || "응답 본문 없음"}`;
+        } else {
+          const result = (await response.json()) as { updated: number; skipped: number };
+          summary = `갱신 완료: ${result.updated}개 항목 업데이트, ${result.skipped}개 항목 스킵`;
+        }
+      } catch (err) {
+        Logger.error("가격 갱신 API 호출 실패", err);
+        summary = `가격 갱신 요청 중 오류가 발생했습니다: ${err instanceof Error ? err.message : String(err)}`;
+      }
+
+      // 어느 채널에서 명령을 트리거했든 상관없이 Discord/Telegram 양쪽에 동일하게 알린다
+      // (broadcast()는 이미 runDailyBriefing/runWeeklySync가 쓰는 "두 채널 다 보내기" 메서드).
+      // 여기서는 실패해도 throw하지 않는다 — 가격 갱신 자체는 이미 끝났으므로, 브로드캐스트
+      // 일부 실패로 트리거한 채널에 엉뚱한 "처리 중 오류" 메시지가 뜨면 안 된다.
+      const broadcastFailures = await this.broadcast(summary);
+      if (broadcastFailures.length > 0) {
+        Logger.error(`가격 갱신 요약 브로드캐스트 일부 실패: ${broadcastFailures.join(", ")}`);
+      }
+      return summary;
+    };
+
     const commands: BotCommands = {
       onUpdate,
       onBriefing,
@@ -119,6 +153,7 @@ export class Orchestrator {
       onReject,
       onExportApproved,
       onMarkApplied,
+      onPriceUpdate,
     };
 
     this.discord = config.discordToken ? new DiscordBotService(config.discordToken, config.discordChannelId, commands) : null;

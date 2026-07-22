@@ -130,12 +130,26 @@ export class TelegramBotService {
       }
     });
 
+    // 한글 명령은 Telegraf의 .command()(BotFather 공식 등록 규칙: 영소문자/숫자/밑줄만 전제)
+    // 대신 .hears()로 등록한다 — 임의의 유니코드 텍스트를 안전하게 매칭한다. 그룹 채팅에서
+    // Telegram이 자동으로 붙이는 "@봇이름" 접미사도 허용한다.
+    this.bot.hears(/^\/가격갱신(@\w+)?$/, async (ctx: TelegrafContext) => {
+      try {
+        await ctx.reply("⏳ 네이버 쇼핑에서 부품 가격을 갱신하는 중입니다…");
+        const result = await this.commands.onPriceUpdate();
+        await this.replyChunked(ctx, result);
+      } catch (err) {
+        Logger.error("Telegram /가격갱신 처리 오류", err);
+        await this.safeReply(ctx, "⚠ 처리 중 오류가 발생했습니다.");
+      }
+    });
+
     this.bot.command("start", async (ctx: TelegrafContext) => {
       await this.safeReply(
         ctx,
         "🤖 Hardware Intel Bot 가동 중\n/update — 즉시 수집 실행\n/briefing — 브리핑 요약 출력\n" +
           "/proposals — 승인 대기 제안 목록\n/proposal <id> — 제안 상세\n/approve <id> — 승인\n/reject <id> [사유] — 거절\n" +
-          "/export_approved — 승인된 제안 내보내기\n/mark_applied <id...> — 반영 완료 처리",
+          "/export_approved — 승인된 제안 내보내기\n/mark_applied <id...> — 반영 완료 처리\n/가격갱신 — 네이버 쇼핑 기반 부품 가격 갱신",
       );
     });
 
