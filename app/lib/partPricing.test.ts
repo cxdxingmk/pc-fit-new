@@ -89,6 +89,27 @@ describe("filterRelevantListings", () => {
     expect(result).toHaveLength(1);
     expect(result[0].title).toContain("32GB");
   });
+
+  it("'데스크탑'이 제목에 있어도(노트북용과 구분하는 정상적인 RAM 표현) 배제하지 않는다", () => {
+    // 실제로 겪은 문제: EXCLUDE_KEYWORDS에 조립PC 배제용으로 "데스크탑"을 넣었더니,
+    // "데스크탑용 메모리/RAM"이라는 지극히 정상적인 표현까지 걸려서 part_prices에 ram 행이
+    // 단 한 번도 저장되지 않았다 — "데스크탑"은 이제 EXCLUDE_KEYWORDS에서 빠지고, 조립PC 배제는
+    // BUNDLE_CATEGORY_PATTERN(category3/4, 아래 테스트)이 전담한다.
+    const tokens = ["32GB", "DDR5-6000"];
+    const items = [
+      fakeItem({ title: "삼성전자 정품 DDR5-6000 32GB 데스크탑 메모리" }),
+      fakeItem({ title: "G.SKILL DDR5-6000 32GB(16Gx2) 데스크탑용 램" }),
+    ];
+    expect(filterRelevantListings(tokens, items)).toHaveLength(2);
+  });
+
+  it("제목에 '데스크탑'이 있어도 category3/4가 조립컴퓨터/완제품 계열이면 여전히 배제된다", () => {
+    const tokens = ["32GB", "DDR5-6000"];
+    const items = [
+      fakeItem({ title: "사무용 데스크탑 컴퓨터 DDR5-6000 32GB 탑재", category3: "완제품" }),
+    ];
+    expect(filterRelevantListings(tokens, items)).toHaveLength(0);
+  });
 });
 
 describe("median", () => {
