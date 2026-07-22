@@ -240,26 +240,32 @@ export default function ResultPage() {
 
   const diffFlags = useMemo(() => computePartDiffFlags(topResults), [topResults]);
 
-  // "정확한 금액 입력"으로 target±20만원 안에 구성 가능한 조합이 하나도 없는 경우(예: 목표가가
-  // 최소 구성가보다 낮음) — 억지로 범위를 벗어난 결과를 보여주는 대신, 실제 구성 가능한 최저가를
-  // 찾아 "OO만원 이상을 권장해요"로 안내한다.
-  const isExactModeEmpty = buildData.budget.mode === "exact" && buildData.budget.exactValue !== null && topResults.length === 0;
+  // 예산 상한(budgetTarget)이 이제 소프트 페널티가 아니라 하드 컷이라(recommender.ts 참고),
+  // "정확한 금액 입력"뿐 아니라 프리셋/범위 선택 모드에서도 구성 가능한 조합이 하나도 없는
+  // 경우가 실제로 생길 수 있다 — 억지로 범위를 벗어난 결과를 보여주는 대신, 실제 구성 가능한
+  // 최저가를 찾아 "OO만원 이상을 권장해요"로 안내한다(세 모드 모두 결국 budget.range로 귀결되므로
+  // 모드 구분 없이 같은 안내를 재사용한다).
+  const isBudgetEmpty = buildData.budget.range !== null && topResults.length === 0;
   const cheapestViablePrice = useMemo(() => {
-    if (!isExactModeEmpty) return null;
+    if (!isBudgetEmpty) return null;
     return findCheapestViableTotalPrice(buildData.answers, buildData.existingParts, buildData.caseOwnership, buildData.purposes, priceOverrides);
-  }, [isExactModeEmpty, buildData.answers, buildData.existingParts, buildData.caseOwnership, buildData.purposes, priceOverrides]);
+  }, [isBudgetEmpty, buildData.answers, buildData.existingParts, buildData.caseOwnership, buildData.purposes, priceOverrides]);
   // 목표가가 최저 구성가보다 낮아서 못 만드는 건지, 카탈로그 최고 구성가보다 높아서 못 만드는
   // 건지에 따라 정반대 안내(더 올리기 vs 더 낮추기)가 필요하다 — 이 최고가도 하드코딩이 아니라
   // 매번 새로 계산한다(카탈로그가 커지면 자동으로 따라간다).
   const mostExpensiveViablePrice = useMemo(() => {
-    if (!isExactModeEmpty) return null;
+    if (!isBudgetEmpty) return null;
     return findMostExpensiveViableTotalPrice(buildData.answers, buildData.existingParts, buildData.caseOwnership, buildData.purposes, priceOverrides);
-  }, [isExactModeEmpty, buildData.answers, buildData.existingParts, buildData.caseOwnership, buildData.purposes, priceOverrides]);
+  }, [isBudgetEmpty, buildData.answers, buildData.existingParts, buildData.caseOwnership, buildData.purposes, priceOverrides]);
+  // "너무 높음" 판정 기준값 — exact 모드는 사용자가 인지하는 목표값(exactValue) 그 자체를 쓰고,
+  // preset/range 모드는 범위의 하한(range.min)을 쓴다: 하한조차 카탈로그 최고 구성가를 넘으면
+  // max가 얼마든 이 조건으로는 절대 만들 수 없기 때문이다.
+  const tooHighReferenceValue = buildData.budget.mode === "exact" ? buildData.budget.exactValue : (buildData.budget.range?.min ?? null);
   const isTooHighTarget =
-    isExactModeEmpty &&
-    buildData.budget.exactValue !== null &&
+    isBudgetEmpty &&
+    tooHighReferenceValue !== null &&
     mostExpensiveViablePrice !== null &&
-    buildData.budget.exactValue > mostExpensiveViablePrice;
+    tooHighReferenceValue > mostExpensiveViablePrice;
 
   // /my-pc는 로그인/DB 저장 없이도 ?spec= 퍼머링크만으로 사양을 복원해 보여주는 페이지다
   // (/build 자체가 비로그인으로 시작 가능하니, 그 결과 조회도 로그인을 요구하면 안 된다).
@@ -283,7 +289,7 @@ export default function ResultPage() {
 
         {topResults.length === 0 ? (
           <SectionCard className="text-center">
-            {isExactModeEmpty ? (
+            {isBudgetEmpty ? (
               <>
                 <p className="text-xl font-semibold text-white">이 예산으로는 구성이 어려워요.</p>
                 <p className="mt-3 text-white/50">

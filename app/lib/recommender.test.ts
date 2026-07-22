@@ -286,7 +286,10 @@ describe("recommend (integration)", () => {
   });
 
   it("recommends a meaningfully cheaper build for a low budget target than for a high one", () => {
-    const cheap = recommend({ 1: ["사무"], 3: ["100만원 이하"] }, existingParts, "none");
+    // "100만원 이하"는 카탈로그의 절대 최저 구성가(케이스 포함 약 111만원)보다도 낮아 하드 상한
+    // 적용 후 어떤 용도로도 구성 자체가 불가능하다(recommender.ts의 budgetTarget 하드 컷 참고) —
+    // 그래서 실제로 구성 가능한 가장 낮은 프리셋인 "100~150만원"을 "저예산" 기준으로 쓴다.
+    const cheap = recommend({ 1: ["사무"], 3: ["100~150만원"] }, existingParts, "none");
     const expensive = recommend({ 1: ["게임"], 3: ["300만원 이상"] }, existingParts, "none");
 
     expect(cheap[0].totalPrice).toBeLessThan(expensive[0].totalPrice);
@@ -303,7 +306,9 @@ describe("recommend (integration)", () => {
   });
 
   it("(검증 2) 사무 용도 + 저예산 -> TOP1 CPU는 내장그래픽(hasIntegratedGraphics)을 갖췄다", () => {
-    const results = recommend({ 1: ["사무"], 3: ["100만원 이하"] }, existingParts, "none", ["work"]);
+    // "100만원 이하"는 카탈로그 최저 구성가보다 낮아 항상 결과가 비므로(위 참고), 실제 구성 가능한
+    // 최저 프리셋으로 "저예산" 조건을 검증한다.
+    const results = recommend({ 1: ["사무"], 3: ["100~150만원"] }, existingParts, "none", ["work"]);
     expect(results.length).toBeGreaterThan(0);
 
     const topCpu = cpus.find((c) => c.id === results[0].partIds.cpu);
@@ -523,7 +528,7 @@ describe("recommend — 보유 부품(existingParts) 고정 회귀", () => {
     const existingParts = baseExistingParts();
     existingParts.RAM = { enabled: true, ddr: "DDR4", capacity: "16GB", brand: "", model: "" };
 
-    const results = recommend({ 1: ["사무"], 3: ["100만원 이하"] }, existingParts, "none", ["work"]);
+    const results = recommend({ 1: ["사무"], 3: ["100~150만원"] }, existingParts, "none", ["work"]);
     expect(results.length).toBeGreaterThan(0);
 
     for (const result of results) {
@@ -672,7 +677,7 @@ describe("recommend — 파워 오버스펙 방지 + SSD 512GB 고정 정책 회
   it("SSD는 예산·용도와 무관하게 모든 추천 견적에서 항상 512GB다", () => {
     const scenarios: Array<[string, string]> = [
       ["게임", "300만원 이상"],
-      ["사무", "100만원 이하"],
+      ["사무", "100~150만원"], // "100만원 이하"는 카탈로그 최저 구성가보다 낮아 항상 결과가 빈다
       ["영상편집", "200~300만원"],
     ];
 
@@ -748,12 +753,15 @@ describe("isNewPurchaseEligibleCpu / isNewPurchaseEligibleGpu — 단종/구형 
 });
 
 describe("recommend — 신규 구매 후보군의 구형 세대 제외 회귀", () => {
+  // "100만원 이하"는 카탈로그 최저 구성가(케이스 포함 약 111만원)보다 낮아 budgetTarget 하드 컷
+  // 적용 후 어떤 용도로도 구성 자체가 불가능하다 — 실제 구성 가능한 최저 프리셋인 "100~150만원"으로
+  // "저예산" 조건을 검증한다(예산 하드 컷 자체의 empty 케이스는 result/page.tsx의 안내 UI로 별도 처리).
   const purposeBudgetMatrix: Array<[string, string]> = [
-    ["게임", "100만원 이하"],
+    ["게임", "100~150만원"],
     ["게임", "150~200만원"],
     ["게임", "200~300만원"],
     ["게임", "300만원 이상"],
-    ["사무", "100만원 이하"],
+    ["사무", "100~150만원"],
     ["영상편집", "300만원 이상"],
   ];
 

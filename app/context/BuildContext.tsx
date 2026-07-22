@@ -35,7 +35,8 @@ export type BudgetOption =
   | "300만원 이상";
 
 /** 예산을 정하는 세 가지 독립된 방식 — 서로 나란한 선택지이며 서로를 하위/상위로 두지 않는다.
- *  preset/range → {min,max}(하한 강제 + 상한 소프트 페널티), exact → 단일 목표값(상한만 소프트 페널티). */
+ *  preset/range → {min,max}(하한/상한 모두 하드 컷), exact → target±EXACT_BUDGET_TOLERANCE range로
+ *  변환돼 같은 하드 컷 경로를 타되, selectTopByStrategy가 추가로 withinExactBudgetEnvelope까지 검사한다. */
 export type BudgetMode = "preset" | "exact" | "range";
 export type EntryMode = "select" | "manual";
 export type OwnedPartType =

@@ -137,14 +137,6 @@ export function computeBudgetFactor(totalPrice: number, budgetTarget: number | n
   return Math.exp(-3 * overageRatio); // 10% 초과 -> 약 0.74배, 50% 초과 -> 약 0.22배, 100% 초과 -> 약 0.05배
 }
 
-// 예산과 극단적으로 동떨어진(대략 100%+ 초과, 즉 목표가의 2배 이상) 조합은 점수를 깎는 정도가
-// 아니라 아예 결과에서 제외한다. 하한(budgetMin)은 이미 "이 아래는 안 보여준다"는 하드 컷인데
-// 상한 쪽은 소프트 페널티뿐이라, 목표가가 아주 낮을 때(예: 정확한 금액 55만원 -> ±10% 49.5만~
-// 60.5만) 카탈로그의 가장 싼 조합조차 하한은 가볍게 통과해버려 "174만원짜리를 0.3점으로" 보여주는
-// 비일관성이 생겼다. 목표가가 아주 높아 하한 컷으로 이미 결과가 텅 비는 경우와 대칭이 되도록,
-// 상한 쪽도 "터무니없이 안 맞음"은 하드 컷으로 통일한다.
-const MIN_REASONABLE_BUDGET_FACTOR = 0.05;
-
 function rateRam(ram: RAM, purpose: Purpose) {
   if (purpose === "gaming") return ram.gameScore;
   if (purpose === "ai") return ram.aiScore;
@@ -822,16 +814,20 @@ function buildCandidate(
 
   const totalPrice = cpuPrice + gpuPrice + ramPrice + ssdPrice + motherboardPrice + psuPrice + casePrice;
 
-  // 듀얼 레인지 슬라이더의 최소 예산 — max(budgetTarget)는 기존처럼 소프트 페널티(초과할수록
-  // 지수감쇠)로 다루지만, min은 "이 아래로는 아예 보여주지 않는다"는 하드 하한이라 원천 제외한다.
+  // 듀얼 레인지 슬라이더의 예산 — min/max 둘 다 하드 컷이다. min 아래는 "이 아래로는 아예 보여주지
+  // 않는다"는 하한, max(budgetTarget) 위도 마찬가지로 "이 위는 아예 보여주지 않는다"는 상한이다.
+  // (과거엔 상한이 지수감쇠 소프트 페널티뿐이라 근소하게 초과한 조합도 TOP1으로 노출되는 버그가
+  // 있었다 — 150~200만원 예산에 201.5만원 견적이 나온 실제 사례로 확인됨.)
   if (budgetMin && totalPrice < budgetMin) {
     return null;
   }
-
-  const budgetFactor = computeBudgetFactor(totalPrice, budgetTarget);
-  if (budgetTarget && budgetFactor < MIN_REASONABLE_BUDGET_FACTOR) {
+  if (budgetTarget && totalPrice > budgetTarget) {
     return null;
   }
+
+  // 예산 내 후보끼리는 여전히 computeBudgetFactor로 미세 랭킹한다(목표가에 가까울수록 0.9~1.0,
+  // 위 하드 컷 덕분에 이 함수의 초과 페널티(지수감쇠) 분기는 이제 실행되지 않는다).
+  const budgetFactor = computeBudgetFactor(totalPrice, budgetTarget);
   const finalScore = Math.round(Math.min(100, Math.max(0, normalizedBaseScore * budgetFactor)) * 100) / 100;
 
   // 점수-부품 원자성: finalScore는 여기서 단 1회 계산되어 이 객체에 귀속되고,
