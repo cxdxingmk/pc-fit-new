@@ -22,8 +22,23 @@ export type PartType = "cpu" | "gpu" | "ram" | "ssd" | "hdd" | "motherboard" | "
 export interface PriceableCatalogEntry {
   partType: PartType;
   catalogId: string;
-  /** 네이버 쇼핑 검색어로도, 관련성 필터의 필수 부분 문자열로도 그대로 쓰인다 */
+  /** 사람이 읽기 좋은 표시용 이름(로그/디버그 용도) — 검색/관련성 판정에는 아래 두 필드를 쓴다. */
   name: string;
+  /**
+   * 네이버 쇼핑 검색 쿼리. 대부분 name과 동일하지만, RAM은 "(16GB x2)" 같은 스틱 구성 문구를
+   * 뺀 정리된 형태(예: "32GB DDR5-6000")를 쓴다 — 그 문구는 실제 판매 제목에 다양한 표기
+   * ("16Gx2"/"16G×2"/"(16기가x2)" 등)로 나타나 검색어에 넣으면 오히려 정확도를 떨어뜨린다.
+   */
+  searchQuery: string;
+  /**
+   * 관련성 판정에 쓰는 필수 토큰들 — 전부(순서 무관) 판매 제목에 포함돼야 통과한다. 대부분
+   * [name] 하나뿐이라 기존 "모델명 어순 그대로 요구" 동작과 100% 동일하다. RAM만 용량/DDR세대-
+   * 속도를 독립 토큰([`${capacity}GB`, `DDR${ddr}-${speed}`])으로 나눈다 — RAM의 name은
+   * 실제 제품명이 아니라 이 앱이 "용량+규격+클럭" 순서로 지어낸 합성 문자열이라, 실제 판매
+   * 제목은 흔히 다른 어순(예: "DDR5-6000 32GB")을 쓰는데 어순 그대로 요구하면 거의 항상
+   * 매칭에 실패했다(실사례로 확인됨 — part_prices에 ram 행이 단 한 번도 저장되지 않았음).
+   */
+  requiredTitleTokens: string[];
   /**
    * recommender.ts가 실제로 쓰는 정적 가격(가능하면 카탈로그의 실거래가 price 필드, 없으면
    * priceTier 고정가)과 정확히 같은 값 — computeFinalPrice의 "상식선 앵커" 안전장치에 쓰인다.
@@ -47,36 +62,70 @@ export interface PriceableCatalogEntry {
  */
 export function buildPriceableCatalogEntries(): PriceableCatalogEntry[] {
   return [
-    ...curatedCpus
-      .filter(isNewPurchaseEligibleCpu)
-      .map((item) => ({ partType: "cpu" as const, catalogId: item.id, name: item.name, staticAnchorPriceKrw: priceTierToPrice[item.priceTier] ?? null })),
-    ...curatedGpus
-      .filter(isNewPurchaseEligibleGpu)
-      .map((item) => ({ partType: "gpu" as const, catalogId: item.id, name: item.name, staticAnchorPriceKrw: item.price ?? priceTierToPrice[item.priceTier] ?? null })),
-    ...rams
-      .filter(isNewPurchaseEligibleRam)
-      .map((item) => ({ partType: "ram" as const, catalogId: item.id, name: item.name, staticAnchorPriceKrw: item.price ?? null })),
-    ...ssds
-      .filter(isNewPurchaseEligibleSsd)
-      .map((item) => ({ partType: "ssd" as const, catalogId: item.id, name: item.name, staticAnchorPriceKrw: priceTierToPrice[item.priceTier] ?? null })),
+    ...curatedCpus.filter(isNewPurchaseEligibleCpu).map((item) => ({
+      partType: "cpu" as const,
+      catalogId: item.id,
+      name: item.name,
+      searchQuery: item.name,
+      requiredTitleTokens: [item.name],
+      staticAnchorPriceKrw: priceTierToPrice[item.priceTier] ?? null,
+    })),
+    ...curatedGpus.filter(isNewPurchaseEligibleGpu).map((item) => ({
+      partType: "gpu" as const,
+      catalogId: item.id,
+      name: item.name,
+      searchQuery: item.name,
+      requiredTitleTokens: [item.name],
+      staticAnchorPriceKrw: item.price ?? priceTierToPrice[item.priceTier] ?? null,
+    })),
+    ...rams.filter(isNewPurchaseEligibleRam).map((item) => {
+      // "16GB DDR5-5600" 형태의 name과 달리, 검색/관련성 판정은 스틱 구성 문구("(16GB x2)")를
+      // 뺀 핵심 스펙 두 토큰(용량, DDR세대-속도)만 쓴다 — 위 인터페이스 설명 참고.
+      const ddrGeneration = item.ddr.replace("DDR", "");
+      const capacityToken = `${item.capacity}GB`;
+      const speedToken = `DDR${ddrGeneration}-${item.speed}`;
+      return {
+        partType: "ram" as const,
+        catalogId: item.id,
+        name: item.name,
+        searchQuery: `${capacityToken} ${speedToken}`,
+        requiredTitleTokens: [capacityToken, speedToken],
+        staticAnchorPriceKrw: item.price ?? null,
+      };
+    }),
+    ...ssds.filter(isNewPurchaseEligibleSsd).map((item) => ({
+      partType: "ssd" as const,
+      catalogId: item.id,
+      name: item.name,
+      searchQuery: item.name,
+      requiredTitleTokens: [item.name],
+      staticAnchorPriceKrw: priceTierToPrice[item.priceTier] ?? null,
+    })),
     // HDD는 recommender.ts의 가격 계산 로직에 연결돼 있지 않아 앵커가 없다(위 인터페이스 설명 참고).
-    ...hdds.map((item) => ({ partType: "hdd" as const, catalogId: item.id, name: item.name, staticAnchorPriceKrw: null })),
-    ...motherboards
-      .filter(isNewPurchaseEligibleMotherboard)
-      .map((item) => ({
-        partType: "motherboard" as const,
-        catalogId: item.id,
-        name: item.name,
-        staticAnchorPriceKrw: item.price ?? (item.priceTier ? priceTierToPrice[item.priceTier] : null) ?? null,
-      })),
-    ...psus
-      .filter(isNewPurchaseEligiblePsu)
-      .map((item) => ({
-        partType: "psu" as const,
-        catalogId: item.id,
-        name: item.name,
-        staticAnchorPriceKrw: item.price ?? (item.priceTier ? priceTierToPrice[item.priceTier] : null) ?? null,
-      })),
+    ...hdds.map((item) => ({
+      partType: "hdd" as const,
+      catalogId: item.id,
+      name: item.name,
+      searchQuery: item.name,
+      requiredTitleTokens: [item.name],
+      staticAnchorPriceKrw: null,
+    })),
+    ...motherboards.filter(isNewPurchaseEligibleMotherboard).map((item) => ({
+      partType: "motherboard" as const,
+      catalogId: item.id,
+      name: item.name,
+      searchQuery: item.name,
+      requiredTitleTokens: [item.name],
+      staticAnchorPriceKrw: item.price ?? (item.priceTier ? priceTierToPrice[item.priceTier] : null) ?? null,
+    })),
+    ...psus.filter(isNewPurchaseEligiblePsu).map((item) => ({
+      partType: "psu" as const,
+      catalogId: item.id,
+      name: item.name,
+      searchQuery: item.name,
+      requiredTitleTokens: [item.name],
+      staticAnchorPriceKrw: item.price ?? (item.priceTier ? priceTierToPrice[item.priceTier] : null) ?? null,
+    })),
   ];
 }
 
@@ -130,15 +179,19 @@ function normalize(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9가-힣]/g, "");
 }
 
-/** 제목(HTML 태그 제거 후)에 모델명이 실제로 포함되고, 제외 키워드/카테고리가 없는 상품만 남긴다. */
-export function filterRelevantListings(modelName: string, items: NaverShoppingItem[]): NaverShoppingItem[] {
-  const normalizedModel = normalize(modelName);
+/**
+ * 제목(HTML 태그 제거 후)에 requiredTokens 전부가(순서 무관) 포함되고, 제외 키워드/카테고리가
+ * 없는 상품만 남긴다. 대부분의 부품군은 토큰이 [모델명] 하나뿐이라 "모델명이 그대로 포함되는가"와
+ * 동일하게 동작한다 — RAM처럼 토큰이 여러 개면 각각 독립적으로 검사해 어순 문제를 피한다.
+ */
+export function filterRelevantListings(requiredTokens: string[], items: NaverShoppingItem[]): NaverShoppingItem[] {
+  const normalizedTokens = requiredTokens.map(normalize);
   return items.filter((item) => {
     const title = stripHtmlTags(item.title);
     const normalizedTitle = normalize(title);
     if (EXCLUDE_KEYWORDS.some((keyword) => normalizedTitle.includes(normalize(keyword)))) return false;
     if (BUNDLE_CATEGORY_PATTERN.test(item.category3) || BUNDLE_CATEGORY_PATTERN.test(item.category4)) return false;
-    return normalizedTitle.includes(normalizedModel);
+    return normalizedTokens.every((token) => normalizedTitle.includes(token));
   });
 }
 

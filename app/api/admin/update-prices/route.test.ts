@@ -32,7 +32,9 @@ import { buildPriceableCatalogEntries } from "@/app/lib/partPricing";
 // 케이스"가 실제로 전부 update로 집계된다 — 모든 쿼리에 같은 고정가(예: 10~12만원)를 주면 GPU
 // 같은 고가 부품군은 앵커 대비 너무 낮아 오히려 스킵되어(의도된 안전장치 동작) 이 목데이터
 // 자체가 비현실적이었던 셈이다.
-const anchorByName = new Map(buildPriceableCatalogEntries().map((entry) => [entry.name, entry.staticAnchorPriceKrw]));
+// 라우트는 searchNaverShopping(entry.searchQuery)로 호출하므로(entry.name이 아님 — RAM은 둘이
+// 다르다), 목 조회 키도 searchQuery로 맞춘다.
+const anchorByName = new Map(buildPriceableCatalogEntries().map((entry) => [entry.searchQuery, entry.staticAnchorPriceKrw]));
 function pricesNearAnchor(query: string): number[] {
   const anchor = anchorByName.get(query) ?? 100_000;
   return [Math.round(anchor * 0.9), anchor, Math.round(anchor * 1.1)];

@@ -57,7 +57,7 @@ describe("filterRelevantListings", () => {
       fakeItem({ title: "<b>WD Black</b> SN770 1TB NVMe SSD" }),
       fakeItem({ title: "삼성전자 990 PRO 1TB" }), // 전혀 다른 모델 — 제외
     ];
-    const result = filterRelevantListings(modelName, items);
+    const result = filterRelevantListings([modelName], items);
     expect(result).toHaveLength(1);
     expect(result[0].title).toContain("SN770");
   });
@@ -68,14 +68,26 @@ describe("filterRelevantListings", () => {
       fakeItem({ title: "WD Black SN770 1TB 전용 방열판 쿨러" }),
       fakeItem({ title: "WD Black SN770 1TB M.2 SSD 히트싱크 브라켓" }),
     ];
-    const result = filterRelevantListings(modelName, items);
+    const result = filterRelevantListings([modelName], items);
     expect(result).toHaveLength(1);
     expect(result[0].title).not.toContain("쿨러");
   });
 
   it("공백/대소문자 차이가 있어도 정규화해서 매칭한다", () => {
     const items = [fakeItem({ title: "wdblack sn770 1tb ssd" })];
-    expect(filterRelevantListings(modelName, items)).toHaveLength(1);
+    expect(filterRelevantListings([modelName], items)).toHaveLength(1);
+  });
+
+  it("토큰이 여러 개면(RAM 등) 어순과 무관하게 전부 포함돼야 통과한다", () => {
+    const tokens = ["32GB", "DDR5-6000"];
+    const items = [
+      fakeItem({ title: "삼성전자 정품 DDR5 6000 32GB (16Gx2) PC 메모리" }), // 어순이 반대(속도 먼저) — 그래도 두 토큰 다 포함되면 통과
+      fakeItem({ title: "삼성전자 990 PRO 32GB" }), // "32GB"만 있고 "DDR5-6000"은 없음 — 제외
+      fakeItem({ title: "커세어 DDR5-6000 16GB" }), // "DDR5-6000"만 있고 용량이 다름("32GB" 없음) — 제외
+    ];
+    const result = filterRelevantListings(tokens, items);
+    expect(result).toHaveLength(1);
+    expect(result[0].title).toContain("32GB");
   });
 });
 
@@ -170,5 +182,21 @@ describe("buildPriceableCatalogEntries", () => {
     const entries = buildPriceableCatalogEntries();
     const partTypes = new Set(entries.map((e) => e.partType));
     expect(partTypes).toEqual(new Set(["cpu", "gpu", "ram", "ssd", "hdd", "motherboard", "psu"]));
+  });
+
+  it("CPU/GPU/SSD/모더보드/PSU는 requiredTitleTokens가 [name] 하나뿐이라 기존 동작과 동일하다", () => {
+    const entries = buildPriceableCatalogEntries();
+    for (const entry of entries.filter((e) => e.partType !== "ram")) {
+      expect(entry.requiredTitleTokens).toEqual([entry.name]);
+      expect(entry.searchQuery).toBe(entry.name);
+    }
+  });
+
+  it("RAM은 searchQuery가 스틱 구성 문구 없이 정리되고, requiredTitleTokens가 용량/DDR세대-속도 두 토큰으로 나뉜다", () => {
+    const entries = buildPriceableCatalogEntries();
+    const ramEntry = entries.find((e) => e.partType === "ram" && e.catalogId === "32-ddr5-6000")!;
+    expect(ramEntry.name).toBe("32GB DDR5-6000 (16GB x2)"); // 표시용 name은 그대로 유지
+    expect(ramEntry.searchQuery).toBe("32GB DDR5-6000"); // 검색 쿼리는 괄호 없이 정리됨
+    expect(ramEntry.requiredTitleTokens).toEqual(["32GB", "DDR5-6000"]);
   });
 });
