@@ -18,6 +18,18 @@ export class TelegramBotService {
   }
 
   async start(): Promise<void> {
+    // ── 디버깅용 임시 로깅 — /가격갱신이 반응 없는 문제 진단용. 원인 확인 후 제거할 것. ──
+    // 어떤 핸들러와도 매칭되기 전에 무조건 실행되므로, 여기 로그가 안 찍히면 폴링/토큰 쪽
+    // 문제(메시지 자체를 못 받음)이고, 여기는 찍히는데 /가격갱신 핸들러가 응답을 안 하면
+    // bot.hears() 정규식 매칭 문제(공백/보이지 않는 문자 등)로 좁혀진다. JSON.stringify로
+    // 감싸 텍스트 앞뒤 공백이나 개행처럼 눈에 안 보이는 문자도 로그에서 드러나게 한다.
+    this.bot.use(async (ctx, next) => {
+      const chatId = ctx.chat?.id ?? "(chat 정보 없음)";
+      const text = ctx.message && "text" in ctx.message ? ctx.message.text : undefined;
+      Logger.info(`[디버그] 받은 메시지: chatId=${chatId}, text=${JSON.stringify(text ?? "(텍스트 없음, 예: 스티커/사진 등)")}`);
+      await next();
+    });
+
     this.bot.command("update", async (ctx: TelegrafContext) => {
       try {
         await ctx.reply("⏳ 실시간 수집 파이프라인을 가동합니다…");
