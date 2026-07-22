@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { cpus } from "../../database/cpu";
 import { gpus } from "../../database/gpu";
 import { motherboards } from "../../database/motherboard";
+import { hdds } from "../../database/hdd";
 import { useAuth } from "../../context/AuthContext";
 import { useBuild } from "../../context/BuildContext";
 import { HARDWARE_MASTER } from "../../data/hardwareMaster";
@@ -64,6 +65,14 @@ const initialSelection = {
   commandScanRawText: "",
 };
 
+
+/** hdd.ts 카탈로그의 정확한 용량(GB)을, 이 화면의 4단계 용량 드롭다운(500GB/1TB/2TB/4TB) 옵션으로 맞춘다. */
+function hddCapacityOptionFor(gb: number): (typeof hddCapacityOptions)[number] {
+  if (gb >= 4000) return "4TB";
+  if (gb >= 2000) return "2TB";
+  if (gb >= 1000) return "1TB";
+  return "500GB";
+}
 
 /** mbSeries("Intel B")+mbDetail("760") 조합에서 실제 motherboards 카탈로그의 chipset("B760")을 복원해
  *  이전 세션에 골랐던 모델을 계층형 셀렉트에 다시 선반영한다. 못 찾으면 그냥 비워둔다(안전한 폴백). */
@@ -310,6 +319,16 @@ export default function RegisterPcPage() {
     setMbBrand(selected.brand);
     setMbSeries(`${vendor} ${alpha}`);
     setMbDetail(detail);
+  };
+
+  const handleHddModelSelect = (hddId: string) => {
+    if (!hddId) return;
+    const selected = hdds.find((item) => item.id === hddId);
+    if (!selected) return;
+
+    setHddCapacityOption(hddCapacityOptionFor(selected.capacity));
+    setHddDetailedInputEnabled(true);
+    setHddProductName(selected.name);
   };
 
   useEffect(() => {
@@ -1090,6 +1109,17 @@ export default function RegisterPcPage() {
 
                   <div>
                     <span className="block text-sm font-medium text-white/70">HDD (선택)</span>
+                    <div className="mt-2">
+                      <DarkSelect aria-label="HDD 모델" defaultValue="" onChange={(event) => handleHddModelSelect(event.target.value)}>
+                        <option value="">모델에서 바로 고르기(선택)</option>
+                        {hdds.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name}
+                          </option>
+                        ))}
+                      </DarkSelect>
+                    </div>
+
                     <div className="mt-2">
                       <DarkSelect aria-label="HDD 용량" value={hddCapacityOption} onChange={(event) => setHddCapacityOption(event.target.value)}>
                         <option value="">선택 안 함</option>
