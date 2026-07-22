@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { curatedCpus, cpus } from "../database/cpu";
 import { curatedGpus, gpus } from "../database/gpu";
+import { rams } from "../database/ram";
+import { ssds } from "../database/ssd";
+import { hdds } from "../database/hdd";
+import { motherboards } from "../database/motherboard";
+import { psus } from "../database/psu";
 import {
   buildPriceableCatalogEntries,
   computeFinalPrice,
@@ -9,6 +14,14 @@ import {
   median,
   stripHtmlTags,
 } from "./partPricing";
+import {
+  isNewPurchaseEligibleCpu,
+  isNewPurchaseEligibleGpu,
+  isNewPurchaseEligibleRam,
+  isNewPurchaseEligibleSsd,
+  isNewPurchaseEligibleMotherboard,
+  isNewPurchaseEligiblePsu,
+} from "./newPurchaseEligibility";
 import type { NaverShoppingItem } from "./naverShopping";
 
 function fakeItem(overrides: Partial<NaverShoppingItem>): NaverShoppingItem {
@@ -125,11 +138,23 @@ describe("buildPriceableCatalogEntries", () => {
     const cpuEntries = entries.filter((e) => e.partType === "cpu");
     const gpuEntries = entries.filter((e) => e.partType === "gpu");
 
-    expect(cpuEntries).toHaveLength(curatedCpus.length);
-    expect(gpuEntries).toHaveLength(curatedGpus.length);
     // additional 풀이 섞여 있었다면 전체 cpus/gpus와 개수가 같아야 하는데, curated만 쓰므로 더 적어야 한다
     expect(cpuEntries.length).toBeLessThan(cpus.length);
     expect(gpuEntries.length).toBeLessThan(gpus.length);
+  });
+
+  it("각 부품군에 신규 구매 세대 필터(newPurchaseEligibility.ts)가 적용된다 — HDD만 예외", () => {
+    const entries = buildPriceableCatalogEntries();
+    const idsOf = (type: string) => new Set(entries.filter((e) => e.partType === type).map((e) => e.catalogId));
+
+    expect(idsOf("cpu")).toEqual(new Set(curatedCpus.filter(isNewPurchaseEligibleCpu).map((c) => c.id)));
+    expect(idsOf("gpu")).toEqual(new Set(curatedGpus.filter(isNewPurchaseEligibleGpu).map((g) => g.id)));
+    expect(idsOf("ram")).toEqual(new Set(rams.filter(isNewPurchaseEligibleRam).map((r) => r.id)));
+    expect(idsOf("ssd")).toEqual(new Set(ssds.filter(isNewPurchaseEligibleSsd).map((s) => s.id)));
+    expect(idsOf("motherboard")).toEqual(new Set(motherboards.filter(isNewPurchaseEligibleMotherboard).map((m) => m.id)));
+    expect(idsOf("psu")).toEqual(new Set(psus.filter(isNewPurchaseEligiblePsu).map((p) => p.id)));
+    // HDD는 의도적으로 필터가 없다 — 전량 포함되어야 한다.
+    expect(idsOf("hdd")).toEqual(new Set(hdds.map((h) => h.id)));
   });
 
   it("모든 항목이 partType/catalogId/name을 갖고, catalogId가 비어있지 않다", () => {

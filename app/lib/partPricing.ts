@@ -7,6 +7,14 @@ import { hdds } from "../database/hdd";
 import { motherboards } from "../database/motherboard";
 import { psus } from "../database/psu";
 import type { NaverShoppingItem } from "./naverShopping";
+import {
+  isNewPurchaseEligibleCpu,
+  isNewPurchaseEligibleGpu,
+  isNewPurchaseEligibleRam,
+  isNewPurchaseEligibleSsd,
+  isNewPurchaseEligibleMotherboard,
+  isNewPurchaseEligiblePsu,
+} from "./newPurchaseEligibility";
 
 export type PartType = "cpu" | "gpu" | "ram" | "ssd" | "hdd" | "motherboard" | "psu";
 
@@ -22,16 +30,24 @@ export interface PriceableCatalogEntry {
  * 가격 갱신 대상으로 삼는다. CPU/GPU의 automatically-estimated "additional" 풀(수백 개, 실제
  * 스펙만 있고 사람이 확정한 항목이 아님)은 제외한다 — scripts/applyProposals.ts가 curatedCpus/
  * curatedGpus만 패치 대상으로 삼는 것과 같은 원칙.
+ *
+ * 여기서 한 번 더, 부품군마다 newPurchaseEligibility.ts의 "신규 구매 가치가 있는가" 필터를
+ * 적용한다 — 단종/구형 부품은 매물 자체가 거의 없거나 남은 매물이 프리미엄/중고 가격으로
+ * 왜곡돼 있어 가격 수집 대상으로 부적절하다. /build 추천 엔진(recommender.ts)이 신규 구매
+ * 후보를 고를 때 쓰는 것과 정확히 같은 기준이라, "추천에는 나오는데 가격은 없다" 같은
+ * 불일치가 생기지 않는다. HDD는 의도적으로 필터가 없다(newPurchaseEligibility.ts 설명 참고).
  */
 export function buildPriceableCatalogEntries(): PriceableCatalogEntry[] {
   return [
-    ...curatedCpus.map((item) => ({ partType: "cpu" as const, catalogId: item.id, name: item.name })),
-    ...curatedGpus.map((item) => ({ partType: "gpu" as const, catalogId: item.id, name: item.name })),
-    ...rams.map((item) => ({ partType: "ram" as const, catalogId: item.id, name: item.name })),
-    ...ssds.map((item) => ({ partType: "ssd" as const, catalogId: item.id, name: item.name })),
+    ...curatedCpus.filter(isNewPurchaseEligibleCpu).map((item) => ({ partType: "cpu" as const, catalogId: item.id, name: item.name })),
+    ...curatedGpus.filter(isNewPurchaseEligibleGpu).map((item) => ({ partType: "gpu" as const, catalogId: item.id, name: item.name })),
+    ...rams.filter(isNewPurchaseEligibleRam).map((item) => ({ partType: "ram" as const, catalogId: item.id, name: item.name })),
+    ...ssds.filter(isNewPurchaseEligibleSsd).map((item) => ({ partType: "ssd" as const, catalogId: item.id, name: item.name })),
     ...hdds.map((item) => ({ partType: "hdd" as const, catalogId: item.id, name: item.name })),
-    ...motherboards.map((item) => ({ partType: "motherboard" as const, catalogId: item.id, name: item.name })),
-    ...psus.map((item) => ({ partType: "psu" as const, catalogId: item.id, name: item.name })),
+    ...motherboards
+      .filter(isNewPurchaseEligibleMotherboard)
+      .map((item) => ({ partType: "motherboard" as const, catalogId: item.id, name: item.name })),
+    ...psus.filter(isNewPurchaseEligiblePsu).map((item) => ({ partType: "psu" as const, catalogId: item.id, name: item.name })),
   ];
 }
 
