@@ -65,6 +65,20 @@ const WEIGHTS: Record<Purpose, { cpu: number; gpu: number; ram: number; ssd: num
 
 const CASE_PRICE = 120000;
 
+// GPU 생략(iGPU만 사용) 후보 — 사무/개발처럼 WEIGHTS의 GPU 가중치가 낮은 용도에서, CPU가
+// igpu:true일 때만 "디스크리트 GPU 없이 내장그래픽만 쓰는" 대안을 후보 풀에 추가한다. 게임/영상/
+// AI/CAD/방송은 GPU 가중치가 이보다 뚜렷이 높고(0.22~0.5) 실사용 체감도 커서 제외한다.
+const GPU_OMISSION_PURPOSES = new Set<Purpose>(["work", "dev"]);
+
+// 후보 다양성 추적(usedGpuIds)·buildKey에 쓰는 sentinel — 실제 카탈로그 GPU id와 절대 겹치지 않는다.
+export const IGPU_ONLY_GPU_ID = "__igpu_only__";
+
+// iGPU만 쓰는 후보의 gpuScore(baseScore 가중합용) — 카탈로그에 iGPU "성능 등급" 데이터가 없어
+// 부득이하게 고정 상수로 둔다. 0으로 두면 사무/개발 용도의 GPU 가중치(0.12~0.17)만큼 부당하게
+// 감점되고, 그렇다고 실제 디스크리트 GPU 점수 분포를 흉내 낼 근거도 없다. 실사용 피드백을 받아
+// 조정이 필요한 임시값이다.
+const IGPU_ONLY_GPU_SCORE = 55;
+
 // 우선순위: 여러 목적이 동시에 선택됐을 때 어떤 목적의 가중치(WEIGHTS)를 대표로 쓸지 정한다.
 // 기존 문자열 매칭 pickPurpose()의 if-분기 순서(ai > stream > video > cad > dev > gaming > work > etc)와
 // 동일한 우선순위를 유지해 동작 변화가 없도록 했다.
@@ -166,8 +180,8 @@ const PSU_HEADROOM_SWEET_SPOT = 1.6;
 const PSU_OVERSIZE_PENALTY_PER_RATIO = 20;
 const MAX_PSU_OVERSIZE_PENALTY = 25;
 
-export function ratePsu(psu: PSU, cpu: CPU, gpu: GPU) {
-  const required = cpu.tdp + gpu.tgp + 150;
+export function ratePsu(psu: PSU, cpu: CPU, gpu: GPU | null) {
+  const required = cpu.tdp + (gpu?.tgp ?? 0) + 150;
   const headroomRatio = psu.wattage / required;
   const oversizePenalty =
     headroomRatio > PSU_HEADROOM_SWEET_SPOT
@@ -189,8 +203,8 @@ const PSU_SAFETY_MARGIN_MIN = 1.3;
 const PSU_SAFETY_MARGIN_MAX = 1.5;
 const PSU_MIN_QUALITY_SCORE = 70;
 
-export function selectRecommendedPsu(cpu: CPU, gpu: GPU, catalog: PSU[]): PSU | null {
-  const required = cpu.tdp + gpu.tgp + 150;
+export function selectRecommendedPsu(cpu: CPU, gpu: GPU | null, catalog: PSU[]): PSU | null {
+  const required = cpu.tdp + (gpu?.tgp ?? 0) + 150;
   const minWattage = required * PSU_SAFETY_MARGIN_MIN;
   const maxWattage = required * PSU_SAFETY_MARGIN_MAX;
   const qualifies = (psu: PSU) => typeof psu.qualityScore !== "number" || psu.qualityScore >= PSU_MIN_QUALITY_SCORE;
@@ -259,8 +273,8 @@ function createReason(score: number, compatibility: number, caseOwnership: CaseO
   return messages;
 }
 
-function candidateId(cpu: CPU, gpu: GPU, ram: RAM, ssd: SSD, mb: MotherBoard, psu: PSU) {
-  return [cpu.id, gpu.id, ram.id, ssd.id, mb.id, psu.id].join("-");
+function candidateId(cpu: CPU, gpu: GPU | null, ram: RAM, ssd: SSD, mb: MotherBoard, psu: PSU) {
+  return [cpu.id, gpu ? gpu.id : IGPU_ONLY_GPU_ID, ram.id, ssd.id, mb.id, psu.id].join("-");
 }
 
 // CPU/GPU 카탈로그가 커질수록(현재 200여 개) 6중 for문을 그대로 돌리면 조합 수가 폭발한다.
@@ -521,10 +535,16 @@ function buildRankedPool(
     const ramsToUse = ramsByDdr.get(cpu.ddr) ?? [];
     if (motherboardsToUse.length === 0 || ramsToUse.length === 0) continue;
 
-    for (const gpu of gpuPool) {
+    // GPU 생략(iGPU만 사용) 후보 — 이미 GPU를 보유 부품으로 고정한 경우(gpuPool이 그 GPU 하나뿐)엔
+    // "보유 GPU를 빼고 iGPU만 쓰라"는 제안이 무의미하므로 추가하지 않는다.
+    const allowsGpuOmission = !owned.gpu && cpu.igpu && purposes.every((p) => GPU_OMISSION_PURPOSES.has(p));
+    const gpuCandidates: (GPU | null)[] = allowsGpuOmission ? [...gpuPool, null] : gpuPool;
+
+    for (const gpu of gpuCandidates) {
       // cpu+gpu 조합만으로 이미 전력 요구치가 보유 파워를 넘으면 ram/mb까지 내려갈 필요가 없다.
+      // gpu가 null(iGPU만 사용)이면 gpu.tgp는 0으로 취급한다 — iGPU 전력은 이미 cpu.tdp에 포함.
       const powerLimit = owned.psuWattage;
-      if (powerLimit && powerLimit < cpu.tdp + gpu.tgp + 150) continue;
+      if (powerLimit && powerLimit < cpu.tdp + (gpu?.tgp ?? 0) + 150) continue;
 
       // 정책: 파워는 cpu+gpu 조합이 정해지는 순간 결정적으로 하나만 고른다(선택 로직은
       // selectRecommendedPsu 참고 — 필요 전력의 1.3~1.5배 안전마진 안에서 가장 작은 것).
@@ -533,14 +553,15 @@ function buildRankedPool(
       const psu = owned.psuWattage !== null ? buildOwnedPsuRepresentative(owned.psuWattage, psus) : selectRecommendedPsu(cpu, gpu, psus);
       if (!psu) continue; // 카탈로그에 이 조합을 감당할 파워가 전혀 없음(극단적 사양 조합)
       // 보유 파워도 예외 없이 이 하드 컷을 받는다(전력 부족은 품질 문제가 아니라 실사용 불가 문제).
-      if (psu.wattage < cpu.tdp + gpu.tgp + 150) continue;
+      if (psu.wattage < cpu.tdp + (gpu?.tgp ?? 0) + 150) continue;
 
       // 결정적 동점자 비교용 원시 성능점수 — buildCandidate 내부의 cpuScore/gpuScore 산출식과 동일하다.
       const cpuBench = getCpuBenchmark(cpu.id);
-      const gpuBench = getGpuBenchmark(gpu.id);
       const benchKey = purpose === "gaming" ? "game" : purpose === "ai" ? "ai" : "work";
       const cpuScore = (cpuBench as { game?: number; work?: number; ai?: number })[benchKey] ?? cpu.gameScore;
-      const gpuScore = (gpuBench as { game?: number; work?: number; ai?: number })[benchKey] ?? gpu.gameScore;
+      const gpuScore = gpu
+        ? ((getGpuBenchmark(gpu.id) as { game?: number; work?: number; ai?: number })[benchKey] ?? gpu.gameScore)
+        : IGPU_ONLY_GPU_SCORE;
 
       // 메인보드 품질 하한선 — CPU TDP가 높을수록(=발열/전력 부하가 큰 CPU) 검증된 VRM
       // 설계의 보드만 허용한다. qualityScore 없는 레거시 항목은 하한선 적용 없이 통과.
@@ -556,11 +577,12 @@ function buildRankedPool(
 
           const built = buildCandidate(cpu, gpu, ram, ssd, mb, psu, purpose, budgetTarget, existingParts, caseOwnership, budgetMin, purposes, owned, priceOverrides);
           if (built) {
+            const gpuId = gpu ? gpu.id : IGPU_ONLY_GPU_ID;
             pool.push({
               candidate: built.result,
-              buildKey: `${cpu.id}::${gpu.id}::${mb.id}::${psu.id}`,
+              buildKey: `${cpu.id}::${gpuId}::${mb.id}::${psu.id}`,
               cpuId: cpu.id,
-              gpuId: gpu.id,
+              gpuId,
               gpuScore,
               cpuScore,
               normalizedBaseScore: built.normalizedBaseScore,
@@ -718,7 +740,8 @@ function selectTopByStrategy(pool: RankedCandidate[], budgetTarget: number | nul
 
 function buildCandidate(
   cpu: CPU,
-  gpu: GPU,
+  // GPU 생략(iGPU만 사용) 후보는 gpu가 null이다 — buildRankedPool의 GPU_OMISSION_PURPOSES 조건 참고.
+  gpu: GPU | null,
   ram: RAM,
   ssd: SSD,
   mb: MotherBoard,
@@ -750,16 +773,15 @@ function buildCandidate(
     return null;
   }
 
-  const gpuBench = getGpuBenchmark(gpu.id);
-
   // CPU 항목은 getCpuBenchmark(과거엔 커버리지가 거의 없어 항상 cpu.gameScore로만 폴백되던 값)
   // 대신 cpuPurposeFitScore를 쓴다 — 선택된 모든 용도의 가중 평균으로, singleCore/multiCore/
   // efficiency/hasIntegratedGraphics까지 반영해 baseScore(→ finalScore → 최종 정렬)를 구동한다.
   const cpuScore = cpuPurposeFitScore(cpu, purposes);
-  const gpuScore =
-    (gpuBench as { game?: number; work?: number; ai?: number })[
-      purpose === "gaming" ? "game" : purpose === "ai" ? "ai" : "work"
-    ] ?? gpu.gameScore;
+  const gpuScore = gpu
+    ? ((getGpuBenchmark(gpu.id) as { game?: number; work?: number; ai?: number })[
+        purpose === "gaming" ? "game" : purpose === "ai" ? "ai" : "work"
+      ] ?? gpu.gameScore)
+    : IGPU_ONLY_GPU_SCORE;
 
   const ramScore = rateRam(ram, purpose);
   const ssdScore = rateSsd(ssd, purpose);
@@ -785,7 +807,7 @@ function buildCandidate(
   // 보유 중으로 고정된 항목은 새로 사지 않으므로 가격을 0으로 제외한다(케이스가 이미 이 패턴 —
   // caseOwnership === "owned" ? 0 : CASE_PRICE — 을 쓰고 있어 그대로 확장했다).
   const isOwnedCpu = owned.cpu?.id === cpu.id;
-  const isOwnedGpu = owned.gpu?.id === gpu.id;
+  const isOwnedGpu = gpu !== null && owned.gpu?.id === gpu.id;
   const isOwnedRam = owned.ram?.id === ram.id;
   const isOwnedSsd = owned.ssd?.id === ssd.id;
   const isOwnedMotherboard = owned.motherboard?.id === mb.id;
@@ -801,7 +823,7 @@ function buildCandidate(
   // 4070 Ti SUPER ~110만원부터 RTX 5090 ~420만원까지) 가격을 낮게 잡으면 500만원대 이상이 전부
   // "구성 불가"가 되고, 높게 잡으면 그 값 바로 아래(약 380만~480만원)에 achievable price gap이
   // 생겨 그 사이 목표가가 전부 "구성 불가"가 되는 문제가 있었다 — 회귀 테스트로 둘 다 확인.
-  const gpuPrice = isOwnedGpu ? 0 : resolveLivePrice(priceOverrides, "gpu", gpu.id) ?? gpu.price ?? priceTierToPrice[gpu.priceTier] ?? 0;
+  const gpuPrice = gpu === null ? 0 : isOwnedGpu ? 0 : resolveLivePrice(priceOverrides, "gpu", gpu.id) ?? gpu.price ?? priceTierToPrice[gpu.priceTier] ?? 0;
   // RAM은 모든 카탈로그 항목에 실거래가(price)가 있으므로 그걸 그대로 쓴다 — priceTier 폴백을
   // 쓰면 8GB든 64GB든 같은 티어면 같은 가격이 나오는 문제가 있었다(예: 32GB DDR5가 50만원).
   const ramPrice = isOwnedRam ? 0 : resolveLivePrice(priceOverrides, "ram", ram.id) ?? ram.price;
@@ -837,7 +859,7 @@ function buildCandidate(
   const result = Object.freeze({
     id: candidateId(cpu, gpu, ram, ssd, mb, psu),
     cpu: cpu.name,
-    gpu: gpu.name,
+    gpu: gpu === null ? "내장그래픽 사용" : gpu.name,
     ram: ram.name,
     ssd: `${ssd.capacity}GB ${ssd.interface}`,
     motherboard: mb.name,
@@ -845,7 +867,7 @@ function buildCandidate(
     case: caseOwnership === "owned" ? "보유 케이스 사용" : "신규 케이스 포함",
     totalPrice,
     casePrice,
-    partIds: { cpu: cpu.id, gpu: gpu.id, ram: ram.id, ssd: ssd.id, motherboard: mb.id, psuWattage: psu.wattage },
+    partIds: { cpu: cpu.id, gpu: gpu === null ? IGPU_ONLY_GPU_ID : gpu.id, ram: ram.id, ssd: ssd.id, motherboard: mb.id, psuWattage: psu.wattage },
     ownedParts: {
       cpu: isOwnedCpu,
       gpu: isOwnedGpu,
@@ -856,7 +878,7 @@ function buildCandidate(
     },
     parts: [
       { label: "CPU", name: ownedTag(isOwnedCpu, cpu.name), price: cpuPrice },
-      { label: "GPU", name: ownedTag(isOwnedGpu, gpu.name), price: gpuPrice },
+      { label: "GPU", name: gpu === null ? "내장그래픽 사용" : ownedTag(isOwnedGpu, gpu.name), price: gpuPrice },
       { label: "RAM", name: ownedTag(isOwnedRam, ram.name), price: ramPrice },
       { label: "SSD", name: ownedTag(isOwnedSsd, `${ssd.capacity}GB ${ssd.interface}`), price: ssdPrice },
       { label: "메인보드", name: ownedTag(isOwnedMotherboard, mb.name), price: motherboardPrice },
@@ -866,7 +888,7 @@ function buildCandidate(
     compatibilityScore: compatibilityScoreVal,
     compatibilityDetails: [
       `소켓 일치: CPU ${cpu.socket}와 메인보드 ${mb.socket}가 호환됩니다.`,
-      `전력 여유: ${cpu.tdp + gpu.tgp + 150}W 기준으로 ${psu.wattage}W 파워가 충분합니다.`,
+      `전력 여유: ${cpu.tdp + (gpu?.tgp ?? 0) + 150}W 기준으로 ${psu.wattage}W 파워가 충분합니다.`,
       `메모리 규격: ${ram.ddr}와 메인보드 ${mb.ddr}가 일치합니다.`,
       `스토리지 경로: SSD ${ssd.interface} / M.2 ${mb.m2Slots}개 / NVMe Gen ${mb.supportedNvmeGenerations.join(", ")} 지원`,
     ],

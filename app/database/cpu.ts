@@ -279,6 +279,32 @@ const curatedCpus: CPU[] = [
     priceTier: "budget",
   },
   {
+    // 저가형(budget tier) 실사용 iGPU CPU 보강 — 예산 하드 컷(recommender.ts) 적용 이후 "GPU
+    // 생략(iGPU만 사용)" 경로가 실제로 쓸 수 있는 진짜 저가 iGPU CPU가 카탈로그에 없었다(유일한
+    // 기존 후보였던 r5-5600은 igpu 오기입이었다 — 이 파일 하단에서 수정). 실제 공식 스펙 기준.
+    id: "i3-14100",
+    name: "Core i3-14100",
+    brand: "Intel",
+    socket: "LGA1700",
+    cores: 4,
+    threads: 8,
+    baseClock: 3.5,
+    boostClock: 4.7,
+    cache: 12,
+    tdp: 60,
+    igpu: true,
+    ddr: "DDR5",
+    pcie: "4.0",
+    releaseYear: 2024,
+    gameScore: 78,
+    workScore: 65,
+    aiScore: 55,
+    singleCoreScore: 70,
+    multiCoreScore: 38,
+    efficiencyScore: 82,
+    priceTier: "budget",
+  },
+  {
     id: "i9-14900k",
     name: "Core i9-14900K",
     brand: "Intel",
@@ -371,6 +397,33 @@ const curatedCpus: CPU[] = [
     priceTier: "mid",
   },
   {
+    // 저가형(budget tier) 실사용 iGPU CPU 보강 — 위 i3-14100과 같은 목적. AM4/DDR4라 기존
+    // AM4 보드/DDR4 RAM 카탈로그를 그대로 재사용한다. 실제 공식 스펙 기준.
+    id: "r5-5600g",
+    name: "Ryzen 5 5600G",
+    brand: "AMD",
+    socket: "AM4",
+    cores: 6,
+    threads: 12,
+    baseClock: 3.9,
+    boostClock: 4.4,
+    cache: 16,
+    tdp: 65,
+    igpu: true,
+    ddr: "DDR4",
+    // 실제로는 APU 다이 특성상 PCIe 3.0이지만 이 카탈로그의 CPU.pcie 타입엔 "3.0"이 없어(기존
+    // LGA1700 항목들도 DDR4 보드 옵션을 생략하는 등 비슷한 단순화 관례를 따른다) "4.0"으로 둔다.
+    pcie: "4.0",
+    releaseYear: 2021,
+    gameScore: 72,
+    workScore: 70,
+    aiScore: 62,
+    singleCoreScore: 60,
+    multiCoreScore: 42,
+    efficiencyScore: 83,
+    priceTier: "budget",
+  },
+  {
     id: "r5-5600x",
     name: "Ryzen 5 5600X",
     brand: "AMD",
@@ -404,7 +457,9 @@ const curatedCpus: CPU[] = [
     boostClock: 4.4,
     cache: 32,
     tdp: 65,
-    igpu: true,
+    // 5600X와 동일하게 내장그래픽이 없다 — "G"/"GE" 접미사가 붙은 APU 라인(5600G 등)만 iGPU가
+    // 있고, 5600(non-X, non-G)은 없다. 예전엔 true로 잘못 표시돼 있었다(데이터 오류).
+    igpu: false,
     ddr: "DDR4",
     pcie: "4.0",
     releaseYear: 2020,

@@ -16,6 +16,7 @@ import {
   EXACT_BUDGET_TOLERANCE,
   findCheapestViableTotalPrice,
   findMostExpensiveViableTotalPrice,
+  IGPU_ONLY_GPU_ID,
 } from "./recommender";
 import type { CPU } from "../database/cpu";
 import { cpus, curatedCpus } from "../database/cpu";
@@ -770,12 +771,16 @@ describe("recommend — 신규 구매 후보군의 구형 세대 제외 회귀",
       const results = recommend({ 1: [purposeLabel], 3: [budgetLabel] }, baseExistingParts(), "none");
       for (const result of results) {
         const cpu = cpus.find((c) => c.id === result.partIds.cpu);
-        const gpu = gpus.find((g) => g.id === result.partIds.gpu);
         expect(cpu).toBeDefined();
-        expect(gpu).toBeDefined();
         // releaseYear 단순 비교가 아니라 실제 판정 함수로 확인한다 — RTX 3050처럼 releaseYear만으로는
         // "최신"으로 잘못 통과되는 회귀가 실제로 있었다(위 isNewPurchaseEligibleGpu 테스트 참고).
         expect(isNewPurchaseEligibleCpu(cpu!)).toBe(true);
+
+        // GPU 생략(iGPU만 사용) 후보는 partIds.gpu가 실제 카탈로그 id가 아니라 sentinel이라
+        // 세대 판정 대상 자체가 없다 — 사무/개발 + igpu:true CPU 조합에서만 나올 수 있다.
+        if (result.partIds.gpu === IGPU_ONLY_GPU_ID) continue;
+        const gpu = gpus.find((g) => g.id === result.partIds.gpu);
+        expect(gpu).toBeDefined();
         expect(isNewPurchaseEligibleGpu(gpu!)).toBe(true);
       }
     }
@@ -1087,5 +1092,75 @@ describe("신규 플래그십 CPU/GPU 카탈로그 확장 회귀", () => {
     expect(rtx5090.price!).toBeGreaterThan(rtx4090.price!);
     expect(rtx4090.price!).toBeGreaterThan(rtx5080.price!);
     expect(rtx5080.price!).toBeGreaterThan(rtx4070tisuper.price!);
+  });
+});
+
+describe("recommend — GPU 생략(iGPU만 사용) 후보", () => {
+  it("사무 용도 + 100만원 이하 -> GPU 생략 후보가 나오고 gpuPrice=0, '내장그래픽 사용'으로 표시된다", () => {
+    const results = recommend({}, baseExistingParts(), "none", ["work"], { min: 500_000, max: 1_000_000 });
+    expect(results.length).toBeGreaterThan(0);
+
+    const igpuOnly = results.find((r) => r.partIds.gpu === IGPU_ONLY_GPU_ID);
+    expect(igpuOnly, "100만원 이하에서 GPU 생략 후보가 하나도 없음").toBeDefined();
+    expect(igpuOnly!.gpu).toBe("내장그래픽 사용");
+    expect(igpuOnly!.parts.find((p) => p.label === "GPU")?.name).toBe("내장그래픽 사용");
+    expect(igpuOnly!.parts.find((p) => p.label === "GPU")?.price).toBe(0);
+
+    const cpu = cpus.find((c) => c.id === igpuOnly!.partIds.cpu);
+    expect(cpu?.igpu, "GPU 생략 후보의 CPU는 반드시 igpu:true여야 함").toBe(true);
+  });
+
+  it("개발 용도도 GPU 생략 후보로 구성 가능하다(단, 100만원 이하 예산에선 아직 안 나옴 — 아래 설명)", () => {
+    // dev 용도의 CPU 선별 기준(singlePurposeCpuFitScore)은 순수 multiCoreScore라 igpu 여부와
+    // 무관하다 — budget 티어엔 CPU가 5개뿐이고 CPU_POOL_PER_TIER=4라 상위 4개만 남는데,
+    // multiCoreScore 기준 정렬에서 이번에 추가한 두 iGPU CPU(r5-5600g=42, i3-14100=38)가
+    // 마침 budget 티어 최하위권이라 100만원 이하에선 둘 다 풀에서 잘려나간다(사무 용도는
+    // igpu 자체에 +40 가산점을 주는 cpuOfficeFitScore라 카탈로그의 다른 저전력 iGPU 후보가
+    // 그 예산에서도 살아남는다 — 위 테스트 참고). 100~150만원부터는 i5-14600K 등 성능 자체가
+    // 우수한 mid/high 티어 iGPU CPU가 multiCoreScore 기준으로도 상위권이라 정상적으로 나온다.
+    const results = recommend({}, baseExistingParts(), "none", ["dev"], { min: 1_000_000, max: 1_500_000 });
+    expect(results.length).toBeGreaterThan(0);
+    expect(results.some((r) => r.partIds.gpu === IGPU_ONLY_GPU_ID)).toBe(true);
+  });
+
+  it("게임 용도는 igpu:true CPU를 쓰더라도 GPU 생략 후보가 절대 나오지 않는다(회귀 없음 확인)", () => {
+    const budgetRanges: Array<{ min: number; max: number }> = [
+      { min: 500_000, max: 1_000_000 },
+      { min: 1_000_000, max: 1_500_000 },
+      { min: 1_500_000, max: 2_000_000 },
+      { min: 2_000_000, max: 3_000_000 },
+      { min: 3_000_000, max: 5_000_000 },
+    ];
+    for (const range of budgetRanges) {
+      const results = recommend({}, baseExistingParts(), "none", ["gaming"], range);
+      for (const result of results) {
+        expect(result.partIds.gpu).not.toBe(IGPU_ONLY_GPU_ID);
+        expect(gpus.find((g) => g.id === result.partIds.gpu)).toBeDefined();
+      }
+    }
+  });
+
+  it("영상편집 용도도 GPU 생략 후보가 나오지 않는다(work/dev만 허용 — video는 의도적으로 제외)", () => {
+    const results = recommend({}, baseExistingParts(), "none", ["video"], { min: 500_000, max: 1_500_000 });
+    for (const result of results) {
+      expect(result.partIds.gpu).not.toBe(IGPU_ONLY_GPU_ID);
+    }
+  });
+
+  it("사무+게임을 동시에 선택하면(purposes 배열에 게임이 섞임) GPU 생략을 허용하지 않는다", () => {
+    const results = recommend({}, baseExistingParts(), "none", ["work", "gaming"], { min: 500_000, max: 1_500_000 });
+    for (const result of results) {
+      expect(result.partIds.gpu).not.toBe(IGPU_ONLY_GPU_ID);
+    }
+  });
+
+  it("이미 GPU를 보유 부품으로 고정한 경우엔 GPU 생략 후보를 만들지 않는다", () => {
+    const existingParts = baseExistingParts();
+    existingParts.GPU = { enabled: true, brand: "NVIDIA", manufacturer: "", model: "GeForce RTX 4060" };
+    const results = recommend({}, existingParts, "none", ["work"], { min: 500_000, max: 2_000_000 });
+    for (const result of results) {
+      expect(result.partIds.gpu).not.toBe(IGPU_ONLY_GPU_ID);
+      expect(result.ownedParts.gpu).toBe(true);
+    }
   });
 });

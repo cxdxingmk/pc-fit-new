@@ -77,7 +77,9 @@ function getRecencyScore(item: { releaseYear?: number }) {
 
 export function compatibilityScore(
   cpu: CPU,
-  gpu: GPU,
+  // GPU 생략(iGPU만 사용) 후보는 gpu가 null이다 — 디스크리트 GPU가 아예 없으니 병목/PCIe 불일치
+  // 같은 "GPU와의 관계" 체크는 성립하지 않아 전부 건너뛴다(아래 각 분기 참고).
+  gpu: GPU | null,
   ram?: RAM,
   ssd?: SSD,
   motherboard?: MotherBoard,
@@ -87,18 +89,20 @@ export function compatibilityScore(
   let score = 100;
   const warnings: CompatibilityWarning[] = [];
 
-  const diff = Math.abs(cpu.gameScore - gpu.gameScore);
-  if (diff > CPU_GPU_GAP_LARGE) {
-    score -= PENALTY_CPU_GPU_GAP_LARGE;
-    warnings.push({ severity: "critical", message: "CPU와 GPU 성능 차이가 커서 병목 가능성이 있습니다." });
-  } else if (diff > CPU_GPU_GAP_SMALL) {
-    score -= PENALTY_CPU_GPU_GAP_SMALL;
-    warnings.push({ severity: "warn", message: "CPU와 GPU 성능 밸런스가 약간 맞지 않습니다." });
-  }
+  if (gpu) {
+    const diff = Math.abs(cpu.gameScore - gpu.gameScore);
+    if (diff > CPU_GPU_GAP_LARGE) {
+      score -= PENALTY_CPU_GPU_GAP_LARGE;
+      warnings.push({ severity: "critical", message: "CPU와 GPU 성능 차이가 커서 병목 가능성이 있습니다." });
+    } else if (diff > CPU_GPU_GAP_SMALL) {
+      score -= PENALTY_CPU_GPU_GAP_SMALL;
+      warnings.push({ severity: "warn", message: "CPU와 GPU 성능 밸런스가 약간 맞지 않습니다." });
+    }
 
-  if (cpu.pcie && gpu.pcie && normalizePcie(cpu.pcie) !== normalizePcie(gpu.pcie)) {
-    score -= PENALTY_PCIE_MISMATCH;
-    warnings.push({ severity: "info", message: "PCIe 버전이 서로 달라 성능 제한 가능성이 있습니다." });
+    if (cpu.pcie && gpu.pcie && normalizePcie(cpu.pcie) !== normalizePcie(gpu.pcie)) {
+      score -= PENALTY_PCIE_MISMATCH;
+      warnings.push({ severity: "info", message: "PCIe 버전이 서로 달라 성능 제한 가능성이 있습니다." });
+    }
   }
 
   if (ram && cpu.ddr && ram.ddr && cpu.ddr !== ram.ddr) {
@@ -143,8 +147,10 @@ export function compatibilityScore(
     }
   }
 
-  if (cpu && gpu && psu) {
-    const requiredPower = cpu.tdp + gpu.tgp + SYSTEM_OVERHEAD_WATTS;
+  // gpu.tgp는 GPU가 있을 때만 더한다 — iGPU 전력은 이미 cpu.tdp에 포함돼 있다고 본다(실제로도
+  // CPU 패키지 전력에 iGPU 소모분이 포함되어 측정되는 값이라 별도로 더할 근거가 없다).
+  if (cpu && psu) {
+    const requiredPower = cpu.tdp + (gpu?.tgp ?? 0) + SYSTEM_OVERHEAD_WATTS;
     if (psu.wattage < requiredPower) {
       score -= PENALTY_PSU_INSUFFICIENT;
       warnings.push({ severity: "critical", message: `파워 용량이 부족합니다. 최소 ${requiredPower}W가 필요합니다.` });
@@ -154,8 +160,8 @@ export function compatibilityScore(
     }
   }
 
-  if (cpu && gpu && typeof powerLimit === "number" && powerLimit > 0) {
-    const requiredPower = cpu.tdp + gpu.tgp + SYSTEM_OVERHEAD_WATTS;
+  if (cpu && typeof powerLimit === "number" && powerLimit > 0) {
+    const requiredPower = cpu.tdp + (gpu?.tgp ?? 0) + SYSTEM_OVERHEAD_WATTS;
     if (powerLimit < requiredPower) {
       score -= PENALTY_EXISTING_PSU_INSUFFICIENT;
       warnings.push({ severity: "critical", message: `보유 파워 용량이 ${requiredPower}W 기준을 넘습니다.` });
@@ -168,7 +174,12 @@ export function compatibilityScore(
   };
 }
 
-export function recencyBoost(cpu: CPU, gpu: GPU, motherboard: MotherBoard, psu: PSU) {
-  const recency = (getRecencyScore(cpu) + getRecencyScore(gpu) + getRecencyScore(motherboard) + getRecencyScore(psu)) / 4;
+export function recencyBoost(cpu: CPU, gpu: GPU | null, motherboard: MotherBoard, psu: PSU) {
+  // GPU 생략(iGPU만 사용) 후보는 gpu가 null이라 recency 점수를 지어낼 근거가 없다 — 3개 항목
+  // (cpu/motherboard/psu) 평균으로 계산한다.
+  const scores = [getRecencyScore(cpu), gpu ? getRecencyScore(gpu) : null, getRecencyScore(motherboard), getRecencyScore(psu)].filter(
+    (s): s is number => s !== null
+  );
+  const recency = scores.reduce((sum, s) => sum + s, 0) / scores.length;
   return Math.round(recency * 100) / 100;
 }

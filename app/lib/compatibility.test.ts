@@ -245,6 +245,28 @@ describe("compatibilityScore", () => {
     expect(result.score).toBe(100 - 26);
   });
 
+  it("GPU 생략(gpu=null) 조합에서는 병목/PCIe 불일치 체크를 건너뛴다", () => {
+    // 원래 값이면 gameScore 격차(95 vs 30 상당)로 병목 경고가 붙었을 조합이지만, gpu가 null이면
+    // 애초에 비교할 GPU가 없으므로 그 체크 자체를 건너뛴다(cpu.pcie는 makeCpu() 기본값("5.0")을
+    // 그대로 둬서 SSD/CPU PCIe 체크 등 GPU와 무관한 다른 체크가 우연히 걸리지 않게 한다).
+    const result = compatibilityScore(makeCpu({ gameScore: 95 }), null, makeRam(), makeSsd(), makeMotherboard(), makePsu());
+    expect(result.score).toBe(100);
+    expect(result.warnings.some((w) => w.message.includes("병목"))).toBe(false);
+    expect(result.warnings.some((w) => w.message.includes("PCIe"))).toBe(false);
+  });
+
+  it("GPU 생략(gpu=null) 조합의 파워 요구전력은 gpu.tgp 없이 cpu.tdp+150만 본다", () => {
+    const result = compatibilityScore(makeCpu({ tdp: 65 }), null, undefined, undefined, undefined, makePsu({ wattage: 215 }));
+    // required = 65 + 0 + 150 = 215, 정확히 충족(헤드룸 마진 미달로 info 페널티만)
+    expect(result.score).toBe(100 - 8);
+  });
+
+  it("GPU 생략(gpu=null) + 보유 파워(powerLimit)도 gpu.tgp 없이 계산한다", () => {
+    const result = compatibilityScore(makeCpu({ tdp: 65 }), null, undefined, undefined, undefined, undefined, 200);
+    // required = 65 + 0 + 150 = 215, 200 < 215 -> 부족
+    expect(result.score).toBe(100 - 26);
+  });
+
   it("floors the score at 0 when penalties stack past zero", () => {
     const result = compatibilityScore(
       makeCpu({ socket: "AM5", ddr: "DDR5", gameScore: 95 }),
@@ -276,5 +298,13 @@ describe("recencyBoost", () => {
     const psu = makePsu({ releaseYear: 2019 });
     const expected = (95 + 88 + 80 + 70) / 4;
     expect(recencyBoost(cpu, gpu, mb, psu)).toBe(Math.round(expected * 100) / 100);
+  });
+
+  it("GPU 생략(gpu=null) 조합은 cpu/motherboard/psu 3개 항목만으로 평균낸다", () => {
+    const cpu = makeCpu({ releaseYear: 2024 });
+    const mb = makeMotherboard({ releaseYear: 2022 });
+    const psu = makePsu({ releaseYear: 2019 });
+    const expected = (95 + 80 + 70) / 3;
+    expect(recencyBoost(cpu, null, mb, psu)).toBe(Math.round(expected * 100) / 100);
   });
 });
