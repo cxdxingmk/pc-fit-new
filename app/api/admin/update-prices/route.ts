@@ -5,19 +5,26 @@ import { createServiceRoleClient } from "@/app/lib/supabase/serviceRole";
 
 // 봇(별도 VPS, PM2 상시 실행)이 /가격갱신 명령을 받으면 이 라우트를 HTTP로 호출한다 — 실제 계산
 // (네이버 검색 + 관련성 필터 + 중앙값/이상치 처리)은 여기서, 봇은 트리거+결과 중계만 담당한다.
-// 카탈로그 약 150개 항목 × 네이버 호출 1회씩을 동시성 제한(8)으로 처리하면 수십 초 안에 끝나
-// Vercel 서버리스 시간 제한(아래 maxDuration) 안에 여유 있게 들어온다.
 export const maxDuration = 60;
 
-const CONCURRENCY_LIMIT = 8;
+// 일일 사용량(예: 369/25000)은 여유가 충분한데도 429가 나는 걸 실제로 겪었다 — 하루 한도가 아니라
+// 초당/분당 호출 속도 제한에 걸리는 것으로 보인다. 동시성을 8 -> 3으로 낮추고, 각 워커가 다음
+// 항목을 집기 전 STAGGER만큼 쉬어 순간 호출 속도 자체를 늦춘다(naverShopping.ts의 429 재시도와는
+// 별개의, 애초에 429를 덜 유발하기 위한 예방 조치).
+const CONCURRENCY_LIMIT = 3;
+const REQUEST_STAGGER_MS = 150;
 
 interface UpdatePricesSummary {
   updated: number;
   skipped: number;
 }
 
-/** 배열을 limit개씩 동시에 처리한다 — 새 의존성 없이 직접 구현(부품 약 150개 규모엔 이 정도로 충분). */
-async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** 배열을 limit개씩 동시에 처리하되, 워커마다 다음 항목을 집기 전 delayMs만큼 쉰다. */
+async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>, delayMs = 0): Promise<R[]> {
   const results: R[] = new Array(items.length);
   let nextIndex = 0;
 
@@ -25,6 +32,9 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T)
     while (nextIndex < items.length) {
       const currentIndex = nextIndex++;
       results[currentIndex] = await fn(items[currentIndex]);
+      if (delayMs > 0 && nextIndex < items.length) {
+        await sleep(delayMs);
+      }
     }
   }
 
@@ -87,7 +97,7 @@ export async function POST(request: Request) {
   }
 
   const entries = buildPriceableCatalogEntries();
-  const outcomes = await mapWithConcurrency(entries, CONCURRENCY_LIMIT, (entry) => processEntry(entry, supabase));
+  const outcomes = await mapWithConcurrency(entries, CONCURRENCY_LIMIT, (entry) => processEntry(entry, supabase), REQUEST_STAGGER_MS);
 
   const summary: UpdatePricesSummary = {
     updated: outcomes.filter((outcome) => outcome === "updated").length,

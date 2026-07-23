@@ -51,11 +51,22 @@ describe("POST /api/admin/update-prices", () => {
     searchNaverShoppingMock.mockReset();
     upsertMock.mockClear();
     fromMock.mockClear();
+    // mapWithConcurrency의 REQUEST_STAGGER_MS(429 예방용 실제 지연)가 카탈로그 111개 전체를
+    // 도는 테스트에서 그대로 실행되면 5초 기본 타임아웃을 넘긴다 — 가짜 타이머로 즉시 진행시킨다.
+    vi.useFakeTimers();
   });
 
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.useRealTimers();
   });
+
+  /** POST()를 실행하면서 mapWithConcurrency의 스태거 지연(setTimeout)을 즉시 진행시킨다. */
+  async function postAndFlushTimers(headers: Record<string, string>): Promise<Response> {
+    const responsePromise = POST(postRequest(headers));
+    await vi.runAllTimersAsync();
+    return responsePromise;
+  }
 
   it("시크릿 헤더가 없으면 401을 반환하고 아무 것도 처리하지 않는다", async () => {
     const response = await POST(postRequest());
@@ -88,7 +99,7 @@ describe("POST /api/admin/update-prices", () => {
       pricesNearAnchor(query).map((lprice) => ({ title: query, lprice: String(lprice) }))
     );
 
-    const response = await POST(postRequest({ "x-price-update-secret": "test-secret" }));
+    const response = await postAndFlushTimers({ "x-price-update-secret": "test-secret" });
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.updated).toBeGreaterThan(0);
@@ -109,7 +120,7 @@ describe("POST /api/admin/update-prices", () => {
       ];
     });
 
-    const response = await POST(postRequest({ "x-price-update-secret": "test-secret" }));
+    const response = await postAndFlushTimers({ "x-price-update-secret": "test-secret" });
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.skipped).toBeGreaterThan(0);
@@ -120,7 +131,7 @@ describe("POST /api/admin/update-prices", () => {
   it("유효 결과가 3개 미만인 항목은 skipped로 집계되고 upsert가 호출되지 않는다", async () => {
     searchNaverShoppingMock.mockImplementation(async (query: string) => [{ title: query, lprice: "100000" }]);
 
-    const response = await POST(postRequest({ "x-price-update-secret": "test-secret" }));
+    const response = await postAndFlushTimers({ "x-price-update-secret": "test-secret" });
     const body = await response.json();
     expect(body.updated).toBe(0);
     expect(body.skipped).toBeGreaterThan(0);
