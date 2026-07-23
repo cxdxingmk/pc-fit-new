@@ -198,6 +198,68 @@ export function filterRelevantListings(requiredTokens: string[], items: NaverSho
   });
 }
 
+// ── 임시 진단용(RAM 관련성 0개 원인 확인) — 필요 없어지면 이 인터페이스/함수와 route.ts의
+// 호출부만 지우면 된다. filterRelevantListings 자체는 건드리지 않는다. ──────────────────────
+export type RelevanceRejectionStage = "keyword" | "category" | "token" | "passed";
+
+export interface RelevanceRejectionSample {
+  title: string;
+  category3: string;
+  category4: string;
+  rejectedBy: RelevanceRejectionStage;
+}
+
+export interface RelevanceDiagnostics {
+  totalRaw: number;
+  keywordExcluded: number;
+  categoryExcluded: number;
+  tokenMismatch: number;
+  passed: number;
+  samples: RelevanceRejectionSample[];
+}
+
+const DIAGNOSTIC_SAMPLE_LIMIT = 10;
+
+/**
+ * filterRelevantListings와 정확히 같은 순서/기준(키워드 -> 카테고리 -> 토큰)으로 원본 매물
+ * 각각이 어느 단계에서 떨어졌는지 집계한다. 원본 제목/category3/4도 표본으로 함께 담아,
+ * 실제 네이버 응답을 눈으로 확인할 수 있게 한다.
+ */
+export function diagnoseRelevanceRejections(requiredTokens: string[], items: NaverShoppingItem[]): RelevanceDiagnostics {
+  const normalizedTokens = requiredTokens.map(normalize);
+  let keywordExcluded = 0;
+  let categoryExcluded = 0;
+  let tokenMismatch = 0;
+  let passed = 0;
+  const samples: RelevanceRejectionSample[] = [];
+
+  for (const item of items) {
+    const title = stripHtmlTags(item.title);
+    const normalizedTitle = normalize(title);
+    let rejectedBy: RelevanceRejectionStage;
+
+    if (EXCLUDE_KEYWORDS.some((keyword) => normalizedTitle.includes(normalize(keyword)))) {
+      keywordExcluded += 1;
+      rejectedBy = "keyword";
+    } else if (BUNDLE_CATEGORY_PATTERN.test(item.category3) || BUNDLE_CATEGORY_PATTERN.test(item.category4)) {
+      categoryExcluded += 1;
+      rejectedBy = "category";
+    } else if (!normalizedTokens.every((token) => normalizedTitle.includes(token))) {
+      tokenMismatch += 1;
+      rejectedBy = "token";
+    } else {
+      passed += 1;
+      rejectedBy = "passed";
+    }
+
+    if (samples.length < DIAGNOSTIC_SAMPLE_LIMIT) {
+      samples.push({ title, category3: item.category3, category4: item.category4, rejectedBy });
+    }
+  }
+
+  return { totalRaw: items.length, keywordExcluded, categoryExcluded, tokenMismatch, passed, samples };
+}
+
 export function median(numbers: number[]): number {
   const sorted = [...numbers].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);

@@ -9,6 +9,7 @@ import { psus } from "../database/psu";
 import {
   buildPriceableCatalogEntries,
   computeFinalPrice,
+  diagnoseRelevanceRejections,
   excludeOutliers,
   filterRelevantListings,
   median,
@@ -109,6 +110,37 @@ describe("filterRelevantListings", () => {
       fakeItem({ title: "사무용 데스크탑 컴퓨터 DDR5-6000 32GB 탑재", category3: "완제품" }),
     ];
     expect(filterRelevantListings(tokens, items)).toHaveLength(0);
+  });
+});
+
+describe("diagnoseRelevanceRejections (임시 진단용)", () => {
+  it("filterRelevantListings와 동일한 순서(키워드 -> 카테고리 -> 토큰)로 각 매물의 탈락 단계를 집계한다", () => {
+    const tokens = ["32GB", "DDR5-6000"];
+    const items = [
+      fakeItem({ title: "32GB DDR5-6000 전용 브라켓", category3: "메모리" }), // 키워드
+      fakeItem({ title: "32GB DDR5-6000 특가 판매", category3: "조립컴퓨터" }), // 카테고리(제목엔 배제 키워드 없음)
+      fakeItem({ title: "32GB 16GB 다른모델", category3: "메모리" }), // 토큰 불일치
+      fakeItem({ title: "DDR5-6000 32GB 정품", category3: "메모리" }), // 통과
+    ];
+
+    const diag = diagnoseRelevanceRejections(tokens, items);
+    expect(diag.totalRaw).toBe(4);
+    expect(diag.keywordExcluded).toBe(1);
+    expect(diag.categoryExcluded).toBe(1);
+    expect(diag.tokenMismatch).toBe(1);
+    expect(diag.passed).toBe(1);
+    expect(diag.samples.map((s) => s.rejectedBy)).toEqual(["keyword", "category", "token", "passed"]);
+    expect(diag.samples[1].category3).toBe("조립컴퓨터");
+  });
+
+  it("filterRelevantListings가 실제로 통과시키는 개수와 diagnoseRelevanceRejections의 passed 개수가 일치한다", () => {
+    const tokens = ["32GB", "DDR5-6000"];
+    const items = [
+      fakeItem({ title: "32GB DDR5-6000 정품 메모리", category3: "메모리" }),
+      fakeItem({ title: "DDR5-6000 32GB(16Gx2) 데스크탑용 램", category3: "메모리" }),
+      fakeItem({ title: "16GB DDR4-3200", category3: "메모리" }),
+    ];
+    expect(diagnoseRelevanceRejections(tokens, items).passed).toBe(filterRelevantListings(tokens, items).length);
   });
 });
 

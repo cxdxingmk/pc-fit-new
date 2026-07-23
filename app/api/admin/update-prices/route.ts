@@ -3,12 +3,14 @@ import {
   buildPriceableCatalogEntries,
   computeFinalPrice,
   filterRelevantListings,
+  diagnoseRelevanceRejections,
   excludeOutliers,
   median,
   MIN_VALID_RESULTS,
   ANCHOR_MIN_RATIO,
   ANCHOR_MAX_RATIO,
   type PriceableCatalogEntry,
+  type RelevanceDiagnostics,
 } from "@/app/lib/partPricing";
 import { isNaverShoppingConfigured, searchNaverShopping } from "@/app/lib/naverShopping";
 import { createServiceRoleClient } from "@/app/lib/supabase/serviceRole";
@@ -33,12 +35,22 @@ interface ProcessEntryResult {
   catalogId: string;
   /** status가 "skipped"일 때만 채워진다. */
   reason?: string;
+  /**
+   * RAM 전용 임시 진단 — "관련성 필터 통과 0개" 원인을 밝히기 위해, 원본 매물이 키워드/카테고리/
+   * 토큰불일치 중 어느 단계에서 떨어졌는지와 원본 제목·category3/4 표본을 담는다.
+   */
+  ramRelevanceDiagnostics?: RelevanceDiagnostics;
 }
 
 interface UpdatePricesSummary {
   updated: number;
   skipped: number;
-  skippedDetails: Array<{ partType: string; catalogId: string; reason: string }>;
+  skippedDetails: Array<{
+    partType: string;
+    catalogId: string;
+    reason: string;
+    ramRelevanceDiagnostics?: RelevanceDiagnostics;
+  }>;
 }
 
 /**
@@ -110,7 +122,13 @@ async function processEntry(
   supabase: ReturnType<typeof createServiceRoleClient>
 ): Promise<ProcessEntryResult> {
   const { partType, catalogId } = entry;
-  const skip = (reason: string): ProcessEntryResult => ({ status: "skipped", partType, catalogId, reason });
+  const skip = (reason: string, extra?: Partial<ProcessEntryResult>): ProcessEntryResult => ({
+    status: "skipped",
+    partType,
+    catalogId,
+    reason,
+    ...extra,
+  });
 
   try {
     const rawItems = await searchNaverShopping(entry.searchQuery);
@@ -120,7 +138,11 @@ async function processEntry(
     const result = computeFinalPrice(relevant, entry.staticAnchorPriceKrw);
     if (!result) {
       // 유효 결과 3개 미만 또는 정적가 앵커 대비 이상값 — 기존 가격 유지, 갱신하지 않음
-      return skip(diagnoseComputeFinalPriceFailure(relevant, entry.staticAnchorPriceKrw));
+      const reason = diagnoseComputeFinalPriceFailure(relevant, entry.staticAnchorPriceKrw);
+      if (entry.partType === "ram") {
+        return skip(reason, { ramRelevanceDiagnostics: diagnoseRelevanceRejections(entry.requiredTitleTokens, rawItems) });
+      }
+      return skip(reason);
     }
 
     const { error } = await supabase.from("part_prices").upsert(
@@ -169,7 +191,12 @@ export async function POST(request: Request) {
   const summary: UpdatePricesSummary = {
     updated: outcomes.length - skippedOutcomes.length,
     skipped: skippedOutcomes.length,
-    skippedDetails: skippedOutcomes.map(({ partType, catalogId, reason }) => ({ partType, catalogId, reason: reason ?? "" })),
+    skippedDetails: skippedOutcomes.map(({ partType, catalogId, reason, ramRelevanceDiagnostics }) => ({
+      partType,
+      catalogId,
+      reason: reason ?? "",
+      ...(ramRelevanceDiagnostics ? { ramRelevanceDiagnostics } : {}),
+    })),
   };
 
   return NextResponse.json(summary);

@@ -175,5 +175,43 @@ describe("POST /api/admin/update-prices", () => {
     const ramDetail = body.skippedDetails.find((d: { partType: string; catalogId: string }) => d.partType === "ram" && d.catalogId === ramEntry.catalogId);
     expect(ramDetail).toBeDefined();
     expect(ramDetail.reason).toContain("정적앵커 범위 벗어남");
+    // RAM이 skipped로 떨어지면(관련성 필터 통과 부족이든 앵커 초과든) 임시 진단 필드가 항상 붙는다.
+    expect(ramDetail.ramRelevanceDiagnostics).toBeDefined();
+    expect(ramDetail.ramRelevanceDiagnostics.totalRaw).toBe(3);
+    expect(ramDetail.ramRelevanceDiagnostics.passed).toBe(3);
+  });
+
+  it("RAM에 한해서만, 원본 매물이 키워드/카테고리/토큰 중 어느 단계에서 떨어졌는지 세부 진단이 붙는다", async () => {
+    const entries = buildPriceableCatalogEntries();
+    const ramEntry = entries.find((e) => e.partType === "ram")!;
+    const [capacityToken, speedToken] = ramEntry.requiredTitleTokens;
+
+    searchNaverShoppingMock.mockImplementation(async (query: string) => {
+      if (query !== ramEntry.searchQuery) {
+        return pricesNearAnchor(query).map((lprice) => ({ title: query, lprice: String(lprice) }));
+      }
+      // 표본 4개 - 각각 키워드/카테고리/토큰불일치/통과 한 단계씩만 겪도록 구성한다.
+      return [
+        { title: `${capacityToken} ${speedToken} 전용 브라켓`, lprice: "50000", category3: "메모리", category4: "" }, // 키워드("브라켓")
+        { title: `${capacityToken} ${speedToken} 데스크탑 세트`, lprice: "130000", category3: "완제품", category4: "" }, // 카테고리
+        { title: `${capacityToken} 16GB 다른모델`, lprice: "120000", category3: "메모리", category4: "" }, // 토큰 불일치(speedToken 없음)
+        { title: `${speedToken} ${capacityToken} 정품 메모리`, lprice: "125000", category3: "메모리", category4: "" }, // 통과(어순만 바뀜)
+      ];
+    });
+
+    const response = await postAndFlushTimers({ "x-price-update-secret": "test-secret" });
+    const body = await response.json();
+    const ramDetail = body.skippedDetails.find((d: { partType: string; catalogId: string }) => d.partType === "ram" && d.catalogId === ramEntry.catalogId);
+
+    expect(ramDetail).toBeDefined();
+    expect(ramDetail.reason).toContain("관련성 필터 통과 1개");
+    const diag = ramDetail.ramRelevanceDiagnostics;
+    expect(diag.totalRaw).toBe(4);
+    expect(diag.keywordExcluded).toBe(1);
+    expect(diag.categoryExcluded).toBe(1);
+    expect(diag.tokenMismatch).toBe(1);
+    expect(diag.passed).toBe(1);
+    expect(diag.samples.map((s: { rejectedBy: string }) => s.rejectedBy)).toEqual(["keyword", "category", "token", "passed"]);
+    expect(diag.samples[1].category3).toBe("완제품");
   });
 });
