@@ -106,6 +106,7 @@ describe("POST /api/admin/update-prices", () => {
     expect(body.skipped).toBe(0);
     expect(body.updated + body.skipped).toBe(searchNaverShoppingMock.mock.calls.length);
     expect(upsertMock).toHaveBeenCalledTimes(body.updated);
+    expect(body.skippedDetails).toEqual([]);
   });
 
   it("개별 항목에서 네이버 호출이 실패해도 전체 작업은 중단되지 않고, 실패한 항목만 skipped로 집계된다", async () => {
@@ -126,6 +127,9 @@ describe("POST /api/admin/update-prices", () => {
     expect(body.skipped).toBeGreaterThan(0);
     expect(body.updated).toBeGreaterThan(0);
     expect(body.updated + body.skipped).toBe(callCount);
+    expect(body.skippedDetails).toHaveLength(body.skipped);
+    expect(body.skippedDetails.every((d: { partType: string; catalogId: string; reason: string }) => d.partType && d.catalogId)).toBe(true);
+    expect(body.skippedDetails.some((d: { reason: string }) => d.reason === "네이버 API 일시 오류")).toBe(true);
   });
 
   it("유효 결과가 3개 미만인 항목은 skipped로 집계되고 upsert가 호출되지 않는다", async () => {
@@ -136,5 +140,40 @@ describe("POST /api/admin/update-prices", () => {
     expect(body.updated).toBe(0);
     expect(body.skipped).toBeGreaterThan(0);
     expect(upsertMock).not.toHaveBeenCalled();
+    expect(body.skippedDetails).toHaveLength(body.skipped);
+    expect(body.skippedDetails.every((d: { reason: string }) => /관련성 필터 통과 1개/.test(d.reason))).toBe(true);
+  });
+
+  it("검색결과가 아예 0개인 항목은 '네이버 검색결과 0개'로 스킵 사유가 기록된다", async () => {
+    searchNaverShoppingMock.mockImplementation(async () => []);
+
+    const response = await postAndFlushTimers({ "x-price-update-secret": "test-secret" });
+    const body = await response.json();
+    expect(body.updated).toBe(0);
+    expect(body.skippedDetails.every((d: { reason: string }) => d.reason === "네이버 검색결과 0개")).toBe(true);
+  });
+
+  it("정적앵커 범위(40%~250%)를 벗어나는 계산값은 '정적앵커 범위 벗어남' 사유로 스킵되고 RAM 항목도 동일하게 진단된다", async () => {
+    const entries = buildPriceableCatalogEntries();
+    const ramEntry = entries.find((e) => e.partType === "ram")!;
+
+    searchNaverShoppingMock.mockImplementation(async (query: string) => {
+      if (query === ramEntry.searchQuery) {
+        // RAM 앵커 대비 훨씬 비싼(250% 초과) 값 3개 — 이상치 제거로도 못 걸러지게 셋 다 근접시킨다.
+        const inflated = Math.round((ramEntry.staticAnchorPriceKrw ?? 100_000) * 5);
+        return [
+          { title: query, lprice: String(inflated) },
+          { title: query, lprice: String(inflated + 1000) },
+          { title: query, lprice: String(inflated + 2000) },
+        ];
+      }
+      return pricesNearAnchor(query).map((lprice) => ({ title: query, lprice: String(lprice) }));
+    });
+
+    const response = await postAndFlushTimers({ "x-price-update-secret": "test-secret" });
+    const body = await response.json();
+    const ramDetail = body.skippedDetails.find((d: { partType: string; catalogId: string }) => d.partType === "ram" && d.catalogId === ramEntry.catalogId);
+    expect(ramDetail).toBeDefined();
+    expect(ramDetail.reason).toContain("정적앵커 범위 벗어남");
   });
 });

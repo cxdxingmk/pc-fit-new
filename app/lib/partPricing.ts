@@ -215,14 +215,16 @@ export interface FinalPriceResult {
   sampleCount: number;
 }
 
-const MIN_VALID_RESULTS = 3;
+// route.ts가 computeFinalPrice의 null 원인을 진단해 응답에 담을 때(임시 진단용 확장) 같은
+// 기준값을 재사용하도록 export한다 — 값을 두 곳에 따로 들면 나중에 한쪽만 바뀌어 어긋난다.
+export const MIN_VALID_RESULTS = 3;
 
 // 이상치 제거 후 최종가가 정적 카탈로그 가격(이미 사람이 curate한 값)에서 이 배수를 벗어나면
 // 실거래가 자체를 신뢰하지 않고 스킵한다(기존 가격 유지) — 번들/오염 매물이 관련성 필터를
 // 뚫고 다수를 차지해 median 자체가 잘못된 쪽으로 넘어간 경우(필터링만으론 못 잡는 극단값)에 대한
 // 마지막 안전망. 카탈로그에 이미 있는 데이터를 재사용하는 것이라 추가 비용이 들지 않는다.
-const ANCHOR_MIN_RATIO = 0.4;
-const ANCHOR_MAX_RATIO = 2.5;
+export const ANCHOR_MIN_RATIO = 0.4;
+export const ANCHOR_MAX_RATIO = 2.5;
 
 /**
  * 관련성 필터를 이미 통과한 목록을 받아 최종 가격을 계산한다. 유효 결과(필터 통과 개수)가
