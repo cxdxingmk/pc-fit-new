@@ -21,9 +21,13 @@ describe("RAM 가격 sanity", () => {
       expect(ram.price, `${ram.name}(${ram.priceTier})가 여전히 플랫 티어값(${priceTierToPrice[ram.priceTier]}원)과 동일함`).not.toBe(
         priceTierToPrice[ram.priceTier]
       );
-      // 16~64GB 소비자용 RAM 키트가 이 범위를 벗어나면 비현실적인 가격이다.
-      expect(ram.price, `${ram.name} 가격(${ram.price}원)이 비현실적`).toBeGreaterThanOrEqual(30_000);
-      expect(ram.price, `${ram.name} 가격(${ram.price}원)이 비현실적`).toBeLessThanOrEqual(400_000);
+      // 절대 원화 범위 대신 GB당 단가로 검사한다 — 카탈로그가 8GB~64GB까지 다양한 용량을
+      // 담고 있어 플랫 상한(예: 40만원)을 쓰면 64GB 항목이 항상 걸린다. 2026년 D램 공급난으로
+      // 실제 시세가 GB당 약 5,000~23,000원대(다나와 실측, ram.ts 상단 주석 참고)라 여유 있게
+      // 2,000~30,000원/GB를 벗어나면 비현실적인 가격으로 본다.
+      const perGb = ram.price / ram.capacity;
+      expect(perGb, `${ram.name} GB당 가격(${Math.round(perGb).toLocaleString()}원/GB)이 비현실적`).toBeGreaterThanOrEqual(2_000);
+      expect(perGb, `${ram.name} GB당 가격(${Math.round(perGb).toLocaleString()}원/GB)이 비현실적`).toBeLessThanOrEqual(30_000);
     }
   });
 
@@ -102,7 +106,10 @@ describe("PSU 추천 로직 — 오버스펙 회귀 (RTX 4060에 1000W PSU)", ()
       Motherboard: { enabled: false, series: "", manufacturer: "", model: "" },
       Power: { enabled: false, wattage: "" },
     };
-    const results = recommend({ 1: ["게임"], 3: ["100~150만원"] }, existingParts, "none");
+    // "100~150만원"은 더 이상 게임 용도로 구성 불가하다 — RAM 가격이 2026년 D램 공급난으로
+    // 카탈로그 전반 갱신된 뒤(app/database/ram.ts) 게임(디스크리트 GPU 필수)의 실제 최저
+    // 구성가가 133만원대까지 올라갔다. "150~200만원"으로 저예산 게이밍 조건을 검증한다.
+    const results = recommend({ 1: ["게임"], 3: ["150~200만원"] }, existingParts, "none");
     expect(results.length).toBeGreaterThan(0);
 
     for (const result of results.slice(0, 3)) {

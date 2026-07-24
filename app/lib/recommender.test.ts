@@ -337,17 +337,22 @@ describe("recommend — priceOverrides(part_prices 실거래가) 반영", () => 
   });
 
   it("part_prices에 해당 catalog_id의 실거래가가 있으면 정적 가격 대신 그 값을 totalPrice/parts에 반영한다", () => {
-    const baseline = recommend({ 1: ["게임"], 3: ["300만원 이상"] }, existingParts, "none", ["gaming"]);
+    // "300만원 이상"(budgetTarget=350만원)은 안 쓴다 — RAM 가격 갱신(app/database/ram.ts) 이후
+    // 이 조합의 TOP1 총액이 정확히 350만원 하드 컷 경계에 걸려서, 아래처럼 아주 작은 델타만
+    // 더해도 그 후보 자체가 예산 초과로 통째로 제외돼(다른 동점 CPU로 대체) "같은 CPU가 여전히
+    // TOP1~3 안에 있다"는 이 테스트의 전제가 깨진다. "150~200만원"은 TOP1 총액에 16만원 정도
+    // 여유가 있어 5만원 델타를 안전하게 흡수한다.
+    const baseline = recommend({ 1: ["게임"], 3: ["150~200만원"] }, existingParts, "none", ["gaming"]);
     expect(baseline.length).toBeGreaterThan(0);
 
     const topCpuId = baseline[0].partIds.cpu;
     const staticCpuPrice = baseline[0].parts.find((p) => p.label === "CPU")!.price;
-    // 예산(300만원 이상) 대비 무시할 수 있는 소액 델타 — TOP1/2/3 선정 순위 자체는 안 흔들리고
+    // 예산(150~200만원) 대비 무시할 수 있는 소액 델타 — TOP1/2/3 선정 순위 자체는 안 흔들리고
     // "실거래가가 실제로 반영됐는가"만 순수하게 검증할 수 있게 한다.
     const liveCpuPrice = staticCpuPrice + 50_000;
 
     const withOverride = recommend(
-      { 1: ["게임"], 3: ["300만원 이상"] },
+      { 1: ["게임"], 3: ["150~200만원"] },
       existingParts,
       "none",
       ["gaming"],
@@ -757,8 +762,11 @@ describe("recommend — 신규 구매 후보군의 구형 세대 제외 회귀",
   // "100만원 이하"는 카탈로그 최저 구성가(케이스 포함 약 111만원)보다 낮아 budgetTarget 하드 컷
   // 적용 후 어떤 용도로도 구성 자체가 불가능하다 — 실제 구성 가능한 최저 프리셋인 "100~150만원"으로
   // "저예산" 조건을 검증한다(예산 하드 컷 자체의 empty 케이스는 result/page.tsx의 안내 UI로 별도 처리).
+  // "게임"은 "100~150만원"도 안 쓴다 — RAM 가격이 2026년 AI/HBM발 D램 공급난으로 카탈로그 전반
+  // 갱신된 뒤로는(app/database/ram.ts 참고) 게임 용도(디스크리트 GPU 필수, iGPU 생략 불가)의 실제
+  // 최저 구성가가 133만원대까지 올라가 "100~150만원"(목표 125만원)으로는 구성 자체가 불가능하다 —
+  // "150~200만원"이 이미 이 매트릭스에 있으므로 그걸로 게임의 저예산 조건을 검증한다.
   const purposeBudgetMatrix: Array<[string, string]> = [
-    ["게임", "100~150만원"],
     ["게임", "150~200만원"],
     ["게임", "200~300만원"],
     ["게임", "300만원 이상"],
