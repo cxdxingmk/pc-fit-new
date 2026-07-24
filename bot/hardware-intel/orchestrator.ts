@@ -28,6 +28,9 @@ export class Orchestrator {
 
   private readonly discord: DiscordBotService | null;
   private readonly telegram: TelegramBotService | null;
+  // registerSchedules()(클래스 메서드)에서도 호출할 수 있도록, 생성자 클로저를 필드에 저장해둔다
+  // (commands.onPriceUpdate와 동일한 함수 — 완료 시 broadcast()까지 이미 그 안에서 처리한다).
+  private readonly onPriceUpdate: () => Promise<string>;
   private cronTasks: ScheduledTask[] = [];
   private shuttingDown = false;
 
@@ -143,6 +146,7 @@ export class Orchestrator {
       }
       return summary;
     };
+    this.onPriceUpdate = onPriceUpdate;
 
     const commands: BotCommands = {
       onUpdate,
@@ -229,7 +233,23 @@ export class Orchestrator {
       ),
     );
 
-    Logger.info("node-cron 스케줄 등록 완료 (KST 기준: 수집 매 30분 / 브리핑 09:00 / 주간 월 09:05)");
+    // RAM 등 부품 시세가 하루~주 단위로도 크게 출렁이는 시기라(2026년 AI/HBM발 D램 공급난 —
+    // app/database/ram.ts 참고) 완전 수동 실행에만 의존하지 않도록 매일 새벽에 자동으로 돌린다.
+    // 결과 요약(updated/skipped)과 브로드캐스트는 onPriceUpdate 안에 이미 구현돼 있어(수동 명령과
+    // 완전히 동일한 경로) 여기서는 스케줄만 건다.
+    this.cronTasks.push(
+      schedule(
+        "0 4 * * *",
+        () => {
+          void this.guarded("가격 갱신", async () => {
+            await this.onPriceUpdate();
+          });
+        },
+        { timezone: KST_TIMEZONE },
+      ),
+    );
+
+    Logger.info("node-cron 스케줄 등록 완료 (KST 기준: 수집 매 30분 / 브리핑 09:00 / 주간 월 09:05 / 가격 갱신 04:00)");
   }
 
   private async guarded(taskName: string, fn: () => Promise<void>): Promise<void> {
