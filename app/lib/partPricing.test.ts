@@ -111,6 +111,28 @@ describe("filterRelevantListings", () => {
     ];
     expect(filterRelevantListings(tokens, items)).toHaveLength(0);
   });
+
+  it("실측 확인된 실제 사례: category3='RAM', category4='데스크탑용'인 진짜 RAM 매물은 배제하지 않는다", () => {
+    // ramRelevanceDiagnostics(임시 진단)의 실제 운영 데이터로 확인된 원인 — 네이버는 데스크탑용
+    // RAM을 category3="RAM", category4="데스크탑용"으로 정상 분류하는데, BUNDLE_CATEGORY_PATTERN이
+    // "데스크탑"이라는 단어만 보고 전부 조립PC로 오인해 RAM 20개 표본 전부가 category 단계에서
+    // 탈락했다(keywordExcluded=0, tokenMismatch=0, 전부 rejectedBy="category").
+    const tokens = ["32GB", "DDR5-6000"];
+    const items = [
+      fakeItem({ title: "삼성전자 정품 DDR5-6000 32GB (데스크탑용)", category3: "RAM", category4: "데스크탑용" }),
+      fakeItem({ title: "G.SKILL DDR5-6000 32GB(16Gx2) 데스크탑용", category3: "RAM", category4: "데스크탑용" }),
+    ];
+    expect(filterRelevantListings(tokens, items)).toHaveLength(2);
+  });
+
+  it("category3='완제품'/'조립컴퓨터' 등 진짜 RAM이 아닌 카테고리는 category3='RAM' 예외와 무관하게 여전히 배제된다", () => {
+    const tokens = ["32GB", "DDR5-6000"];
+    const items = [
+      fakeItem({ title: "DDR5-6000 32GB 탑재 게이밍 데스크탑", category3: "조립컴퓨터", category4: "" }),
+      fakeItem({ title: "DDR5-6000 32GB 포함 브랜드 PC", category3: "완제품", category4: "데스크탑" }),
+    ];
+    expect(filterRelevantListings(tokens, items)).toHaveLength(0);
+  });
 });
 
 describe("diagnoseRelevanceRejections (임시 진단용)", () => {

@@ -178,6 +178,17 @@ const EXCLUDE_KEYWORDS = [
 // 분류 자체가 부품이 아니라 완제품 PC임을 보여주는 경우를 잡기 위한 추가 신호.
 const BUNDLE_CATEGORY_PATTERN = /조립컴퓨터|완제품|데스크탑/;
 
+// ramRelevanceDiagnostics(임시 진단용) 실측으로 확인된 사실: 네이버는 데스크탑용 RAM을
+// category3="RAM", category4="데스크탑용"처럼 분류한다 — "데스크탑용"은 노트북용과 구분하는
+// 정상 표기일 뿐 조립PC 신호가 아닌데, BUNDLE_CATEGORY_PATTERN이 이 단어만 보고 RAM 매물
+// 전부를 조립PC로 오인해 배제하고 있었다(관련성 필터 통과 0개의 실제 원인). category3가
+// 정확히 "RAM"이면 네이버 스스로 RAM 단품이라고 분류한 것이라 애초에 조립PC일 수 없으므로,
+// 그 경우엔 카테고리 배제 자체를 건너뛴다. GPU 등 다른 부품군은 기존 로직 그대로 적용된다.
+function isBundleCategory(item: NaverShoppingItem): boolean {
+  if (item.category3 === "RAM") return false;
+  return BUNDLE_CATEGORY_PATTERN.test(item.category3) || BUNDLE_CATEGORY_PATTERN.test(item.category4);
+}
+
 function normalize(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9가-힣]/g, "");
 }
@@ -193,7 +204,7 @@ export function filterRelevantListings(requiredTokens: string[], items: NaverSho
     const title = stripHtmlTags(item.title);
     const normalizedTitle = normalize(title);
     if (EXCLUDE_KEYWORDS.some((keyword) => normalizedTitle.includes(normalize(keyword)))) return false;
-    if (BUNDLE_CATEGORY_PATTERN.test(item.category3) || BUNDLE_CATEGORY_PATTERN.test(item.category4)) return false;
+    if (isBundleCategory(item)) return false;
     return normalizedTokens.every((token) => normalizedTitle.includes(token));
   });
 }
@@ -241,7 +252,7 @@ export function diagnoseRelevanceRejections(requiredTokens: string[], items: Nav
     if (EXCLUDE_KEYWORDS.some((keyword) => normalizedTitle.includes(normalize(keyword)))) {
       keywordExcluded += 1;
       rejectedBy = "keyword";
-    } else if (BUNDLE_CATEGORY_PATTERN.test(item.category3) || BUNDLE_CATEGORY_PATTERN.test(item.category4)) {
+    } else if (isBundleCategory(item)) {
       categoryExcluded += 1;
       rejectedBy = "category";
     } else if (!normalizedTokens.every((token) => normalizedTitle.includes(token))) {
