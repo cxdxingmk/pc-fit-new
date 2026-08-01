@@ -35,6 +35,7 @@ import {
   PcSummaryChip,
   DisplayControls,
   GameCard,
+  PrimaryButton,
   overallVerdict,
   useShareImage,
   useSaveNudge,
@@ -220,6 +221,21 @@ export default function MyPcClient() {
       // 클립보드 권한 거부 등 — 조용히 무시(토스트는 낙관적으로 그대로 노출)
     });
   }, []);
+
+  // /optimize도 같은 SpecSnapshot 퍼머링크 포맷을 그대로 재사용한다 — 사양을 다시 입력받지 않는다.
+  const handleOpenOptimizeGuide = useCallback(() => {
+    const encoded = encodeSpec({
+      c: cpu.id,
+      g: gpu.id,
+      r: ram.id,
+      s: ssd.id,
+      m: motherboard.id,
+      p: psu,
+      mr: monitorRes,
+      mh: monitorHz,
+    });
+    router.push(`/optimize?spec=${encoded}`);
+  }, [cpu.id, gpu.id, ram.id, ssd.id, motherboard.id, psu, monitorRes, monitorHz, router]);
 
   const handleResetToDefault = useCallback(() => {
     handleCpuSelect(DEFAULT_CPU_ID);
@@ -529,6 +545,10 @@ export default function MyPcClient() {
           <GameCard key={row.label} row={row} />
         ))}
       </section>
+
+      <div className="flex justify-center">
+        <PrimaryButton onClick={handleOpenOptimizeGuide}>🛠️ 성능 최적화 가이드 보기</PrimaryButton>
+      </div>
 
       {/* 프로그램별 예상 성능 (게임 23 + 전문/AI 앱 20) */}
       <AccordionSection title="🖥️ 프로그램별 예상 성능 (43종)" isOpen={openWorkloads} onToggle={() => setOpenWorkloads((prev) => !prev)}>
