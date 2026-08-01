@@ -52,9 +52,10 @@ export const metadata: Metadata = {
     description: "예산과 사용 목적에 맞춰 AI가 PC 부품을 추천하고 병목 현상까지 분석해주는 무료 PC 견적 서비스",
   },
   verification: {
-    // 네이버 서치어드바이저(웹마스터도구) 사이트 소유확인용.
+    // 네이버 서치어드바이저(웹마스터도구) / 구글 서치콘솔 사이트 소유확인용.
     other: {
       "naver-site-verification": "c3b9759756f4ec9051de91ec7f47543d793b986b",
+      "google-site-verification": "YrEum0pU80FCpwdIk2ZhzcyZdkQsRX9ySZCrHEx2KKA",
     },
   },
 };
